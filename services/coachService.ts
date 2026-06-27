@@ -1,10 +1,11 @@
+import Constants from 'expo-constants';
 import { Suggestion, newId } from '../store/models';
 
 // ── Types ────────────────────────────────────────────────
 
 export interface CoachGoalContext {
   goalTitle: string;
-  achieveByDate?: string; // ISO date string
+  achieveByDate?: string;
   weeksRemaining?: number;
   today: Date;
 }
@@ -107,19 +108,60 @@ export interface CoachService {
   send(messages: CoachMessageRaw[], ctx: CoachGoalContext): Promise<CoachResponse>;
 }
 
-// ── Stub implementation ───────────────────────────────────────
+// ── Claude implementation ─────────────────────────────────────
+
+export class ClaudeCoachService implements CoachService {
+  private readonly apiKey: string;
+  private readonly maxTokens = 1000;
+
+  constructor(apiKey: string) {
+    this.apiKey = apiKey;
+  }
+
+  async send(messages: CoachMessageRaw[], ctx: CoachGoalContext): Promise<CoachResponse> {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': this.apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: this.maxTokens,
+        system: buildSystemPrompt(ctx),
+        messages: messages.map((m) => ({ role: m.role, content: m.text })),
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.text().catch(() => response.statusText);
+      throw new Error(`Coach API error ${response.status}: ${err}`);
+    }
+
+    const data = await response.json();
+    const rawText: string = data.content?.[0]?.text ?? '';
+    const { displayText, suggestions } = parseSuggestions(rawText);
+    return { text: displayText, suggestions };
+  }
+}
+
+// ── Stub fallback ─────────────────────────────────────────────
 
 export class StubCoachService implements CoachService {
   async send(messages: CoachMessageRaw[], ctx: CoachGoalContext): Promise<CoachResponse> {
     await new Promise((r) => setTimeout(r, 900));
-
-    const stubText = `Great goal! To help you build the best plan, let me ask: what does success look like on the day you achieve "${ctx.goalTitle}"?
-
-SUGGEST|Track daily progress|check`;
-
+    const stubText = `Great goal! To help you build the best plan, let me ask: what does success look like on the day you achieve "${ctx.goalTitle}"?\n\nSUGGEST|Track daily progress|check`;
     const { displayText, suggestions } = parseSuggestions(stubText);
     return { text: displayText, suggestions };
   }
 }
 
-export const coachService: CoachService = new StubCoachService();
+// ── Singleton — uses Claude if API key present, stub otherwise ─
+
+const anthropicKey: string | undefined =
+  Constants.expoConfig?.extra?.anthropicKey;
+
+export const coachService: CoachService = anthropicKey
+  ? new ClaudeCoachService(anthropicKey)
+  : new StubCoachService();

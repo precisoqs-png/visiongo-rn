@@ -8,12 +8,17 @@
     "scheme": "visiongo",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "githubUrl": "https://github.com/precisoqs-png/visiongo-rn",
     "splash": {
       "backgroundColor": "#f3ecdd"
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.visiongo.app"
+      "bundleIdentifier": "com.visiongo.app",
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -28,7 +33,16 @@
     },
     "plugins": [
       "expo-router",
-      "expo-haptics"
+      "expo-haptics",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#f3ecdd"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
