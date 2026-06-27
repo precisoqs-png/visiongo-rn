@@ -1,3 +1,5 @@
+import * as Crypto from 'expo-crypto';
+
 export type MeasurableType = 'check' | 'number' | 'ladder';
 
 export interface LadderWeek {
@@ -101,16 +103,10 @@ export function yearOverallProgress(yd: YearData): number {
 export type BoardLayout = 'radial' | 'grid';
 export type BoardViewMode = 'wholeYear' | 'byMonth';
 
-// ── seed helpers ──────────────────────────────────────────────
+// ── ID generation ─────────────────────────────────────────────
 
-// Minimal uuid v4 without the package dependency
 export function newId(): string {
-  // RFC4122 v4 compatible using Math.random
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+  return Crypto.randomUUID();
 }
 
 export function isoDate(year: number, month: number, day: number): string {

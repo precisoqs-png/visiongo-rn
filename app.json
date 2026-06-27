@@ -35,6 +35,13 @@
       "expo-router",
       "expo-haptics",
       [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#f3ecdd"
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/splash.png",

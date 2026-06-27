@@ -9,6 +9,12 @@ import { useThemeStore } from '../../store/useThemeStore';
 import { useAppStore } from '../../store/useAppStore';
 import { THEMES, THEME_ORDER, ThemeKey, GOAL_NOTE_COLORS, FONTS, hexAlpha } from '../../theme/themes';
 import { ReminderFrequency } from '../../store/models';
+import {
+  requestNotificationPermission,
+  scheduleGoalNotification,
+  cancelGoalNotification,
+  cancelAllGoalNotifications,
+} from '../../services/notificationService';
 
 export default function SettingsScreen() {
   const palette = useThemeStore((s) => s.palette);
@@ -92,6 +98,38 @@ function NotificationsModal({ visible, onClose, palette: p }: any) {
   const goals = useAppStore((s) => s.currentYearData())?.goals ?? [];
   const updateGoal = useAppStore((s) => s.updateGoal);
 
+  async function handleMasterToggle(val: boolean) {
+    if (val) {
+      const granted = await requestNotificationPermission();
+      if (!granted) return;
+      setNotificationsMaster(true);
+      await Promise.all(
+        goals.filter((g) => g.reminder.on).map((g) => scheduleGoalNotification(g))
+      );
+    } else {
+      setNotificationsMaster(false);
+      await cancelAllGoalNotifications(goals.map((g) => g.id));
+    }
+  }
+
+  async function handleGoalToggle(goal: any, val: boolean) {
+    const updated = { ...goal, reminder: { ...goal.reminder, on: val } };
+    updateGoal(updated);
+    if (val) {
+      await scheduleGoalNotification(updated);
+    } else {
+      await cancelGoalNotification(goal.id);
+    }
+  }
+
+  async function handleFrequencyChange(goal: any, freq: ReminderFrequency) {
+    const updated = { ...goal, reminder: { ...goal.reminder, frequency: freq } };
+    updateGoal(updated);
+    if (goal.reminder.on && notificationsMasterOn) {
+      await scheduleGoalNotification(updated);
+    }
+  }
+
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
       <LinearGradient colors={p.bgGradient as any} style={{ flex: 1 }}>
@@ -110,7 +148,7 @@ function NotificationsModal({ visible, onClose, palette: p }: any) {
             </View>
             <Switch
               value={notificationsMasterOn}
-              onValueChange={setNotificationsMaster}
+              onValueChange={handleMasterToggle}
               trackColor={{ false: p.line, true: p.accent }}
               thumbColor="#fff"
             />
@@ -128,7 +166,7 @@ function NotificationsModal({ visible, onClose, palette: p }: any) {
                 <Text style={[styles.goalNotifTitle, { color: p.text, flex: 1 }]} numberOfLines={1}>{goal.title}</Text>
                 <Switch
                   value={goal.reminder.on}
-                  onValueChange={(val) => updateGoal({ ...goal, reminder: { ...goal.reminder, on: val } })}
+                  onValueChange={(val) => handleGoalToggle(goal, val)}
                   disabled={!notificationsMasterOn}
                   trackColor={{ false: p.line, true: p.accent }}
                   thumbColor="#fff"
@@ -140,7 +178,7 @@ function NotificationsModal({ visible, onClose, palette: p }: any) {
                     <TouchableOpacity
                       key={freq}
                       style={[styles.freqBtn, goal.reminder.frequency === freq && { backgroundColor: p.ink }]}
-                      onPress={() => updateGoal({ ...goal, reminder: { ...goal.reminder, frequency: freq } })}
+                      onPress={() => handleFrequencyChange(goal, freq)}
                     >
                       <Text style={[styles.freqText, { color: goal.reminder.frequency === freq ? (p.isDark ? p.bg : '#fff') : p.muted }]}>
                         {freq}
