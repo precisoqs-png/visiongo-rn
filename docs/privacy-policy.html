@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy — VisionGo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(160deg, #efe7d6 0%, #e7ddc8 50%, #ded2b8 100%);
+      min-height: 100vh;
+      color: #2f2a23;
+      line-height: 1.7;
+    }
+
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 56px 24px 80px;
+    }
+
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #5f9e5a;
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      margin-bottom: 40px;
+    }
+
+    .back-link:hover { text-decoration: underline; }
+
+    .app-name {
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #5f9e5a;
+      margin-bottom: 10px;
+    }
+
+    h1 {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 2.2rem;
+      font-weight: 700;
+      color: #2f2a23;
+      margin-bottom: 8px;
+      line-height: 1.2;
+    }
+
+    .effective-date {
+      font-size: 0.875rem;
+      color: #6e6453;
+      margin-bottom: 40px;
+      padding-bottom: 28px;
+      border-bottom: 1px solid rgba(230,220,196,0.7);
+    }
+
+    .summary-box {
+      background: rgba(251,247,236,0.8);
+      border-radius: 14px;
+      padding: 22px 24px;
+      border: 1px solid rgba(95,158,90,0.2);
+      margin-bottom: 40px;
+    }
+
+    .summary-box p {
+      font-size: 0.975rem;
+      color: #4a4237;
+    }
+
+    .summary-box strong {
+      color: #2f2a23;
+    }
+
+    h2 {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: #2f2a23;
+      margin: 40px 0 12px;
+      padding-top: 8px;
+    }
+
+    p {
+      font-size: 0.975rem;
+      color: #3a3228;
+      margin-bottom: 14px;
+    }
+
+    ul {
+      margin: 12px 0 14px 20px;
+    }
+
+    ul li {
+      font-size: 0.975rem;
+      color: #3a3228;
+      margin-bottom: 8px;
+    }
+
+    .highlight {
+      background: rgba(251,247,236,0.7);
+      border-left: 3px solid #5f9e5a;
+      border-radius: 0 8px 8px 0;
+      padding: 14px 18px;
+      margin: 18px 0;
+      font-size: 0.95rem;
+      color: #4a4237;
+    }
+
+    a { color: #5f9e5a; }
+    a:hover { text-decoration: underline; }
+
+    footer {
+      margin-top: 60px;
+      padding-top: 24px;
+      border-top: 1px solid rgba(230,220,196,0.7);
+      font-size: 0.82rem;
+      color: #6e6453;
+      text-align: center;
+    }
+
+    @media (max-width: 480px) {
+      h1 { font-size: 1.7rem; }
+      .container { padding: 36px 18px 60px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <a href="index.html" class="back-link">&#8592; VisionGo</a>
+
+    <p class="app-name">VisionGo</p>
+    <h1>Privacy Policy</h1>
+    <p class="effective-date">Effective date: June 28, 2025 &nbsp;&middot;&nbsp; Last updated: June 28, 2025</p>
+
+    <div class="summary-box">
+      <p><strong>The short version:</strong> VisionGo stores your goals and tasks <strong>only on your device</strong>. We have no servers, no accounts, and no analytics. If you use the optional AI coaching feature, only the goal title and conversation text you type is sent to Anthropic's API to generate a response — nothing else. You can delete all data at any time by deleting the app.</p>
+    </div>
+
+    <h2>1. Who We Are</h2>
+    <p>VisionGo is a personal goal-tracking app developed and operated by VisionGo (&ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;). If you have questions about this policy, email us at <a href="mailto:support@visiongo.app">support@visiongo.app</a>.</p>
+
+    <h2>2. Data We Collect — and Where It Stays</h2>
+
+    <p>VisionGo is designed around local-first storage. Almost everything you enter never leaves your device.</p>
+
+    <p><strong>Stored locally on your device only (via iOS AsyncStorage):</strong></p>
+    <ul>
+      <li>Goals, titles, target dates, and reminder preferences</li>
+      <li>Measurables and their progress values</li>
+      <li>Tasks and task completion status</li>
+      <li>Your annual motto and year data</li>
+      <li>App preferences (theme selection, onboarding state)</li>
+      <li>Coach chat conversation history</li>
+    </ul>
+
+    <div class="highlight">
+      We do not operate any servers, databases, or cloud sync for this data. It exists exclusively in your device's local storage. Deleting the app permanently deletes all of it.
+    </div>
+
+    <h2>3. Optional AI Coaching Feature</h2>
+
+    <p>VisionGo includes an optional AI coach powered by Anthropic's Claude API. This feature is only active if you open the Coach Chat inside a goal screen and send a message.</p>
+
+    <p><strong>What is sent to Anthropic when you use Coach Chat:</strong></p>
+    <ul>
+      <li>The title of the goal you are coaching on</li>
+      <li>The target date and approximate weeks remaining (if set)</li>
+      <li>Today's date</li>
+      <li>The conversation messages you type in the chat</li>
+    </ul>
+
+    <p><strong>What is NOT sent to Anthropic:</strong></p>
+    <ul>
+      <li>Your other goals</li>
+      <li>Progress values, measurables, or task data</li>
+      <li>Any personal identifier (name, email, device ID)</li>
+      <li>Your theme or other app preferences</li>
+    </ul>
+
+    <div class="highlight">
+      Anthropic processes messages to generate coaching responses. Anthropic's handling of API data is governed by their own <a href="https://www.anthropic.com/privacy" target="_blank" rel="noopener">Privacy Policy</a> and <a href="https://www.anthropic.com/legal/usage-policy" target="_blank" rel="noopener">Usage Policy</a>. API data submitted through our integration is not used to train Anthropic's models by default.
+    </div>
+
+    <p>If you prefer not to use the AI coaching feature, simply do not open Coach Chat. All other features of the app function without any network requests.</p>
+
+    <h2>4. Notifications</h2>
+
+    <p>If you enable goal reminders in Settings, VisionGo uses iOS's built-in local notification system to schedule reminders. Notification data (goal title and reminder schedule) is processed entirely on your device and is never transmitted to us or any third party.</p>
+
+    <h2>5. No Account, No Tracking</h2>
+
+    <ul>
+      <li><strong>No account required.</strong> VisionGo has no sign-up, login, or user account system.</li>
+      <li><strong>No analytics.</strong> We do not use any analytics, crash-reporting, or usage-tracking SDK. We collect no metrics about how you use the app.</li>
+      <li><strong>No advertising.</strong> We display no ads and share no data with advertisers.</li>
+      <li><strong>No third-party SDKs</strong> beyond the Anthropic API (optional, described above).</li>
+    </ul>
+
+    <h2>6. Children's Privacy</h2>
+
+    <p>VisionGo is not directed at children under 13. We do not knowingly collect any personal information from children. If you believe a child under 13 has provided information through the AI coaching feature, please contact us at <a href="mailto:support@visiongo.app">support@visiongo.app</a> and we will provide guidance on removing it.</p>
+
+    <h2>7. Data Deletion</h2>
+
+    <p>Because all data is stored locally on your device, you control deletion entirely:</p>
+    <ul>
+      <li><strong>Delete all data:</strong> Delete the VisionGo app from your iPhone. iOS removes all associated AsyncStorage data automatically.</li>
+      <li><strong>Delete individual goals:</strong> Use the delete option within the app.</li>
+      <li><strong>AI coach conversation:</strong> Coach chat history is stored locally. Clearing app data or deleting the app removes it. Messages already sent to Anthropic's API are subject to Anthropic's own data retention policy.</li>
+    </ul>
+
+    <p>To request assistance with data concerns, contact us at <a href="mailto:support@visiongo.app">support@visiongo.app</a>.</p>
+
+    <h2>8. Security</h2>
+
+    <p>Your goal data lives in iOS AsyncStorage, which is sandboxed to the VisionGo app and protected by iOS's standard security model (device encryption, Face ID / Touch ID lock screen). Network requests to the Anthropic API are made exclusively over HTTPS (TLS). We do not store or log any API request or response on our end — because we have no servers.</p>
+
+    <h2>9. Changes to This Policy</h2>
+
+    <p>If we make material changes to this privacy policy, we will update the &ldquo;Last updated&rdquo; date at the top and, if the changes are significant, provide notice within the app. Continued use of VisionGo after changes constitutes acceptance of the updated policy.</p>
+
+    <h2>10. Contact</h2>
+
+    <p>For privacy questions, data deletion requests, or any concerns:</p>
+    <p><a href="mailto:support@visiongo.app">support@visiongo.app</a></p>
+
+    <footer>
+      &copy; 2025 VisionGo &nbsp;&middot;&nbsp; <a href="index.html">Back to VisionGo</a>
+    </footer>
+
+  </div>
+</body>
+</html>
