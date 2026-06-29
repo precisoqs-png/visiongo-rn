@@ -1,172 +1,183 @@
-# VisionGo — Developer Deployment Guide
+# VisionGo — Deployment Guide
 
-Everything you need to go from a fresh clone to a build running on your iPhone, and eventually to the App Store. Do these steps in order.
+> **No Mac required.** Every step below works from a browser or GitHub Actions.
+> All iOS compilation happens on Expo’s cloud build servers.
+
+> **Need a terminal?** A GitHub Codespace is available for this repo.
+> Go to [github.com/codespaces](https://github.com/codespaces), find the
+> `visiongo-rn` codespace (or create one), open it, and you have a full
+> Linux terminal in your browser — EAS CLI and Node are pre-installed.
 
 ---
 
 ## Prerequisites
 
-- Node.js 18+ and npm installed
 - An iPhone with iOS 16+
 - An [expo.dev](https://expo.dev) account (free)
-- An [Apple Developer Program](https://developer.apple.com/programs/) membership ($99/year) — required for Steps D onward
+- An [Apple Developer Program](https://developer.apple.com/programs/) membership ($99/year)
+  — required for Steps 4 onward (builds that install on a real device)
 
 ---
 
-## Step A — Install EAS CLI
+## Step 1 — Create an Expo account and access token
 
-```bash
-npm install -g eas-cli
-```
-
-Verify:
-```bash
-eas --version  # should be 16.x or higher
-```
+1. Go to [expo.dev](https://expo.dev) and click **Sign Up**
+2. After signing in, go to **expo.dev/settings/access-tokens**
+3. Click **Create token**, name it `GitHub Actions`, click **Create**
+4. **Copy the token immediately** — it’s only shown once
 
 ---
 
-## Step B — Log in to Expo
+## Step 2 — Add secrets to GitHub
 
-```bash
-eas login
-```
+Go to **[github.com/precisoqs-png/visiongo-rn/settings/secrets/actions](https://github.com/precisoqs-png/visiongo-rn/settings/secrets/actions)**
 
-If you don’t have an Expo account, create one at [expo.dev](https://expo.dev) — it’s free.
+Click **New repository secret** and add:
 
----
+| Secret name | Value |
+|---|---|
+| `EXPO_TOKEN` | The access token from Step 1 |
+| `APPLE_ID` | Your Apple Developer account email |
+| `ASC_APP_ID` | App Store Connect app’s numeric Apple ID (10 digits) |
+| `APPLE_TEAM_ID` | Your Apple Team ID (from developer.apple.com/account) |
 
-## Step C — Link the repo to EAS (run once)
-
-```bash
-eas init
-```
-
-This command:
-- Creates a project on expo.dev linked to this repo
-- Writes the `projectId` into `app.json` under `expo.extra.eas.projectId`
-
-**Commit the result:**
-```bash
-git add app.json
-git commit -m "chore: add EAS project ID"
-git push
-```
+> `APPLE_ID`, `ASC_APP_ID`, and `APPLE_TEAM_ID` are only required for
+> production builds that submit to App Store Connect.
+> For development builds, only `EXPO_TOKEN` is needed.
 
 ---
 
-## Step D — Register your iPhone as a test device
+## Step 3 — Create the Expo project and set the project ID
 
-Make sure your iPhone is nearby and connected to Wi-Fi.
-
-```bash
-eas device:create
-```
-
-EAS will display a URL. Open it on your iPhone in Safari and follow the prompt to install the device profile. This registers your iPhone’s UDID with your Apple Developer account so development builds can be installed on it.
-
----
-
-## Step E — Build the development client (first build)
-
-```bash
-eas build --profile development --platform ios
-```
-
-- This build runs on EAS cloud servers — no Xcode required
-- First build takes approximately 20–30 minutes
-- When complete, EAS prints a QR code. Open it on your iPhone in Safari and tap **Install**
-- After install: go to **Settings → General → VPN & Device Management → [your Apple ID] → Trust**
-
-You only need to repeat this step if you add a new native dependency (one not already in the Expo SDK).
+1. Go to [expo.dev](https://expo.dev) and click **New Project**
+2. Name: `visiongo-rn`, slug: `visiongo-rn` — click **Create**
+3. On the project page, copy the **Project ID** (it’s a UUID like `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)
+4. Go to **[github.com/precisoqs-png/visiongo-rn/blob/main/app.json](https://github.com/precisoqs-png/visiongo-rn/blob/main/app.json)**
+5. Click the **pencil icon** (Edit this file)
+6. Find `"projectId": ""` and paste your UUID between the quotes
+7. Scroll down, click **Commit changes** with message `chore: add EAS project ID`
 
 ---
 
-## Step F — Daily development workflow
+## Step 4 — Register your iPhone as a test device (browser only)
 
-Once the dev build is installed on your iPhone:
+1. Go to **expo.dev/accounts/[your-username]/projects/visiongo-rn/devices**
+2. Click **Register a device**
+3. Expo shows a URL — open that URL on your iPhone in **Safari**
+4. Follow the prompt to install the device profile
+   (Settings will ask you to install it — tap Allow)
+5. Your iPhone’s UDID is now registered with your Apple Developer account
+
+You only need to do this once per device.
+
+---
+
+## Step 5 — Trigger a development build (browser only)
+
+1. Go to **[github.com/precisoqs-png/visiongo-rn/actions](https://github.com/precisoqs-png/visiongo-rn/actions)**
+2. Click **EAS Build** in the left sidebar
+3. Click **Run workflow** (top right)
+4. Select profile: **development**
+5. Click **Run workflow**
+
+The workflow authenticates with Expo and queues a build on Expo’s macOS
+cloud servers. The GitHub Action itself finishes quickly; the build takes
+approximately **20–30 minutes**.
+
+**When the build finishes:**
+1. Go to **expo.dev/accounts/[your-username]/projects/visiongo-rn/builds**
+2. Find the completed build and click it
+3. Scan the QR code with your iPhone in Safari
+4. Tap **Install**, then go to:
+   **Settings → General → VPN & Device Management → [your Apple ID] → Trust**
+
+You now have the VisionGo dev build installed. You only need to repeat this
+step when a new native dependency is added.
+
+---
+
+## Step 6 — Daily development (Codespace or local terminal)
+
+Once the dev build is installed on your iPhone, daily coding works from
+any terminal — including a GitHub Codespace:
 
 ```bash
 npm install
 npx expo start --dev-client --clear
 ```
 
-Scan the QR code from inside the **VisionGo** dev app (not Expo Go). You now have:
-- Hot reload on save
-- Full New Architecture (Fabric + JSI)
-- expo-notifications, expo-crypto, and all native modules
+Scan the QR code from inside the **VisionGo** dev app (not Expo Go).
+You get hot reload, full New Architecture, and all native modules.
 
 ---
 
-## Step G — Enable the AI Coach
+## Step 7 — Enable the AI Coach
 
-The AI coach calls your own `/api/coach` server route, which reads `ANTHROPIC_API_KEY` from a server-side environment variable. The key never ships in the `.ipa`.
+The AI coach key lives server-side only — it never ships in the `.ipa`.
 
-Get an API key at [console.anthropic.com](https://console.anthropic.com), then set it as an EAS Secret:
+1. Get an API key at [console.anthropic.com](https://console.anthropic.com)
+2. Go to **expo.dev/accounts/[your-username]/projects/visiongo-rn/secrets**
+3. Click **Add a new secret**
+4. Name: `ANTHROPIC_API_KEY`, Value: your `sk-ant-…` key
+5. Click **Save**
 
+The secret is injected automatically into all subsequent EAS builds.
+If it’s not set, the coach silently falls back to a stub response —
+the app never crashes.
+
+**To test the coach in a Codespace or local dev session:**
 ```bash
-eas secret:create --scope project --name ANTHROPIC_API_KEY --value sk-ant-YOUR-KEY-HERE
-```
-
-This secret is injected automatically into all EAS builds and server environments. You do **not** put it in `.env`, `app.json`, or anywhere in the repo.
-
-To test the coach locally during development:
-
-```bash
-# Create a local .env file (already gitignored)
+# .env is already in .gitignore
 echo 'ANTHROPIC_API_KEY=sk-ant-YOUR-KEY-HERE' > .env
 npx expo start --dev-client --clear
 ```
 
-If `ANTHROPIC_API_KEY` is not set, the coach silently falls back to a stub response — the app never crashes.
-
 ---
 
-## Step H — Before submitting to the App Store
+## Step 8 — Production build and App Store submission
 
-### 1. Fill in your Apple credentials in `eas.json`
+### Before running a production build
 
-Open `eas.json` and replace the placeholders in `submit.production.ios`:
+1. **Fill in `eas.json`** with your real Apple credentials:
 
-| Field | Where to find it |
-|---|---|
-| `appleId` | Your Apple Developer account email |
-| `ascAppId` | App Store Connect → your app → General → App Information → Apple ID (10-digit number) |
-| `appleTeamId` | [developer.apple.com/account](https://developer.apple.com/account) → Membership Details → Team ID |
+   | Field | Where to find it |
+   |---|---|
+   | `appleId` | Your Apple Developer account email |
+   | `ascAppId` | appstoreconnect.apple.com → your app → App Information → Apple ID |
+   | `appleTeamId` | developer.apple.com/account → Membership Details → Team ID |
 
-### 2. Production build + auto-submit
+2. **Make sure all four GitHub Secrets are set** (Step 2 above)
 
-```bash
-eas build --profile production --platform ios --auto-submit
-```
+3. **Complete App Store Connect metadata** — all ready-to-paste text is in
+   [`STORE_METADATA.md`](./STORE_METADATA.md)
 
-This:
-- Builds a signed `.ipa` on EAS servers
-- Automatically uploads it to App Store Connect via `eas submit`
-- The build appears in **TestFlight** within 15 minutes
+4. **Checklist before review submission:**
+   - [ ] Real 1024×1024 app icon (no transparency)
+   - [ ] Screenshots at 6.9" and 5.5" sizes (min 3 each)
+   - [ ] Privacy Policy URL live: `https://precisoqs-png.github.io/visiongo-rn/privacy-policy.html`
+   - [ ] Support URL live: `https://precisoqs-png.github.io/visiongo-rn/`
+   - [ ] App Privacy questionnaire completed in App Store Connect
 
-### 3. Complete App Store Connect metadata
+### Trigger the production build
 
-All ready-to-paste text is in [`STORE_METADATA.md`](./STORE_METADATA.md).
+1. Go to **[github.com/precisoqs-png/visiongo-rn/actions](https://github.com/precisoqs-png/visiongo-rn/actions)**
+2. Click **EAS Build** → **Run workflow**
+3. Select profile: **production**
+4. Click **Run workflow**
 
-Before submitting for review you also need:
-- [ ] Real 1024×1024 app icon (no transparency)
-- [ ] Screenshots at 6.9" and 5.5" sizes (min 3 each)
-- [ ] Privacy Policy URL live at `https://precisoqs-png.github.io/visiongo-rn/privacy-policy.html`
-- [ ] Support URL live at `https://precisoqs-png.github.io/visiongo-rn/`
-- [ ] App Privacy questionnaire filled in App Store Connect
+EAS builds the signed `.ipa` and auto-submits it to App Store Connect.
+The build appears in **TestFlight** within 15 minutes of the build completing.
 
 ---
 
 ## Quick reference
 
-| Task | Command |
+| Task | How |
 |---|---|
-| Start dev server | `npx expo start --dev-client --clear` |
-| New dev build | `eas build --profile development --platform ios` |
-| Preview build (internal TestFlight) | `eas build --profile preview --platform ios` |
-| Production build + submit | `eas build --profile production --platform ios --auto-submit` |
-| Set a secret | `eas secret:create --scope project --name KEY --value value` |
-| List secrets | `eas secret:list` |
-| Register new test device | `eas device:create` |
-| Check build status | `eas build:list` |
+| Trigger any build | GitHub Actions → EAS Build → Run workflow |
+| Check build status | expo.dev → project → Builds |
+| Install dev build on iPhone | Scan QR from expo.dev build page |
+| Add EAS secret (AI key etc.) | expo.dev → project → Secrets |
+| Register a new test device | expo.dev → project → Devices |
+| Edit any file without a terminal | GitHub → file → pencil icon |
+| Get a terminal | [github.com/codespaces](https://github.com/codespaces) → visiongo-rn |

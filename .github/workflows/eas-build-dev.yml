@@ -1,0 +1,68 @@
+# EAS Build — triggers a cloud iOS build on Expo's infrastructure.
+# No Mac required. The GitHub Action just authenticates and kicks off
+# the build; all compilation happens on Expo's macOS build servers.
+#
+# Required GitHub Secrets (Settings → Secrets and variables → Actions):
+#   EXPO_TOKEN    — expo.dev account access token
+#                   (expo.dev → Account Settings → Access Tokens → Create)
+#   APPLE_ID      — Apple Developer account email
+#   ASC_APP_ID    — App Store Connect numeric app ID (10-digit number)
+#                   (appstoreconnect.apple.com → your app → App Information → Apple ID)
+#   APPLE_TEAM_ID — Apple team ID
+#                   (developer.apple.com/account → Membership Details → Team ID)
+#
+# APPLE_ID / ASC_APP_ID / APPLE_TEAM_ID are only needed for
+# production builds that auto-submit to App Store Connect.
+# Development and preview builds only require EXPO_TOKEN.
+
+name: EAS Build
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Build profile'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+          - development
+          - preview
+          - production
+
+jobs:
+  build:
+    name: EAS Build (${{ github.event.inputs.profile || 'development' }})
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
+
+      - name: Build on EAS
+        run: >
+          eas build
+          --profile ${{ github.event.inputs.profile || 'development' }}
+          --platform ios
+          --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
