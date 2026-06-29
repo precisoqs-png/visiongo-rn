@@ -1,5 +1,4 @@
-import Constants from 'expo-constants';
-import { Suggestion, newId } from '../store/models';
+import { newId } from '../store/models';
 
 // ── Types ────────────────────────────────────────────────
 
@@ -33,10 +32,14 @@ export interface CoachResponse {
 // ── System prompt ───────────────────────────────────────────
 
 export function buildSystemPrompt(ctx: CoachGoalContext): string {
-  const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const fmt = (d: Date) =>
+    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const todayStr = fmt(ctx.today);
-  const achieveStr = ctx.achieveByDate ? fmt(new Date(ctx.achieveByDate)) : 'no target date set';
-  const weeksStr = ctx.weeksRemaining != null ? ` (${ctx.weeksRemaining} weeks remaining)` : '';
+  const achieveStr = ctx.achieveByDate
+    ? fmt(new Date(ctx.achieveByDate))
+    : 'no target date set';
+  const weeksStr =
+    ctx.weeksRemaining != null ? ` (${ctx.weeksRemaining} weeks remaining)` : '';
 
   return `You are a warm, encouraging goal-planning coach inside the VisionGo app. \
 Your job is to help the user turn their goal into concrete, measurable steps.
@@ -64,7 +67,10 @@ These lines are parsed by the app — keep the format exact.`;
 
 // ── SUGGEST parser ────────────────────────────────────────────
 
-export function parseSuggestions(text: string): { displayText: string; suggestions: ParsedSuggestion[] } {
+export function parseSuggestions(text: string): {
+  displayText: string;
+  suggestions: ParsedSuggestion[];
+} {
   const lines = text.split('\n');
   const display: string[] = [];
   const suggestions: ParsedSuggestion[] = [];
@@ -75,16 +81,25 @@ export function parseSuggestions(text: string): { displayText: string; suggestio
       continue;
     }
     const parts = line.split('|');
-    if (parts.length < 3) { display.push(line); continue; }
+    if (parts.length < 3) {
+      display.push(line);
+      continue;
+    }
     const label = parts[1];
     const type = parts[2];
     if (type === 'check') {
       suggestions.push({ label, type: 'check' });
     } else if (type === 'number' && parts.length >= 5) {
-      suggestions.push({ label, type: 'number', target: Number(parts[3]), unit: parts[4] });
+      suggestions.push({
+        label,
+        type: 'number',
+        target: Number(parts[3]),
+        unit: parts[4],
+      });
     } else if (type === 'ladder' && parts.length >= 7) {
       suggestions.push({
-        label, type: 'ladder',
+        label,
+        type: 'ladder',
         start: Number(parts[3]),
         end: Number(parts[4]),
         weeks: Number(parts[5]),
@@ -96,10 +111,7 @@ export function parseSuggestions(text: string): { displayText: string; suggestio
     }
   }
 
-  return {
-    displayText: display.join('\n').trim(),
-    suggestions,
-  };
+  return { displayText: display.join('\n').trim(), suggestions };
 }
 
 // ── Protocol ──────────────────────────────────────────────────
@@ -108,45 +120,7 @@ export interface CoachService {
   send(messages: CoachMessageRaw[], ctx: CoachGoalContext): Promise<CoachResponse>;
 }
 
-// ── Claude implementation ─────────────────────────────────────
-
-export class ClaudeCoachService implements CoachService {
-  private readonly apiKey: string;
-  private readonly maxTokens = 1000;
-
-  constructor(apiKey: string) {
-    this.apiKey = apiKey;
-  }
-
-  async send(messages: CoachMessageRaw[], ctx: CoachGoalContext): Promise<CoachResponse> {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': this.apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: this.maxTokens,
-        system: buildSystemPrompt(ctx),
-        messages: messages.map((m) => ({ role: m.role, content: m.text })),
-      }),
-    });
-
-    if (!response.ok) {
-      const err = await response.text().catch(() => response.statusText);
-      throw new Error(`Coach API error ${response.status}: ${err}`);
-    }
-
-    const data = await response.json();
-    const rawText: string = data.content?.[0]?.text ?? '';
-    const { displayText, suggestions } = parseSuggestions(rawText);
-    return { text: displayText, suggestions };
-  }
-}
-
-// ── Stub fallback ─────────────────────────────────────────────
+// ── Stub fallback (used when proxy returns 503 / no key configured) ─
 
 export class StubCoachService implements CoachService {
   async send(messages: CoachMessageRaw[], ctx: CoachGoalContext): Promise<CoachResponse> {
@@ -157,11 +131,35 @@ export class StubCoachService implements CoachService {
   }
 }
 
-// ── Singleton — uses Claude if API key present, stub otherwise ─
+// ── Proxy implementation (calls our own /api/coach server route) ─
 
-const anthropicKey: string | undefined =
-  Constants.expoConfig?.extra?.anthropicKey;
+export class ProxyCoachService implements CoachService {
+  async send(messages: CoachMessageRaw[], ctx: CoachGoalContext): Promise<CoachResponse> {
+    const response = await fetch('/api/coach', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: messages.map((m) => ({ role: m.role, content: m.text })),
+        systemPrompt: buildSystemPrompt(ctx),
+      }),
+    });
 
-export const coachService: CoachService = anthropicKey
-  ? new ClaudeCoachService(anthropicKey)
-  : new StubCoachService();
+    // 503 means ANTHROPIC_API_KEY isn't set on the server — degrade gracefully
+    if (response.status === 503) {
+      return new StubCoachService().send(messages, ctx);
+    }
+
+    if (!response.ok) {
+      throw new Error(`Coach proxy error ${response.status}`);
+    }
+
+    const data = await response.json();
+    const rawText: string = data.content?.[0]?.text ?? '';
+    const { displayText, suggestions } = parseSuggestions(rawText);
+    return { text: displayText, suggestions };
+  }
+}
+
+// ── Singleton ─────────────────────────────────────────────────
+
+export const coachService: CoachService = new ProxyCoachService();
