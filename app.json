@@ -36,7 +36,6 @@
     },
     "plugins": [
       "expo-router",
-      "expo-haptics",
       [
         "expo-notifications",
         {
@@ -48,7 +47,7 @@
         "expo-splash-screen",
         {
           "image": "./assets/splash.png",
-          "imageWidth": 200,h
+          "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#f3ecdd"
         }
