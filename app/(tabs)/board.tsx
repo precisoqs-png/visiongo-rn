@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView, StyleSheet, Platform,
+  View, Text, TouchableOpacity, StyleSheet, Platform, Pressable,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -36,13 +36,15 @@ export default function BoardScreen() {
 
   return (
     <LinearGradient colors={p.bgGradient as any} style={styles.root}>
-      <TouchableOpacity
-        style={StyleSheet.absoluteFill}
-        onLongPress={cycleNext}
-        delayLongPress={600}
-        activeOpacity={1}
-      >
-        <View style={styles.inner} pointerEvents="box-none">
+      {/*
+        IMPORTANT: Do NOT wrap this in a TouchableOpacity with absoluteFill.
+        On web, that swallows all pointer events and makes the FAB / goal
+        bubbles / inputs unresponsive. Long-press for theme cycling is
+        scoped to just the header row so it doesn't block anything else.
+      */}
+      <View style={styles.inner}>
+        {/* Header — long-press here to cycle themes */}
+        <Pressable onLongPress={cycleNext} delayLongPress={600}>
           <View style={styles.header}>
             <View>
               <Text style={[styles.eyebrow, { color: p.muted }]}>VISION BOARD</Text>
@@ -61,70 +63,70 @@ export default function BoardScreen() {
               />
             </TouchableOpacity>
           </View>
+        </Pressable>
 
-          <View style={styles.yearRow}>
-            <TouchableOpacity onPress={() => selectYear(selectedYear - 1)}>
-              <Ionicons name="chevron-back" size={16} color={p.muted} />
-            </TouchableOpacity>
-            <View style={styles.yearCenter}>
-              <Text style={[styles.yearDiamond, { color: p.accent }]}>◈</Text>
-              <Text style={[styles.yearNum, { color: p.text }]}>{selectedYear}</Text>
-              <Text style={[styles.yearDiamond, { color: p.accent }]}>◈</Text>
-            </View>
-            <TouchableOpacity onPress={() => selectYear(selectedYear + 1)}>
-              <Ionicons name="chevron-forward" size={16} color={p.muted} />
-            </TouchableOpacity>
+        <View style={styles.yearRow}>
+          <TouchableOpacity onPress={() => selectYear(selectedYear - 1)}>
+            <Ionicons name="chevron-back" size={16} color={p.muted} />
+          </TouchableOpacity>
+          <View style={styles.yearCenter}>
+            <Text style={[styles.yearDiamond, { color: p.accent }]}>◈</Text>
+            <Text style={[styles.yearNum, { color: p.text }]}>{selectedYear}</Text>
+            <Text style={[styles.yearDiamond, { color: p.accent }]}>◈</Text>
           </View>
+          <TouchableOpacity onPress={() => selectYear(selectedYear + 1)}>
+            <Ionicons name="chevron-forward" size={16} color={p.muted} />
+          </TouchableOpacity>
+        </View>
 
-          <View style={[styles.segmented, { backgroundColor: p.line }]}>
-            {(['wholeYear', 'byMonth'] as const).map((mode) => (
-              <TouchableOpacity
-                key={mode}
-                style={[styles.segBtn, boardViewMode === mode && { backgroundColor: p.ink }]}
-                onPress={() => setBoardViewMode(mode)}
+        <View style={[styles.segmented, { backgroundColor: p.line }]}>
+          {(['wholeYear', 'byMonth'] as const).map((mode) => (
+            <TouchableOpacity
+              key={mode}
+              style={[styles.segBtn, boardViewMode === mode && { backgroundColor: p.ink }]}
+              onPress={() => setBoardViewMode(mode)}
+            >
+              <Text
+                style={[
+                  styles.segText,
+                  { color: boardViewMode === mode ? (p.isDark ? p.bg : '#fff') : p.muted },
+                ]}
               >
-                <Text
-                  style={[
-                    styles.segText,
-                    { color: boardViewMode === mode ? (p.isDark ? p.bg : '#fff') : p.muted },
-                  ]}
-                >
-                  {mode === 'wholeYear' ? 'Whole Year' : 'By Month'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+                {mode === 'wholeYear' ? 'Whole Year' : 'By Month'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
-          {!yd ? (
-            <View style={styles.empty}>
-              <Text style={[styles.emptyText, { color: p.muted }]}>No goals yet. Tap + to add one!</Text>
-            </View>
-          ) : boardViewMode === 'wholeYear' ? (
-            boardLayout === 'radial' ? (
-              <RadialBoard
-                yearData={yd}
-                palette={p}
-                onGoalPress={(id) => router.push(`/goal/${id}`)}
-                onAddGoal={handleAddGoal}
-                onCompletedPress={() => router.push('/completed')}
-              />
-            ) : (
-              <GridBoard
-                yearData={yd}
-                palette={p}
-                onGoalPress={(id) => router.push(`/goal/${id}`)}
-                onAddGoal={handleAddGoal}
-              />
-            )
-          ) : (
-            <MonthBoard
+        {!yd ? (
+          <View style={styles.empty}>
+            <Text style={[styles.emptyText, { color: p.muted }]}>No goals yet. Tap + to add one!</Text>
+          </View>
+        ) : boardViewMode === 'wholeYear' ? (
+          boardLayout === 'radial' ? (
+            <RadialBoard
               yearData={yd}
               palette={p}
               onGoalPress={(id) => router.push(`/goal/${id}`)}
+              onAddGoal={handleAddGoal}
+              onCompletedPress={() => router.push('/completed')}
             />
-          )}
-        </View>
-      </TouchableOpacity>
+          ) : (
+            <GridBoard
+              yearData={yd}
+              palette={p}
+              onGoalPress={(id) => router.push(`/goal/${id}`)}
+              onAddGoal={handleAddGoal}
+            />
+          )
+        ) : (
+          <MonthBoard
+            yearData={yd}
+            palette={p}
+            onGoalPress={(id) => router.push(`/goal/${id}`)}
+          />
+        )}
+      </View>
     </LinearGradient>
   );
 }
