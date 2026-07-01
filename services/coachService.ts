@@ -135,28 +135,28 @@ export class StubCoachService implements CoachService {
 
 export class ProxyCoachService implements CoachService {
   async send(messages: CoachMessageRaw[], ctx: CoachGoalContext): Promise<CoachResponse> {
-    const response = await fetch('/api/coach', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: messages.map((m) => ({ role: m.role, content: m.text })),
-        systemPrompt: buildSystemPrompt(ctx),
-      }),
-    });
+    try {
+      const response = await fetch('/api/coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: messages.map((m) => ({ role: m.role, content: m.text })),
+          systemPrompt: buildSystemPrompt(ctx),
+        }),
+      });
 
-    // 503 means ANTHROPIC_API_KEY isn't set on the server — degrade gracefully
-    if (response.status === 503) {
+      // Fall back to stub when route is unavailable (static web build) or key not set
+      if (!response.ok) {
+        return new StubCoachService().send(messages, ctx);
+      }
+
+      const data = await response.json();
+      const rawText: string = data.content?.[0]?.text ?? '';
+      const { displayText, suggestions } = parseSuggestions(rawText);
+      return { text: displayText, suggestions };
+    } catch {
       return new StubCoachService().send(messages, ctx);
     }
-
-    if (!response.ok) {
-      throw new Error(`Coach proxy error ${response.status}`);
-    }
-
-    const data = await response.json();
-    const rawText: string = data.content?.[0]?.text ?? '';
-    const { displayText, suggestions } = parseSuggestions(rawText);
-    return { text: displayText, suggestions };
   }
 }
 
