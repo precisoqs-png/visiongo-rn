@@ -33,6 +33,7 @@
     "web": {
       "bundler": "metro",
       "output": "single",
+      "publicPath": "/visiongo-rn/",
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
