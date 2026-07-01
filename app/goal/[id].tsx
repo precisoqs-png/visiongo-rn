@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, Platform,
@@ -20,7 +20,6 @@ export default function GoalDetailScreen() {
   const palette = useThemeStore((s) => s.palette);
   const p = palette;
 
-  const getGoal = useAppStore((s) => s.getGoal);
   const updateGoal = useAppStore((s) => s.updateGoal);
   const addMeasurable = useAppStore((s) => s.addMeasurable);
   const updateMeasurable = useAppStore((s) => s.updateMeasurable);
@@ -28,7 +27,17 @@ export default function GoalDetailScreen() {
   const addSuggestionAsMeasurable = useAppStore((s) => s.addSuggestionAsMeasurable);
   const removeSuggestion = useAppStore((s) => s.removeSuggestion);
 
-  const goal = getGoal(id);
+  // Reactive subscription so the component re-renders when store updates
+  const goal = useAppStore((s) =>
+    s.years.find((y) => y.year === s.selectedYear)?.goals.find((g) => g.id === id),
+  );
+
+  // Local draft for the title field so typing feels instant (no per-keystroke re-render lag)
+  const [titleDraft, setTitleDraft] = useState(goal?.title ?? '');
+  useEffect(() => {
+    if (goal?.id) setTitleDraft(goal.title);
+  }, [goal?.id]);
+
   if (!goal) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: p.bg }}>
@@ -72,8 +81,9 @@ export default function GoalDetailScreen() {
 
           <TextInput
             style={[styles.titleInput, { color: p.text }]}
-            value={goal.title}
-            onChangeText={(t) => updateGoal({ ...goal, title: t })}
+            value={titleDraft}
+            onChangeText={setTitleDraft}
+            onBlur={() => titleDraft !== goal.title && updateGoal({ ...goal, title: titleDraft })}
             multiline
             placeholder="Goal title"
             placeholderTextColor={p.muted}

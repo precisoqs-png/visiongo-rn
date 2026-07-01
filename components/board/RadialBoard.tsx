@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { YearData, yearOverallProgress, isCompleted, goalProgress } from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
@@ -132,7 +132,7 @@ export function RadialBoard({ yearData, palette, onGoalPress, onAddGoal, onCompl
 
       {/* FAB — bottom right */}
       <TouchableOpacity
-        style={[styles.fab, { backgroundColor: palette.ink }]}
+        style={[styles.fab, { backgroundColor: palette.ink }, Platform.OS === 'web' ? { cursor: 'pointer' } as any : undefined]}
         onPress={onAddGoal}
         activeOpacity={0.85}
       >

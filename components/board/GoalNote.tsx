@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, Text, TouchableOpacity, View, StyleSheet } from 'react-native';
+import { Animated, Text, TouchableOpacity, View, StyleSheet, Platform } from 'react-native';
 import { Goal, goalProgress, goalProgressPercent } from '../../store/models';
 import { Palette, GOAL_NOTE_COLORS, hexAlpha, FONTS } from '../../theme/themes';
 
@@ -40,7 +40,7 @@ export function GoalNote({ goal, size, palette, onPress, animDelay = 0 }: Props)
 
   return (
     <Animated.View style={[{ transform: [{ scale }], opacity }, styles.wrapper]}>
-      <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
+      <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={Platform.OS === 'web' ? { cursor: 'pointer' } as any : undefined}>
         <View
           style={[
             styles.circle,
