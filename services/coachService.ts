@@ -120,13 +120,43 @@ export interface CoachService {
   send(messages: CoachMessageRaw[], ctx: CoachGoalContext): Promise<CoachResponse>;
 }
 
-// ── Stub fallback (used when proxy returns 503 / no key configured) ─
+// ── Stub fallback — contextual responses based on goal keywords ─
 
 export class StubCoachService implements CoachService {
   async send(messages: CoachMessageRaw[], ctx: CoachGoalContext): Promise<CoachResponse> {
-    await new Promise((r) => setTimeout(r, 900));
-    const stubText = `Great goal! To help you build the best plan, let me ask: what does success look like on the day you achieve "${ctx.goalTitle}"?\n\nSUGGEST|Track daily progress|check`;
-    const { displayText, suggestions } = parseSuggestions(stubText);
+    // Simulate network latency
+    await new Promise((r) => setTimeout(r, 1100));
+
+    const t = ctx.goalTitle.toLowerCase();
+    const isFollowUp = messages.filter((m) => m.role === 'user').length > 1;
+
+    let raw: string;
+
+    if (isFollowUp) {
+      raw = `Love that commitment! Here's what I'd suggest as your first concrete step: block time on your calendar this week specifically for "${ctx.goalTitle}". Small consistent actions compound into remarkable results.\n\nSUGGEST|Weekly dedicated session|check`;
+    } else if (t.includes('read') || t.includes('book')) {
+      raw = `Reading 📚 is one of the highest-ROI habits you can build. The key is consistency — even 20 pages a night adds up to 20+ books a year. I'd suggest tracking each book as you finish it, and setting a daily page target.\n\nSUGGEST|Log each book finished|check\nSUGGEST|Daily reading streak|number|365|days`;
+    } else if (t.includes('run') || t.includes('marathon') || t.includes('5k') || t.includes('race')) {
+      raw = `A running goal — love it! Building mileage gradually (no more than 10% increase per week) is the golden rule for staying injury-free. A weekly long run is your anchor workout.\n\nSUGGEST|Complete weekly long run|check\nSUGGEST|Weekly mileage|ladder|5|25|12|miles`;
+    } else if (t.includes('learn') || t.includes('study') || t.includes('spanish') || t.includes('language') || t.includes('course')) {
+      raw = `Learning goals shine when you practice daily rather than in long infrequent bursts. Even 20–30 minutes every day builds strong neural pathways. What's the first milestone that would prove you're making real progress?\n\nSUGGEST|Daily practice session|check\nSUGGEST|Practice streak|number|180|days`;
+    } else if (t.includes('save') || t.includes('money') || t.includes('financ') || t.includes('invest')) {
+      raw = `Smart financial goals are all about automation — remove willpower from the equation. Setting up an automatic transfer on payday means you save before you can spend. What's your monthly target?\n\nSUGGEST|Automate monthly transfer|check\nSUGGEST|Total saved|number|5000|USD`;
+    } else if (t.includes('meditat') || t.includes('mindful') || t.includes('breathe')) {
+      raw = `Meditation is one of the most powerful investments you can make in your mind. Starting with just 5–10 minutes and anchoring it to an existing habit (morning coffee, bedtime) makes it stick beautifully.\n\nSUGGEST|Morning meditation|check\nSUGGEST|Consecutive days streak|number|365|days`;
+    } else if (t.includes('launch') || t.includes('project') || t.includes('startup') || t.includes('ship') || t.includes('build')) {
+      raw = `Shipping is everything. The key is ruthless prioritization: what is the single feature that makes your product genuinely useful to one person? Start there. Everything else is v2.\n\nSUGGEST|Define MVP scope|check\nSUGGEST|Ship to first user|check`;
+    } else if (t.includes('weight') || t.includes('fitness') || t.includes('gym') || t.includes('health') || t.includes('workout')) {
+      raw = `Fitness goals are won in the kitchen and the gym. Tracking what you eat and hitting your workouts consistently 3–4x per week creates compound results that surprise you by month three.\n\nSUGGEST|Weekly workout sessions|number|4|sessions\nSUGGEST|Track nutrition daily|check`;
+    } else if (t.includes('write') || t.includes('blog') || t.includes('novel') || t.includes('content')) {
+      raw = `Writers write daily — even if just 100 words. A tiny consistent output compounds into a finished manuscript, a thriving blog, or a strong creative practice. What does your target look like?\n\nSUGGEST|Daily writing session|check\nSUGGEST|Words written|number|50000|words`;
+    } else if (t.includes('sleep') || t.includes('rest') || t.includes('wake')) {
+      raw = `Sleep quality transforms every other area of your life. Consistent bed and wake times — even on weekends — are the single most impactful change you can make. What time do you want to be in bed?\n\nSUGGEST|Consistent bedtime|check\nSUGGEST|Sleep streak (≥7 hrs)|number|90|nights`;
+    } else {
+      raw = `What an exciting goal! To build you the best plan, I want to understand what success really looks like. When you achieve "${ctx.goalTitle}", what's the first thing you'll notice is different in your life?\n\nSUGGEST|Track daily progress|check`;
+    }
+
+    const { displayText, suggestions } = parseSuggestions(raw);
     return { text: displayText, suggestions };
   }
 }

@@ -25,7 +25,7 @@ export default function RootLayout() {
         <Stack.Screen name="index" />
         <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="goal/[id]" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="goal/[id]" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
         <Stack.Screen name="completed" options={{ animation: 'slide_from_right' }} />
       </Stack>
     </GestureHandlerRootView>

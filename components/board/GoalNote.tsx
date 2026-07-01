@@ -53,13 +53,13 @@ export function GoalNote({ goal, size, palette, onPress, animDelay = 0 }: Props)
             },
           ]}
         >
-          {/* Bottom fill */}
+          {/* Bottom fill — use the bubble's own color, not global accent */}
           <View
             style={{
               position: 'absolute',
               bottom: 0, left: 0, right: 0,
               height: fillHeight,
-              backgroundColor: hexAlpha(palette.accent, 0.62),
+              backgroundColor: hexAlpha(noteColor, 0.72),
             }}
           />
           {/* Label */}
