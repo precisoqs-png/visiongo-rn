@@ -27,6 +27,9 @@ jobs:
         env:
           EXPO_BASE_URL: /visiongo-rn
 
+      - name: Copy index.html to 404.html for SPA deep-link support
+        run: cp dist/index.html dist/404.html
+
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
