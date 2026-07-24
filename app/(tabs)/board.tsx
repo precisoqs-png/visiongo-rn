@@ -25,9 +25,12 @@ export default function BoardScreen() {
   const setBoardLayout = useAppStore((s) => s.setBoardLayout);
   const setBoardViewMode = useAppStore((s) => s.setBoardViewMode);
   const addGoal = useAppStore((s) => s.addGoal);
-  const currentYearData = useAppStore((s) => s.currentYearData);
 
-  const yd = currentYearData();
+  // Subscribe directly to years data so the board re-renders whenever a goal
+  // is updated (e.g. measurable checked off in the goal detail screen).
+  // Previously used `s.currentYearData` (stable function ref) which never
+  // triggered a re-render when the underlying data changed.
+  const yd = useAppStore((s) => s.years.find((y) => y.year === s.selectedYear));
 
   const handleAddGoal = () => {
     const id = addGoal();

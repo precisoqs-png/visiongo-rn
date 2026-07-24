@@ -41,6 +41,15 @@ export default function PairScreen() {
     }
   };
 
+  const closePicker = () => setPickerFor(null);
+
+  const selectGoal = (id: string) => {
+    if (pickerFor === 'first') setFirstId(id);
+    else setSecondId(id);
+    setPickerFor(null);
+    setResult(null);
+  };
+
   return (
     <LinearGradient colors={p.bgGradient as any} style={styles.root}>
       <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
@@ -79,27 +88,34 @@ export default function PairScreen() {
         )}
       </ScrollView>
 
+      {/*
+        Modal structure: the dismiss area is an absoluteFill TouchableOpacity
+        BEHIND the sheet (siblings, not nested). This ensures goal-row
+        TouchableOpacity elements inside the sheet fire correctly on web,
+        where nested touchables can swallow inner press events.
+      */}
       <Modal visible={pickerFor !== null} transparent animationType="slide">
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setPickerFor(null)}>
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={closePicker}
+          />
           <View style={[styles.modalSheet, { backgroundColor: p.surface }]}>
             <Text style={[styles.modalTitle, { color: p.text }]}>Choose a goal</Text>
             {goals.map((goal) => (
               <TouchableOpacity
                 key={goal.id}
                 style={styles.goalPickerRow}
-                onPress={() => {
-                  if (pickerFor === 'first') setFirstId(goal.id);
-                  else setSecondId(goal.id);
-                  setPickerFor(null);
-                  setResult(null);
-                }}
+                onPress={() => selectGoal(goal.id)}
+                activeOpacity={0.7}
               >
                 <View style={[styles.goalDot, { backgroundColor: GOAL_NOTE_COLORS[goal.colorIndex % GOAL_NOTE_COLORS.length] }]} />
                 <Text style={[styles.goalPickerText, { color: p.text }]}>{goal.title}</Text>
               </TouchableOpacity>
             ))}
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
     </LinearGradient>
   );
@@ -140,9 +156,10 @@ const styles = StyleSheet.create({
   resultTitle: { fontSize: 14, fontWeight: '600' },
   resultText: { fontSize: 15, lineHeight: 22 },
   goalDot: { width: 10, height: 10, borderRadius: 5 },
+  // Modal: flex-end so sheet sticks to bottom; absoluteFill dismiss sits behind sheet
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modalSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 40, gap: 4 },
   modalTitle: { fontSize: 16, fontWeight: '700', marginBottom: 12 },
-  goalPickerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
+  goalPickerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
   goalPickerText: { fontSize: 16 },
 });

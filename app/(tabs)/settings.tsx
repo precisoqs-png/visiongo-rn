@@ -30,6 +30,16 @@ export default function SettingsScreen() {
   const [showNotifications, setShowNotifications] = useState(false);
 
   function handleStartFresh() {
+    if (Platform.OS === 'web') {
+      // Alert.alert is a no-op on web — use the browser's built-in confirm dialog
+      if ((window as any).confirm(
+        'Start Fresh? This will clear your onboarding flag and take you back to setup.'
+      )) {
+        resetOnboarding();
+        router.replace('/onboarding');
+      }
+      return;
+    }
     Alert.alert(
       'Start Fresh?',
       'This will clear your onboarding flag and take you back to setup. Your existing goals will remain unless you re-complete onboarding with new ones.',

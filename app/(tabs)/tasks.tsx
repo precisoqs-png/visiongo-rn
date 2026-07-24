@@ -5,16 +5,19 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../store/useThemeStore';
-import { useAppStore, TaskItem, TASK_GROUP_ORDER } from '../../store/useAppStore';
+import { useAppStore, TaskItem, TaskGroup, TASK_GROUP_ORDER } from '../../store/useAppStore';
 import { GOAL_NOTE_COLORS, FONTS } from '../../theme/themes';
 
 export default function TasksScreen() {
   const palette = useThemeStore((s) => s.palette);
   const p = palette;
-  const allTasks = useAppStore((s) => s.allTasks);
   const completeTaskItem = useAppStore((s) => s.completeTaskItem);
 
-  const groups = allTasks();
+  // Call allTasks() inside the selector so Zustand re-runs it whenever
+  // `years` changes (e.g. a measurable is checked off in the goal detail).
+  // Previously `s.allTasks` returned the stable function ref, which never
+  // triggered a re-render when the underlying data changed.
+  const groups = useAppStore((s) => s.allTasks());
 
   return (
     <LinearGradient colors={p.bgGradient as any} style={styles.root}>

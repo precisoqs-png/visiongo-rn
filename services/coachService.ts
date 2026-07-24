@@ -1,6 +1,6 @@
 import { newId } from '../store/models';
 
-// ── Types ────────────────────────────────────────────────
+// ── Types ────────────────────────────────────────────
 
 export interface CoachGoalContext {
   goalTitle: string;
@@ -65,7 +65,7 @@ When a concrete measurable step emerges, emit it on its own line in EXACTLY one 
 These lines are parsed by the app — keep the format exact.`;
 }
 
-// ── SUGGEST parser ────────────────────────────────────────────
+// ── SUGGEST parser ──────────────────────────────────────────
 
 export function parseSuggestions(text: string): {
   displayText: string;
@@ -114,13 +114,13 @@ export function parseSuggestions(text: string): {
   return { displayText: display.join('\n').trim(), suggestions };
 }
 
-// ── Protocol ──────────────────────────────────────────────────
+// ── Protocol ────────────────────────────────────────────
 
 export interface CoachService {
   send(messages: CoachMessageRaw[], ctx: CoachGoalContext): Promise<CoachResponse>;
 }
 
-// ── Stub fallback ─────────────────────────────────────────────
+// ── Stub fallback ──────────────────────────────────────────
 
 export class StubCoachService implements CoachService {
   async send(messages: CoachMessageRaw[], ctx: CoachGoalContext): Promise<CoachResponse> {
@@ -131,14 +131,23 @@ export class StubCoachService implements CoachService {
   }
 }
 
-// ── Proxy implementation (calls /api/coach server route) ───────────
+// ── Proxy implementation (calls /api/coach server route) ─────────────────────
 //
 // URL resolution:
-//   - Dev (Expo dev server): relative '/api/coach' is handled by Metro
-//   - Web production: relative URL works against the deployed origin
+//   - Dev (Expo dev server / web export served by Node): relative '/api/coach'
+//     is handled by the Expo server runtime.
+//   - Static web hosts (GitHub Pages, etc.): no Node server exists, so the
+//     request returns 404. We fall back to StubCoachService in that case.
 //   - Native production: set EXPO_PUBLIC_COACH_API_URL to your deployed
 //     server's base URL (e.g. https://your-app.vercel.app) as an EAS secret.
-//     If unset in native production, network errors fall back to stub.
+//     Without it, the relative URL is invalid on native and the network error
+//     catch falls back to stub automatically.
+//
+// To enable REAL AI responses on any environment:
+//   1. Deploy the Expo server build to Vercel (or similar Node host).
+//   2. Set ANTHROPIC_API_KEY env var on that host.
+//   3. Set EXPO_PUBLIC_COACH_API_URL EAS secret to that host's URL (native).
+//      Web builds served from the same origin need no extra config.
 
 export class ProxyCoachService implements CoachService {
   async send(messages: CoachMessageRaw[], ctx: CoachGoalContext): Promise<CoachResponse> {
@@ -156,17 +165,17 @@ export class ProxyCoachService implements CoachService {
         }),
       });
     } catch {
-      // Network error or no local server (native build without EXPO_PUBLIC_COACH_API_URL)
+      // Network error or invalid URL (native without EXPO_PUBLIC_COACH_API_URL)
       return new StubCoachService().send(messages, ctx);
     }
 
-    // 503 = ANTHROPIC_API_KEY not configured on the server
-    if (response.status === 503) {
-      return new StubCoachService().send(messages, ctx);
-    }
-
+    // Fall back to stub for any non-ok response:
+    //   404 = static host with no /api/coach route (GitHub Pages, CDN)
+    //   503 = server running but ANTHROPIC_API_KEY not configured
+    //   5xx = server error
+    // In all cases the user gets a working (stub) response rather than an error.
     if (!response.ok) {
-      throw new Error(`Coach proxy error ${response.status}`);
+      return new StubCoachService().send(messages, ctx);
     }
 
     const data = await response.json();
@@ -176,6 +185,6 @@ export class ProxyCoachService implements CoachService {
   }
 }
 
-// ── Singleton ─────────────────────────────────────────────────
+// ── Singleton ────────────────────────────────────────────
 
 export const coachService: CoachService = new ProxyCoachService();

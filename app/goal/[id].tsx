@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, Platform,
+  StyleSheet, Platform, Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -32,11 +32,15 @@ export default function GoalDetailScreen() {
     s.years.find((y) => y.year === s.selectedYear)?.goals.find((g) => g.id === id),
   );
 
-  // Local draft for the title field so typing feels instant (no per-keystroke re-render lag)
+  // Local draft for the title field so typing feels instant
   const [titleDraft, setTitleDraft] = useState(goal?.title ?? '');
   useEffect(() => {
     if (goal?.id) setTitleDraft(goal.title);
   }, [goal?.id]);
+
+  // Date picker state (native only; web uses an <input type="date"> overlay)
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [dateDraft, setDateDraft] = useState('');
 
   if (!goal) {
     return (
@@ -53,6 +57,22 @@ export default function GoalDetailScreen() {
   const daysLeft = goal.targetDate
     ? Math.max(0, Math.round((new Date(goal.targetDate).getTime() - Date.now()) / 86400000))
     : null;
+
+  const dateDisplay = goal.targetDate
+    ? new Date(goal.targetDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : 'No date set';
+
+  const openNativeDatePicker = () => {
+    setDateDraft(goal.targetDate ?? '');
+    setShowDatePicker(true);
+  };
+
+  const confirmNativeDate = () => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateDraft)) {
+      updateGoal({ ...goal, targetDate: dateDraft });
+    }
+    setShowDatePicker(false);
+  };
 
   return (
     <LinearGradient colors={p.bgGradient as any} style={styles.root}>
@@ -99,17 +119,47 @@ export default function GoalDetailScreen() {
           </View>
         </LinearGradient>
 
-        <View style={[styles.achieveRow, { backgroundColor: p.surface }]}>
-          <Text style={[styles.eyebrow, { color: p.muted }]}>ACHIEVE BY</Text>
-          <Text style={[styles.dateText, { color: p.text }]}>
-            {goal.targetDate
-              ? new Date(goal.targetDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-              : 'No date set'}
-          </Text>
-          {daysLeft != null && (
-            <Text style={[styles.daysLeft, { color: p.muted }]}>· {daysLeft} days left</Text>
-          )}
-        </View>
+        {/*
+          ACHIEVE BY row — tappable to set a date.
+          Web: a transparent <input type="date"> overlays the row so the
+               browser's native date picker opens on click, no packages needed.
+          Native: tapping opens a simple text-entry modal (YYYY-MM-DD).
+        */}
+        {Platform.OS === 'web' ? (
+          <View style={[styles.achieveRow, { backgroundColor: p.surface, position: 'relative', overflow: 'hidden' }]}>
+            <Text style={[styles.eyebrow, { color: p.muted }]}>ACHIEVE BY</Text>
+            <Text style={[styles.dateText, { color: p.text }]}>{dateDisplay}</Text>
+            {daysLeft != null && (
+              <Text style={[styles.daysLeft, { color: p.muted }]}>· {daysLeft} days left</Text>
+            )}
+            <Ionicons name="pencil-outline" size={13} color={p.muted} style={{ marginLeft: 'auto' as any }} />
+            {/* @ts-ignore — HTML <input> works in React Native Web */}
+            <input
+              type="date"
+              value={goal.targetDate ?? ''}
+              onChange={(e: any) =>
+                updateGoal({ ...goal, targetDate: e.target.value || undefined })
+              }
+              style={{
+                position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer',
+                width: '100%', height: '100%', border: 'none', boxSizing: 'border-box',
+              }}
+            />
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={[styles.achieveRow, { backgroundColor: p.surface }]}
+            onPress={openNativeDatePicker}
+            activeOpacity={0.75}
+          >
+            <Text style={[styles.eyebrow, { color: p.muted }]}>ACHIEVE BY</Text>
+            <Text style={[styles.dateText, { color: p.text }]}>{dateDisplay}</Text>
+            {daysLeft != null && (
+              <Text style={[styles.daysLeft, { color: p.muted }]}>· {daysLeft} days left</Text>
+            )}
+            <Ionicons name="pencil-outline" size={13} color={p.muted} style={{ marginLeft: 'auto' as any }} />
+          </TouchableOpacity>
+        )}
 
         <View style={styles.section}>
           {goal.measurables.length === 0 ? (
@@ -160,6 +210,42 @@ export default function GoalDetailScreen() {
           <CoachChat goal={goal} palette={p} />
         </View>
       </ScrollView>
+
+      {/* Native date entry modal */}
+      <Modal visible={showDatePicker} transparent animationType="fade">
+        <View style={styles.dateOverlay}>
+          <View style={[styles.dateModal, { backgroundColor: p.surface }]}>
+            <Text style={[styles.eyebrow, { color: p.muted, marginBottom: 12 }]}>SET TARGET DATE</Text>
+            <TextInput
+              style={[styles.dateInput, { color: p.text, borderColor: p.line }]}
+              placeholder="YYYY-MM-DD  (e.g. 2025-12-31)"
+              placeholderTextColor={p.muted}
+              value={dateDraft}
+              onChangeText={setDateDraft}
+              keyboardType="numbers-and-punctuation"
+              autoFocus
+            />
+            <View style={styles.dateActions}>
+              {goal.targetDate && (
+                <TouchableOpacity
+                  onPress={() => {
+                    updateGoal({ ...goal, targetDate: undefined });
+                    setShowDatePicker(false);
+                  }}
+                >
+                  <Text style={{ color: '#c0392b', fontSize: 15 }}>Clear</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+                <Text style={{ color: p.muted, fontSize: 15 }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={confirmNativeDate}>
+                <Text style={{ color: p.accent, fontWeight: '600', fontSize: 15 }}>Set Date</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </LinearGradient>
   );
 }
@@ -201,4 +287,17 @@ const styles = StyleSheet.create({
     borderRadius: 20, borderWidth: 1, borderStyle: 'dashed',
   },
   suggestionText: { fontSize: 13, fontWeight: '500' },
+  // Native date modal
+  dateOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center', justifyContent: 'center', padding: 28,
+  },
+  dateModal: { width: '100%', borderRadius: 16, padding: 20 },
+  dateInput: {
+    fontSize: 16, borderBottomWidth: 1,
+    paddingVertical: 8, marginBottom: 20,
+  },
+  dateActions: {
+    flexDirection: 'row', justifyContent: 'flex-end', gap: 18,
+  },
 });
