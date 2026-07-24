@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet, Platform,
 } from 'react-native';
@@ -13,11 +13,17 @@ export default function TasksScreen() {
   const p = palette;
   const completeTaskItem = useAppStore((s) => s.completeTaskItem);
 
-  // Call allTasks() inside the selector so Zustand re-runs it whenever
-  // `years` changes (e.g. a measurable is checked off in the goal detail).
-  // Previously `s.allTasks` returned the stable function ref, which never
-  // triggered a re-render when the underlying data changed.
-  const groups = useAppStore((s) => s.allTasks());
+  // Subscribe to the underlying data so Zustand re-renders when it changes,
+  // then memoize the computed groups so allTasks() isn't called every render.
+  // Calling allTasks() directly inside the selector returns a new array each
+  // time, which causes an infinite re-render loop (React error #185).
+  const years = useAppStore((s) => s.years);
+  const selectedYear = useAppStore((s) => s.selectedYear);
+  const groups = useMemo(
+    () => useAppStore.getState().allTasks(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [years, selectedYear],
+  );
 
   return (
     <LinearGradient colors={p.bgGradient as any} style={styles.root}>

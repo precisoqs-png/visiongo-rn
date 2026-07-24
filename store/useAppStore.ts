@@ -83,6 +83,12 @@ export interface TaskGroup {
   items: TaskItem[];
 }
 
+// Parse a YYYY-MM-DD string as a LOCAL date to avoid UTC midnight timezone shift.
+function localDate(iso: string): Date {
+  const [y, mo, d] = iso.split('-').map(Number);
+  return new Date(y, mo - 1, d);
+}
+
 // ── Store ────────────────────────────────────────────
 
 export const useAppStore = create<AppState>()(
@@ -301,8 +307,8 @@ export const useAppStore = create<AppState>()(
         for (const goal of yd.goals) {
           for (const m of goal.measurables) {
             if (m.type === 'check') {
-              // Use the parent goal's targetDate to place check tasks into a time bucket
-              const dueDate = goal.targetDate ? new Date(goal.targetDate) : undefined;
+              // Parse as local date to avoid UTC-midnight timezone shift
+              const dueDate = goal.targetDate ? localDate(goal.targetDate) : undefined;
               const item: TaskItem = {
                 id: `task-${m.id}`,
                 measurableId: m.id,
@@ -326,7 +332,8 @@ export const useAppStore = create<AppState>()(
               }
             } else if (m.type === 'ladder') {
               for (const week of m.weeks) {
-                const due = new Date(week.targetDate);
+                // Parse as local date to avoid UTC-midnight timezone shift
+                const due = localDate(week.targetDate);
                 const item: TaskItem = {
                   id: `task-${m.id}-${week.id}`,
                   measurableId: m.id,

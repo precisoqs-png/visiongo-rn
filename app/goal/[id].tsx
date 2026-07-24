@@ -14,6 +14,12 @@ import { MeasurableCard } from '../../components/goal/MeasurableCard';
 import { AddMeasurableForm } from '../../components/goal/AddMeasurableForm';
 import { CoachChat } from '../../components/goal/CoachChat';
 
+// Parse YYYY-MM-DD as a local date to avoid UTC-midnight timezone shift
+function localDate(iso: string): Date {
+  const [y, mo, d] = iso.split('-').map(Number);
+  return new Date(y, mo - 1, d);
+}
+
 export default function GoalDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -54,12 +60,13 @@ export default function GoalDetailScreen() {
   const progress = goalProgress(goal);
   const pct = goalProgressPercent(goal);
 
+  // Use local date parsing so the display matches what the user entered
   const daysLeft = goal.targetDate
-    ? Math.max(0, Math.round((new Date(goal.targetDate).getTime() - Date.now()) / 86400000))
+    ? Math.max(0, Math.round((localDate(goal.targetDate).getTime() - Date.now()) / 86400000))
     : null;
 
   const dateDisplay = goal.targetDate
-    ? new Date(goal.targetDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    ? localDate(goal.targetDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     : 'No date set';
 
   const openNativeDatePicker = () => {
