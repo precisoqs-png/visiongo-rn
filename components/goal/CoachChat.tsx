@@ -57,7 +57,7 @@ function ThinkingDots({ color }: { color: string }) {
   );
 }
 
-// ── Typewriter text — streams word by word ───────────────────
+// ── Typewriter text — streams word by word ────────────────────
 
 interface TypewriterProps {
   text: string;
@@ -94,13 +94,12 @@ function TypewriterText({ text, color, speed = 30, onDone }: TypewriterProps) {
   );
 }
 
-// ── Main chat component ──────────────────────────────────────
+// ── Main chat component ──────────────────────────────────
 
 export function CoachChat({ goal, palette: p }: Props) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  // Track the most recent coach message ID so we apply typewriter only to it
   const [streamingId, setStreamingId] = useState<string | null>(null);
 
   const addChatMessage = useAppStore((s) => s.addChatMessage);
@@ -108,7 +107,6 @@ export function CoachChat({ goal, palette: p }: Props) {
 
   const inputRef = useRef<TextInput>(null);
 
-  // Auto-focus when coach section mounts
   useEffect(() => {
     const t = setTimeout(() => inputRef.current?.focus(), 400);
     return () => clearTimeout(t);
@@ -137,10 +135,15 @@ export function CoachChat({ goal, palette: p }: Props) {
       today: new Date(),
     };
 
-    const history: CoachMessageRaw[] = goal.chat.map((m) => ({
-      role: m.sender === 'user' ? 'user' : 'assistant',
-      text: m.text,
-    }));
+    // Build history from existing chat, then append the message just sent.
+    // goal.chat is the pre-update snapshot so we must include `text` explicitly.
+    const history: CoachMessageRaw[] = [
+      ...goal.chat.map((m) => ({
+        role: m.sender === 'user' ? ('user' as const) : ('assistant' as const),
+        text: m.text,
+      })),
+      { role: 'user' as const, text },
+    ];
 
     try {
       const response = await coachService.send(history, ctx);
@@ -223,7 +226,6 @@ export function CoachChat({ goal, palette: p }: Props) {
         <Text style={[styles.errorText, { color: '#c0392b' }]}>{error}</Text>
       )}
 
-      {/* Input bar */}
       <View style={[styles.inputRow, { backgroundColor: p.surface }]}>
         <TextInput
           ref={inputRef}
@@ -235,7 +237,6 @@ export function CoachChat({ goal, palette: p }: Props) {
           multiline
           returnKeyType="send"
           onSubmitEditing={sendMessage}
-          // Web-compatible auto-focus via ref + setTimeout above
           autoFocus={Platform.OS !== 'web'}
         />
         <TouchableOpacity

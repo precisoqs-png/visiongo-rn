@@ -21,45 +21,45 @@ interface AppState {
   boardLayout: BoardLayout;
   boardViewMode: BoardViewMode;
 
-  // ─── Year ────────────────────────────────────────────
+  // ─ Year ────────────────────────────────────
   selectYear: (year: number) => void;
   currentYearData: () => YearData | undefined;
   setMotto: (motto: string) => void;
 
-  // ─── Goals ──────────────────────────────────────────
+  // ─ Goals ──────────────────────────────────
   addGoal: (title?: string) => string;
   updateGoal: (goal: Goal) => void;
   deleteGoal: (id: string) => void;
   getGoal: (id: string) => Goal | undefined;
 
-  // ─── Measurables ─────────────────────────────────────
+  // ─ Measurables ────────────────────────────────
   addMeasurable: (m: Measurable, goalId: string) => void;
   updateMeasurable: (m: Measurable, goalId: string) => void;
   deleteMeasurable: (mid: string, goalId: string) => void;
 
-  // ─── Suggestions ─────────────────────────────────────
+  // ─ Suggestions ───────────────────────────────
   addSuggestion: (s: Suggestion, goalId: string) => void;
   addSuggestionAsMeasurable: (s: Suggestion, goalId: string) => void;
   removeSuggestion: (sid: string, goalId: string) => void;
 
-  // ─── Chat ───────────────────────────────────────────
+  // ─ Chat ───────────────────────────────────
   addChatMessage: (msg: ChatMessage, goalId: string) => void;
 
-  // ─── Tasks ──────────────────────────────────────────
+  // ─ Tasks ──────────────────────────────────
   allTasks: () => TaskGroup[];
   completeTaskItem: (item: TaskItem) => void;
 
-  // ─── Onboarding ─────────────────────────────────────
+  // ─ Onboarding ──────────────────────────────
   completeOnboarding: (year: number, motto: string, goalTitles: string[]) => void;
   resetOnboarding: () => void;
 
-  // ─── Board helpers ───────────────────────────────────
+  // ─ Board helpers ───────────────────────────
   setBoardLayout: (l: BoardLayout) => void;
   setBoardViewMode: (m: BoardViewMode) => void;
   setNotificationsMaster: (on: boolean) => void;
 }
 
-// ── Task types ────────────────────────────────────────────
+// ── Task types ──────────────────────────────────────────
 
 export interface TaskItem {
   id: string;
@@ -83,7 +83,7 @@ export interface TaskGroup {
   items: TaskItem[];
 }
 
-// ── Store ────────────────────────────────────────────────
+// ── Store ────────────────────────────────────────────
 
 export const useAppStore = create<AppState>()(
   persist(
@@ -301,8 +301,9 @@ export const useAppStore = create<AppState>()(
         for (const goal of yd.goals) {
           for (const m of goal.measurables) {
             if (m.type === 'check') {
+              // Deterministic ID: stable across renders, unique per measurable
               const item: TaskItem = {
-                id: newId(),
+                id: `task-${m.id}`,
                 measurableId: m.id,
                 goalId: goal.id,
                 goalTitle: goal.title,
@@ -314,8 +315,9 @@ export const useAppStore = create<AppState>()(
             } else if (m.type === 'ladder') {
               for (const week of m.weeks) {
                 const due = new Date(week.targetDate);
+                // Deterministic ID: stable across renders, unique per ladder week
                 const item: TaskItem = {
-                  id: newId(),
+                  id: `task-${m.id}-${week.id}`,
                   measurableId: m.id,
                   ladderWeekId: week.id,
                   goalId: goal.id,
