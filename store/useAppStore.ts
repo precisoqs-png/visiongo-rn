@@ -83,9 +83,10 @@ export interface TaskGroup {
   items: TaskItem[];
 }
 
-// Parse a YYYY-MM-DD string as a LOCAL date to avoid UTC midnight timezone shift.
+// Parse a date string as a LOCAL date to avoid UTC-midnight timezone shift.
+// Slices to first 10 chars so it handles both "YYYY-MM-DD" and full ISO strings.
 function localDate(iso: string): Date {
-  const [y, mo, d] = iso.split('-').map(Number);
+  const [y, mo, d] = iso.slice(0, 10).split('-').map(Number);
   return new Date(y, mo - 1, d);
 }
 

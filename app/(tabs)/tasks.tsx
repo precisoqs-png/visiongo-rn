@@ -13,10 +13,8 @@ export default function TasksScreen() {
   const p = palette;
   const completeTaskItem = useAppStore((s) => s.completeTaskItem);
 
-  // Subscribe to the underlying data so Zustand re-renders when it changes,
-  // then memoize the computed groups so allTasks() isn't called every render.
-  // Calling allTasks() directly inside the selector returns a new array each
-  // time, which causes an infinite re-render loop (React error #185).
+  // Subscribe to underlying data so Zustand re-renders when it changes,
+  // then memoize so allTasks() isn't called every render (infinite loop fix).
   const years = useAppStore((s) => s.years);
   const selectedYear = useAppStore((s) => s.selectedYear);
   const groups = useMemo(
@@ -71,7 +69,9 @@ export default function TasksScreen() {
 
 function TaskRow({ item, palette: p, onComplete }: { item: TaskItem; palette: any; onComplete: () => void }) {
   const noteColor = GOAL_NOTE_COLORS[item.goalColorIndex % GOAL_NOTE_COLORS.length];
-  const dueStr = item.dueDate
+  // Ladder rows show no date in the task list (the step label already encodes the target);
+  // check-task rows show the goal's due date when present.
+  const dueStr = !item.ladderWeekId && item.dueDate
     ? item.dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     : null;
 
