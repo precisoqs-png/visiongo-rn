@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Platform, Pressable,
 } from 'react-native';
@@ -10,6 +10,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { RadialBoard } from '../../components/board/RadialBoard';
 import { GridBoard } from '../../components/board/GridBoard';
 import { MonthBoard } from '../../components/board/MonthBoard';
+import { TemplatePicker } from '../../components/board/TemplatePicker';
 import { FONTS } from '../../theme/themes';
 
 export default function BoardScreen() {
@@ -24,29 +25,16 @@ export default function BoardScreen() {
   const selectYear = useAppStore((s) => s.selectYear);
   const setBoardLayout = useAppStore((s) => s.setBoardLayout);
   const setBoardViewMode = useAppStore((s) => s.setBoardViewMode);
-  const addGoal = useAppStore((s) => s.addGoal);
 
-  // Subscribe directly to years data so the board re-renders whenever a goal
-  // is updated (e.g. measurable checked off in the goal detail screen).
-  // Previously used `s.currentYearData` (stable function ref) which never
-  // triggered a re-render when the underlying data changed.
   const yd = useAppStore((s) => s.years.find((y) => y.year === s.selectedYear));
 
-  const handleAddGoal = () => {
-    const id = addGoal();
-    router.push(`/goal/${id}`);
-  };
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const isEmpty = !yd || yd.goals.length === 0;
 
   return (
     <LinearGradient colors={p.bgGradient as any} style={styles.root}>
-      {/*
-        IMPORTANT: Do NOT wrap this in a TouchableOpacity with absoluteFill.
-        On web, that swallows all pointer events and makes the FAB / goal
-        bubbles / inputs unresponsive. Long-press for theme cycling is
-        scoped to just the header row so it doesn't block anything else.
-      */}
       <View style={styles.inner}>
-        {/* Header — long-press here to cycle themes */}
+        {/* Header */}
         <Pressable onLongPress={cycleNext} delayLongPress={600}>
           <View style={styles.header}>
             <View>
@@ -82,36 +70,40 @@ export default function BoardScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={[styles.segmented, { backgroundColor: p.line }]}>
-          {(['wholeYear', 'byMonth'] as const).map((mode) => (
-            <TouchableOpacity
-              key={mode}
-              style={[styles.segBtn, boardViewMode === mode && { backgroundColor: p.ink }]}
-              onPress={() => setBoardViewMode(mode)}
-            >
-              <Text
-                style={[
-                  styles.segText,
-                  { color: boardViewMode === mode ? (p.isDark ? p.bg : '#fff') : p.muted },
-                ]}
+        {!isEmpty && (
+          <View style={[styles.segmented, { backgroundColor: p.line }]}>
+            {(['wholeYear', 'byMonth'] as const).map((mode) => (
+              <TouchableOpacity
+                key={mode}
+                style={[styles.segBtn, boardViewMode === mode && { backgroundColor: p.ink }]}
+                onPress={() => setBoardViewMode(mode)}
               >
-                {mode === 'wholeYear' ? 'Whole Year' : 'By Month'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {!yd ? (
-          <View style={styles.empty}>
-            <Text style={[styles.emptyText, { color: p.muted }]}>No goals yet. Tap + to add one!</Text>
+                <Text
+                  style={[
+                    styles.segText,
+                    { color: boardViewMode === mode ? (p.isDark ? p.bg : '#fff') : p.muted },
+                  ]}
+                >
+                  {mode === 'wholeYear' ? 'Whole Year' : 'By Month'}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
+        )}
+
+        {isEmpty ? (
+          <EmptyState
+            year={selectedYear}
+            p={p}
+            onAdd={() => setPickerVisible(true)}
+          />
         ) : boardViewMode === 'wholeYear' ? (
           boardLayout === 'radial' ? (
             <RadialBoard
               yearData={yd}
               palette={p}
               onGoalPress={(id) => router.push(`/goal/${id}`)}
-              onAddGoal={handleAddGoal}
+              onAddGoal={() => setPickerVisible(true)}
               onCompletedPress={() => router.push('/completed')}
             />
           ) : (
@@ -119,7 +111,7 @@ export default function BoardScreen() {
               yearData={yd}
               palette={p}
               onGoalPress={(id) => router.push(`/goal/${id}`)}
-              onAddGoal={handleAddGoal}
+              onAddGoal={() => setPickerVisible(true)}
             />
           )
         ) : (
@@ -130,7 +122,55 @@ export default function BoardScreen() {
           />
         )}
       </View>
+
+      <TemplatePicker
+        visible={pickerVisible}
+        onDismiss={() => setPickerVisible(false)}
+        palette={p}
+      />
     </LinearGradient>
+  );
+}
+
+function EmptyState({ year, p, onAdd }: { year: number; p: any; onAdd: () => void }) {
+  const RING = 200;
+  return (
+    <View style={styles.emptyWrap}>
+      {/* Dashed year ring with "+" badge */}
+      <View style={styles.ringWrap}>
+        <View
+          style={[
+            styles.dashedRing,
+            { width: RING, height: RING, borderRadius: RING / 2, borderColor: p.accent },
+          ]}
+        >
+          <Text style={[styles.ringYear, { color: p.accent, fontFamily: FONTS.display }]}>
+            {year}
+          </Text>
+        </View>
+        <TouchableOpacity
+          style={[styles.badgePlus, { backgroundColor: p.accent }]}
+          onPress={onAdd}
+        >
+          <Ionicons name="add" size={18} color={p.isDark ? p.bg : '#fff'} />
+        </TouchableOpacity>
+      </View>
+
+      <Text style={[styles.emptyTitle, { color: p.text }]}>Your board is a blank canvas</Text>
+      <Text style={[styles.emptyBody, { color: p.muted }]}>
+        Add your first goal and start turning your vision into reality.
+      </Text>
+
+      <TouchableOpacity
+        style={[styles.addFirstBtn, { backgroundColor: p.ink }]}
+        onPress={onAdd}
+      >
+        <Ionicons name="add" size={18} color={p.isDark ? p.bg : '#fff'} />
+        <Text style={[styles.addFirstText, { color: p.isDark ? p.bg : '#fff' }]}>
+          Add your first goal
+        </Text>
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -158,6 +198,26 @@ const styles = StyleSheet.create({
   },
   segBtn: { flex: 1, paddingVertical: 7, borderRadius: 16, alignItems: 'center' },
   segText: { fontSize: 13, fontWeight: '500' },
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  emptyText: { fontSize: 15 },
+  // Empty state
+  emptyWrap: {
+    flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 16,
+  },
+  ringWrap: { position: 'relative', marginBottom: 8 },
+  dashedRing: {
+    borderWidth: 2, borderStyle: 'dashed',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  ringYear: { fontSize: 42, fontWeight: '700' },
+  badgePlus: {
+    position: 'absolute', right: -4, top: -4,
+    width: 32, height: 32, borderRadius: 16,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  emptyTitle: { fontSize: 22, fontWeight: '700', textAlign: 'center' },
+  emptyBody: { fontSize: 15, textAlign: 'center', lineHeight: 22 },
+  addFirstBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderRadius: 16, paddingVertical: 14, paddingHorizontal: 28, marginTop: 8,
+  },
+  addFirstText: { fontSize: 16, fontWeight: '600' },
 });
