@@ -11,55 +11,44 @@ import { GOAL_NOTE_COLORS as COLORS } from '../theme/themes';
 
 
 interface AppState {
-  // Data
   years: YearData[];
   notificationsMasterOn: boolean;
   hasCompletedOnboarding: boolean;
-
-  // UI state
   selectedYear: number;
   boardLayout: BoardLayout;
   boardViewMode: BoardViewMode;
 
-  // ─ Year ────────────────────────────────────
   selectYear: (year: number) => void;
   currentYearData: () => YearData | undefined;
   setMotto: (motto: string) => void;
 
-  // ─ Goals ──────────────────────────────────
   addGoal: (title?: string) => string;
+  addGoalFull: (goal: Goal) => string;
   updateGoal: (goal: Goal) => void;
   deleteGoal: (id: string) => void;
   getGoal: (id: string) => Goal | undefined;
 
-  // ─ Measurables ────────────────────────────────
   addMeasurable: (m: Measurable, goalId: string) => void;
   updateMeasurable: (m: Measurable, goalId: string) => void;
   deleteMeasurable: (mid: string, goalId: string) => void;
 
-  // ─ Suggestions ───────────────────────────────
   addSuggestion: (s: Suggestion, goalId: string) => void;
   addSuggestionAsMeasurable: (s: Suggestion, goalId: string) => void;
   removeSuggestion: (sid: string, goalId: string) => void;
 
-  // ─ Chat ───────────────────────────────────
   addChatMessage: (msg: ChatMessage, goalId: string) => void;
 
-  // ─ Tasks ──────────────────────────────────
   allTasks: () => TaskGroup[];
   completeTaskItem: (item: TaskItem) => void;
 
-  // ─ Onboarding ──────────────────────────────
-  completeOnboarding: (year: number, motto: string, goalTitles: string[]) => void;
+  // goals: pre-built Goal objects (from templates or custom)
+  completeOnboarding: (year: number, motto: string, goals: Goal[]) => void;
   resetOnboarding: () => void;
 
-  // ─ Board helpers ───────────────────────────
   setBoardLayout: (l: BoardLayout) => void;
   setBoardViewMode: (m: BoardViewMode) => void;
   setNotificationsMaster: (on: boolean) => void;
 }
-
-// ── Task types ──────────────────────────────────────────
 
 export interface TaskItem {
   id: string;
@@ -83,14 +72,10 @@ export interface TaskGroup {
   items: TaskItem[];
 }
 
-// Parse a date string as a LOCAL date to avoid UTC-midnight timezone shift.
-// Slices to first 10 chars so it handles both "YYYY-MM-DD" and full ISO strings.
 function localDate(iso: string): Date {
   const [y, mo, d] = iso.slice(0, 10).split('-').map(Number);
   return new Date(y, mo - 1, d);
 }
-
-// ── Store ────────────────────────────────────────────
 
 export const useAppStore = create<AppState>()(
   persist(
@@ -126,17 +111,24 @@ export const useAppStore = create<AppState>()(
         const year = get().selectedYear;
         const existing = get().years.find((y) => y.year === year);
         if (!existing) get().selectYear(year);
-
         const colorIndex = (get().years.find((y) => y.year === year)?.goals.length ?? 0) % COLORS.length;
         const goal: Goal = {
-          id: newId(),
-          title,
-          colorIndex,
+          id: newId(), title, colorIndex,
           reminder: { on: false, frequency: 'Daily' },
-          chat: [],
-          suggestions: [],
-          measurables: [],
+          chat: [], suggestions: [], measurables: [],
         };
+        set((s) => ({
+          years: s.years.map((y) =>
+            y.year === year ? { ...y, goals: [...y.goals, goal] } : y
+          ),
+        }));
+        return goal.id;
+      },
+
+      addGoalFull: (goal) => {
+        const year = get().selectedYear;
+        const existing = get().years.find((y) => y.year === year);
+        if (!existing) get().selectYear(year);
         set((s) => ({
           years: s.years.map((y) =>
             y.year === year ? { ...y, goals: [...y.goals, goal] } : y
@@ -172,12 +164,9 @@ export const useAppStore = create<AppState>()(
         set((s) => ({
           years: s.years.map((y) =>
             y.year === year
-              ? {
-                  ...y,
-                  goals: y.goals.map((g) =>
-                    g.id === goalId ? { ...g, measurables: [...g.measurables, m] } : g
-                  ),
-                }
+              ? { ...y, goals: y.goals.map((g) =>
+                  g.id === goalId ? { ...g, measurables: [...g.measurables, m] } : g
+                )}
               : y
           ),
         }));
@@ -188,14 +177,11 @@ export const useAppStore = create<AppState>()(
         set((s) => ({
           years: s.years.map((y) =>
             y.year === year
-              ? {
-                  ...y,
-                  goals: y.goals.map((g) =>
-                    g.id === goalId
-                      ? { ...g, measurables: g.measurables.map((mm) => mm.id === m.id ? m : mm) }
-                      : g
-                  ),
-                }
+              ? { ...y, goals: y.goals.map((g) =>
+                  g.id === goalId
+                    ? { ...g, measurables: g.measurables.map((mm) => mm.id === m.id ? m : mm) }
+                    : g
+                )}
               : y
           ),
         }));
@@ -206,14 +192,11 @@ export const useAppStore = create<AppState>()(
         set((s) => ({
           years: s.years.map((y) =>
             y.year === year
-              ? {
-                  ...y,
-                  goals: y.goals.map((g) =>
-                    g.id === goalId
-                      ? { ...g, measurables: g.measurables.filter((m) => m.id !== mid) }
-                      : g
-                  ),
-                }
+              ? { ...y, goals: y.goals.map((g) =>
+                  g.id === goalId
+                    ? { ...g, measurables: g.measurables.filter((m) => m.id !== mid) }
+                    : g
+                )}
               : y
           ),
         }));
@@ -224,12 +207,9 @@ export const useAppStore = create<AppState>()(
         set((st) => ({
           years: st.years.map((y) =>
             y.year === year
-              ? {
-                  ...y,
-                  goals: y.goals.map((g) =>
-                    g.id === goalId ? { ...g, suggestions: [...g.suggestions, s] } : g
-                  ),
-                }
+              ? { ...y, goals: y.goals.map((g) =>
+                  g.id === goalId ? { ...g, suggestions: [...g.suggestions, s] } : g
+                )}
               : y
           ),
         }));
@@ -239,14 +219,8 @@ export const useAppStore = create<AppState>()(
         const goal = get().getGoal(goalId);
         if (!goal) return;
         let m: Measurable = {
-          id: newId(),
-          type: s.type,
-          label: s.label,
-          done: false,
-          current: 0,
-          target: 0,
-          unit: '',
-          weeks: [],
+          id: newId(), type: s.type, label: s.label,
+          done: false, current: 0, target: 0, unit: '', weeks: [],
         };
         if (s.type === 'number') {
           m.target = s.target ?? 1;
@@ -265,14 +239,11 @@ export const useAppStore = create<AppState>()(
         set((s) => ({
           years: s.years.map((y) =>
             y.year === year
-              ? {
-                  ...y,
-                  goals: y.goals.map((g) =>
-                    g.id === goalId
-                      ? { ...g, suggestions: g.suggestions.filter((ss) => ss.id !== sid) }
-                      : g
-                  ),
-                }
+              ? { ...y, goals: y.goals.map((g) =>
+                  g.id === goalId
+                    ? { ...g, suggestions: g.suggestions.filter((ss) => ss.id !== sid) }
+                    : g
+                )}
               : y
           ),
         }));
@@ -283,12 +254,9 @@ export const useAppStore = create<AppState>()(
         set((s) => ({
           years: s.years.map((y) =>
             y.year === year
-              ? {
-                  ...y,
-                  goals: y.goals.map((g) =>
-                    g.id === goalId ? { ...g, chat: [...g.chat, msg] } : g
-                  ),
-                }
+              ? { ...y, goals: y.goals.map((g) =>
+                  g.id === goalId ? { ...g, chat: [...g.chat, msg] } : g
+                )}
               : y
           ),
         }));
@@ -300,51 +268,31 @@ export const useAppStore = create<AppState>()(
         const now = new Date();
         const weekEnd = new Date(now); weekEnd.setDate(weekEnd.getDate() + 7);
         const monthEnd = new Date(now); monthEnd.setMonth(monthEnd.getMonth() + 1);
-
         const buckets: Record<TaskGroupKey, TaskItem[]> = {
           'Overdue': [], 'This Week': [], 'This Month': [], 'Upcoming': [], 'Anytime': [],
         };
-
         for (const goal of yd.goals) {
           for (const m of goal.measurables) {
             if (m.type === 'check') {
-              // Parse as local date to avoid UTC-midnight timezone shift
               const dueDate = goal.targetDate ? localDate(goal.targetDate) : undefined;
               const item: TaskItem = {
-                id: `task-${m.id}`,
-                measurableId: m.id,
-                goalId: goal.id,
-                goalTitle: goal.title,
-                goalColorIndex: goal.colorIndex,
-                label: m.label,
-                dueDate,
-                done: m.done,
+                id: `task-${m.id}`, measurableId: m.id, goalId: goal.id,
+                goalTitle: goal.title, goalColorIndex: goal.colorIndex,
+                label: m.label, dueDate, done: m.done,
               };
-              if (!dueDate) {
-                buckets['Anytime'].push(item);
-              } else if (dueDate < now) {
-                buckets['Overdue'].push(item);
-              } else if (dueDate <= weekEnd) {
-                buckets['This Week'].push(item);
-              } else if (dueDate <= monthEnd) {
-                buckets['This Month'].push(item);
-              } else {
-                buckets['Upcoming'].push(item);
-              }
+              if (!dueDate) buckets['Anytime'].push(item);
+              else if (dueDate < now) buckets['Overdue'].push(item);
+              else if (dueDate <= weekEnd) buckets['This Week'].push(item);
+              else if (dueDate <= monthEnd) buckets['This Month'].push(item);
+              else buckets['Upcoming'].push(item);
             } else if (m.type === 'ladder') {
               for (const week of m.weeks) {
-                // Parse as local date to avoid UTC-midnight timezone shift
                 const due = localDate(week.targetDate);
                 const item: TaskItem = {
-                  id: `task-${m.id}-${week.id}`,
-                  measurableId: m.id,
-                  ladderWeekId: week.id,
-                  goalId: goal.id,
-                  goalTitle: goal.title,
-                  goalColorIndex: goal.colorIndex,
+                  id: `task-${m.id}-${week.id}`, measurableId: m.id, ladderWeekId: week.id,
+                  goalId: goal.id, goalTitle: goal.title, goalColorIndex: goal.colorIndex,
                   label: `${fmtVal(week.value)} ${m.unit} – ${m.label}`,
-                  dueDate: due,
-                  done: week.done,
+                  dueDate: due, done: week.done,
                 };
                 if (due < now) buckets['Overdue'].push(item);
                 else if (due <= weekEnd) buckets['This Week'].push(item);
@@ -354,7 +302,6 @@ export const useAppStore = create<AppState>()(
             }
           }
         }
-
         return TASK_GROUP_ORDER
           .map((key) => ({ key, items: buckets[key] }))
           .filter((g) => g.items.length > 0);
@@ -374,12 +321,9 @@ export const useAppStore = create<AppState>()(
                   measurables: g.measurables.map((m) => {
                     if (m.id !== item.measurableId) return m;
                     if (item.ladderWeekId) {
-                      return {
-                        ...m,
-                        weeks: m.weeks.map((w) =>
-                          w.id === item.ladderWeekId ? { ...w, done: true } : w
-                        ),
-                      };
+                      return { ...m, weeks: m.weeks.map((w) =>
+                        w.id === item.ladderWeekId ? { ...w, done: true } : w
+                      )};
                     }
                     return { ...m, done: true };
                   }),
@@ -390,18 +334,7 @@ export const useAppStore = create<AppState>()(
         }));
       },
 
-      completeOnboarding: (year, motto, goalTitles) => {
-        const goals: Goal[] = goalTitles
-          .filter((t) => t.trim().length > 0)
-          .map((title, i) => ({
-            id: newId(),
-            title,
-            colorIndex: i % COLORS.length,
-            reminder: { on: false, frequency: 'Daily' as const },
-            chat: [],
-            suggestions: [],
-            measurables: [],
-          }));
+      completeOnboarding: (year, motto, goals) => {
         const yd: YearData = { year, motto: motto || 'Dream it. Plan it. Live it.', goals };
         set((s) => ({
           years: s.years.filter((y) => y.year !== year).concat(yd).sort((a, b) => a.year - b.year),
