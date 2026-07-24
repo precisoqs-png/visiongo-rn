@@ -301,7 +301,8 @@ export const useAppStore = create<AppState>()(
         for (const goal of yd.goals) {
           for (const m of goal.measurables) {
             if (m.type === 'check') {
-              // Deterministic ID: stable across renders, unique per measurable
+              // Use the parent goal's targetDate to place check tasks into a time bucket
+              const dueDate = goal.targetDate ? new Date(goal.targetDate) : undefined;
               const item: TaskItem = {
                 id: `task-${m.id}`,
                 measurableId: m.id,
@@ -309,13 +310,23 @@ export const useAppStore = create<AppState>()(
                 goalTitle: goal.title,
                 goalColorIndex: goal.colorIndex,
                 label: m.label,
+                dueDate,
                 done: m.done,
               };
-              buckets['Anytime'].push(item);
+              if (!dueDate) {
+                buckets['Anytime'].push(item);
+              } else if (dueDate < now) {
+                buckets['Overdue'].push(item);
+              } else if (dueDate <= weekEnd) {
+                buckets['This Week'].push(item);
+              } else if (dueDate <= monthEnd) {
+                buckets['This Month'].push(item);
+              } else {
+                buckets['Upcoming'].push(item);
+              }
             } else if (m.type === 'ladder') {
               for (const week of m.weeks) {
                 const due = new Date(week.targetDate);
-                // Deterministic ID: stable across renders, unique per ladder week
                 const item: TaskItem = {
                   id: `task-${m.id}-${week.id}`,
                   measurableId: m.id,

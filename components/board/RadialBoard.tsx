@@ -17,26 +17,21 @@ interface Props {
 const CENTER_SIZE = 132;
 const MIN_BUBBLE = 70;
 const MAX_BUBBLE = 102;
-
-// Deterministic scatter — reproducible per index so bubbles don't jump on re-render
-function seededRand(seed: number): number {
-  const x = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
-  return x - Math.floor(x);
-}
+// Space to keep clear at the bottom of the onLayout container (FAB 54px + margin)
+const BOTTOM_SAFE = 88;
+const TOP_SAFE = 8;
 
 function bubbleLayout(
   idx: number,
   total: number,
   cx: number,
   cy: number,
-  minR: number,
-  maxR: number,
+  orbitR: number,
 ) {
-  const base = -90 + idx * (360 / Math.max(total, 1));
-  // ±30° jitter per bubble, deterministic
-  const jitter = (seededRand(idx * 3 + 1) - 0.5) * 60;
-  const angle = ((base + jitter) * Math.PI) / 180;
-  const r = minR + seededRand(idx * 7 + 5) * (maxR - minR);
+  const angleDeg = -90 + idx * (360 / Math.max(total, 1));
+  // Alternate outer/inner orbit for organic feel — no random jitter so nothing clips
+  const r = idx % 2 === 0 ? orbitR : orbitR * 0.87;
+  const angle = (angleDeg * Math.PI) / 180;
   return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
 }
 
@@ -49,10 +44,17 @@ export function RadialBoard({ yearData, palette, onGoalPress, onAddGoal, onCompl
   const pct = Math.round(overallProg * 100);
 
   const cx = size.w / 2;
-  // Nudge center slightly above midpoint so bubbles don't clip bottom nav
-  const cy = size.h * 0.45;
-  const minR = size.w * 0.27;
-  const maxR = size.w * 0.43;
+  const cy = size.h * 0.44;
+
+  // Largest orbit radius that keeps every bubble edge inside the container at every angle
+  const maxBubbleR = MAX_BUBBLE / 2 + 10;
+  const safeOrbitR = Math.min(
+    cx - maxBubbleR,                         // left + right (symmetric)
+    cy - TOP_SAFE - maxBubbleR,              // top
+    size.h - BOTTOM_SAFE - cy - maxBubbleR,  // bottom (above FAB)
+  );
+  // Never let orbit shrink below the center ring
+  const orbitR = Math.max(safeOrbitR, CENTER_SIZE / 2 + maxBubbleR + 6);
 
   return (
     <View
@@ -90,12 +92,11 @@ export function RadialBoard({ yearData, palette, onGoalPress, onAddGoal, onCompl
         </View>
       </View>
 
-      {/* Goal bubbles — scattered organically around center */}
+      {/* Goal bubbles — evenly spaced around safe orbit, alternating inner/outer */}
       {activeGoals.map((goal, idx) => {
         const prog = goalProgress(goal);
-        // Bigger bubble = more progress (shows movement toward goal)
         const bubbleSize = Math.round(MIN_BUBBLE + prog * (MAX_BUBBLE - MIN_BUBBLE));
-        const { x, y } = bubbleLayout(idx, activeGoals.length, cx, cy, minR, maxR);
+        const { x, y } = bubbleLayout(idx, activeGoals.length, cx, cy, orbitR);
         return (
           <View
             key={goal.id}
@@ -132,7 +133,11 @@ export function RadialBoard({ yearData, palette, onGoalPress, onAddGoal, onCompl
 
       {/* FAB — bottom right */}
       <TouchableOpacity
-        style={[styles.fab, { backgroundColor: palette.ink }, Platform.OS === 'web' ? { cursor: 'pointer' } as any : undefined]}
+        style={[
+          styles.fab,
+          { backgroundColor: palette.ink },
+          Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : undefined,
+        ]}
         onPress={onAddGoal}
         activeOpacity={0.85}
       >

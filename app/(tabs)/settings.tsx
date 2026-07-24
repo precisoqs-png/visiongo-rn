@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, Switch, Modal,
-  StyleSheet, Platform,
+  StyleSheet, Platform, Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useThemeStore } from '../../store/useThemeStore';
 import { useAppStore } from '../../store/useAppStore';
 import { THEMES, THEME_ORDER, ThemeKey, GOAL_NOTE_COLORS, FONTS, hexAlpha } from '../../theme/themes';
@@ -17,12 +18,34 @@ import {
 } from '../../services/notificationService';
 
 export default function SettingsScreen() {
+  const router = useRouter();
   const palette = useThemeStore((s) => s.palette);
   const currentTheme = useThemeStore((s) => s.current);
   const setCurrent = useThemeStore((s) => s.setCurrent);
+  const cycleNext = useThemeStore((s) => s.cycleNext);
   const p = palette;
 
+  const resetOnboarding = useAppStore((s) => s.resetOnboarding);
+
   const [showNotifications, setShowNotifications] = useState(false);
+
+  function handleStartFresh() {
+    Alert.alert(
+      'Start Fresh?',
+      'This will clear your onboarding flag and take you back to setup. Your existing goals will remain unless you re-complete onboarding with new ones.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: () => {
+            resetOnboarding();
+            router.replace('/onboarding');
+          },
+        },
+      ]
+    );
+  }
 
   return (
     <LinearGradient colors={p.bgGradient as any} style={styles.root}>
@@ -33,40 +56,33 @@ export default function SettingsScreen() {
         </View>
 
         <SectionLabel label="APPEARANCE" palette={p} />
-        {THEME_ORDER.map((key) => {
-          const theme = THEMES[key];
-          const tp = theme.palette;
-          const isSelected = currentTheme === key;
-          return (
-            <TouchableOpacity
-              key={key}
-              style={[styles.themeRow, { backgroundColor: p.surface }]}
-              onPress={() => setCurrent(key)}
-              activeOpacity={0.75}
-            >
-              <View style={[styles.swatch, { overflow: 'hidden', borderRadius: 10 }]}>
-                <LinearGradient
-                  colors={tp.bgGradient as any}
-                  style={StyleSheet.absoluteFill}
-                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                />
-                <View style={styles.swatchDots}>
-                  {[0, 1, 2].map((i) => (
-                    <View key={i} style={[styles.swatchDot, { backgroundColor: GOAL_NOTE_COLORS[i] }]} />
-                  ))}
-                </View>
-                {isSelected && (
-                  <View style={[styles.swatchBorder, { borderColor: tp.accent }]} pointerEvents="none" />
-                )}
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.themeName, { color: p.text }]}>{theme.label}</Text>
-                <Text style={[styles.themeMode, { color: p.muted }]}>{tp.isDark ? 'Dark' : 'Light'}</Text>
-              </View>
-              {isSelected && <Ionicons name="checkmark-circle" size={20} color={p.accent} />}
-            </TouchableOpacity>
-          );
-        })}
+        {/* Compact single-row theme picker */}
+        <View style={[styles.themeRow, { backgroundColor: p.surface }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {THEME_ORDER.map((key) => {
+              const tp = THEMES[key].palette;
+              const isActive = currentTheme === key;
+              return (
+                <TouchableOpacity key={key} onPress={() => setCurrent(key)} activeOpacity={0.75}>
+                  <View
+                    style={[
+                      styles.miniSwatch,
+                      { backgroundColor: tp.accent },
+                      isActive && { borderWidth: 2.5, borderColor: p.text },
+                    ]}
+                  />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <View style={{ flex: 1, paddingLeft: 12 }}>
+            <Text style={[styles.themeName, { color: p.text }]}>{THEMES[currentTheme].label}</Text>
+            <Text style={[styles.themeMode, { color: p.muted }]}>{p.isDark ? 'Dark' : 'Light'}</Text>
+          </View>
+          <TouchableOpacity onPress={cycleNext} activeOpacity={0.75}>
+            <Text style={[styles.nextBtn, { color: p.accent }]}>Next →</Text>
+          </TouchableOpacity>
+        </View>
 
         <SectionLabel label="GENERAL" palette={p} />
         <TouchableOpacity
@@ -76,6 +92,16 @@ export default function SettingsScreen() {
         >
           <Text style={[styles.settingsRowText, { color: p.text }]}>Notifications</Text>
           <Ionicons name="chevron-forward" size={14} color={p.muted} />
+        </TouchableOpacity>
+
+        <SectionLabel label="DATA" palette={p} />
+        <TouchableOpacity
+          style={[styles.settingsRow, { backgroundColor: p.surface }]}
+          onPress={handleStartFresh}
+          activeOpacity={0.75}
+        >
+          <Text style={[styles.settingsRowText, { color: '#c0392b' }]}>Start Fresh</Text>
+          <Ionicons name="refresh-outline" size={16} color="#c0392b" />
         </TouchableOpacity>
 
         <Text style={[styles.tip, { color: p.muted }]}>
@@ -201,13 +227,11 @@ const styles = StyleSheet.create({
   eyebrow: { fontSize: 11, fontWeight: '600', letterSpacing: 2 },
   subtitle: { fontSize: 20, fontStyle: 'italic', marginTop: 2 },
   sectionLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 1.5, paddingHorizontal: 22, paddingTop: 16, paddingBottom: 8 },
-  themeRow: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 12, borderRadius: 14, marginHorizontal: 18, marginBottom: 6 },
-  swatch: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  swatchDots: { flexDirection: 'row', gap: 3 },
-  swatchDot: { width: 8, height: 8, borderRadius: 4 },
-  swatchBorder: { position: 'absolute', inset: 0, borderRadius: 10, borderWidth: 2 },
+  themeRow: { flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 14, marginHorizontal: 18, marginBottom: 6 },
+  miniSwatch: { width: 20, height: 20, borderRadius: 10 },
   themeName: { fontSize: 15, fontWeight: '600' },
   themeMode: { fontSize: 12, marginTop: 1 },
+  nextBtn: { fontSize: 14, fontWeight: '600', paddingHorizontal: 4 },
   settingsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderRadius: 14, marginHorizontal: 18, marginBottom: 6 },
   settingsRowText: { fontSize: 16 },
   tip: { fontSize: 12, paddingHorizontal: 22, paddingTop: 16, lineHeight: 18 },
