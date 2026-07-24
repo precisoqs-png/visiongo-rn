@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, Platform, Modal,
@@ -16,7 +16,7 @@ import { CoachChat } from '../../components/goal/CoachChat';
 
 // Parse YYYY-MM-DD as a local date to avoid UTC-midnight timezone shift
 function localDate(iso: string): Date {
-  const [y, mo, d] = iso.split('-').map(Number);
+  const [y, mo, d] = iso.slice(0, 10).split('-').map(Number);
   return new Date(y, mo - 1, d);
 }
 
@@ -44,9 +44,21 @@ export default function GoalDetailScreen() {
     if (goal?.id) setTitleDraft(goal.title);
   }, [goal?.id]);
 
-  // Date picker state (native only; web uses an <input type="date"> overlay)
+  // Native date picker state
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dateDraft, setDateDraft] = useState('');
+
+  // Web: ref to hidden <input type="date"> — opened imperatively via showPicker()
+  const dateInputRef = useRef<any>(null);
+  const openWebDatePicker = () => {
+    if (!dateInputRef.current) return;
+    // showPicker() is the modern API; .click() as fallback for older browsers
+    if (typeof dateInputRef.current.showPicker === 'function') {
+      dateInputRef.current.showPicker();
+    } else {
+      dateInputRef.current.click();
+    }
+  };
 
   if (!goal) {
     return (
@@ -60,7 +72,6 @@ export default function GoalDetailScreen() {
   const progress = goalProgress(goal);
   const pct = goalProgressPercent(goal);
 
-  // Use local date parsing so the display matches what the user entered
   const daysLeft = goal.targetDate
     ? Math.max(0, Math.round((localDate(goal.targetDate).getTime() - Date.now()) / 86400000))
     : null;
@@ -128,45 +139,43 @@ export default function GoalDetailScreen() {
 
         {/*
           ACHIEVE BY row — tappable to set a date.
-          Web: a transparent <input type="date"> overlays the row so the
-               browser's native date picker opens on click, no packages needed.
-          Native: tapping opens a simple text-entry modal (YYYY-MM-DD).
+          Web: TouchableOpacity calls showPicker() on a hidden <input type="date">
+               via ref. This is more reliable than an opacity-0 overlay because
+               RN Web's overflow:hidden can swallow pointer events on abs children.
+          Native: opens a text-entry modal (YYYY-MM-DD).
         */}
-        {Platform.OS === 'web' ? (
-          <View style={[styles.achieveRow, { backgroundColor: p.surface, position: 'relative', overflow: 'hidden' }]}>
-            <Text style={[styles.eyebrow, { color: p.muted }]}>ACHIEVE BY</Text>
-            <Text style={[styles.dateText, { color: p.text }]}>{dateDisplay}</Text>
-            {daysLeft != null && (
-              <Text style={[styles.daysLeft, { color: p.muted }]}>· {daysLeft} days left</Text>
-            )}
-            <Ionicons name="pencil-outline" size={13} color={p.muted} style={{ marginLeft: 'auto' as any }} />
-            {/* @ts-ignore — HTML <input> works in React Native Web */}
+        <TouchableOpacity
+          style={[styles.achieveRow, { backgroundColor: p.surface }]}
+          onPress={Platform.OS === 'web' ? openWebDatePicker : openNativeDatePicker}
+          activeOpacity={0.75}
+        >
+          <Text style={[styles.eyebrow, { color: p.muted }]}>ACHIEVE BY</Text>
+          <Text style={[styles.dateText, { color: p.text }]}>{dateDisplay}</Text>
+          {daysLeft != null && (
+            <Text style={[styles.daysLeft, { color: p.muted }]}>· {daysLeft} days left</Text>
+          )}
+          <Ionicons name="pencil-outline" size={13} color={p.muted} style={{ marginLeft: 'auto' as any }} />
+          {Platform.OS === 'web' && (
+            // @ts-ignore — raw HTML input, zero-sized and non-interactive;
+            // opened imperatively by openWebDatePicker() via the ref above.
             <input
+              ref={dateInputRef}
               type="date"
               value={goal.targetDate ?? ''}
               onChange={(e: any) =>
                 updateGoal({ ...goal, targetDate: e.target.value || undefined })
               }
               style={{
-                position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer',
-                width: '100%', height: '100%', border: 'none', boxSizing: 'border-box',
+                position: 'absolute',
+                width: 0,
+                height: 0,
+                opacity: 0,
+                pointerEvents: 'none',
+                border: 'none',
               }}
             />
-          </View>
-        ) : (
-          <TouchableOpacity
-            style={[styles.achieveRow, { backgroundColor: p.surface }]}
-            onPress={openNativeDatePicker}
-            activeOpacity={0.75}
-          >
-            <Text style={[styles.eyebrow, { color: p.muted }]}>ACHIEVE BY</Text>
-            <Text style={[styles.dateText, { color: p.text }]}>{dateDisplay}</Text>
-            {daysLeft != null && (
-              <Text style={[styles.daysLeft, { color: p.muted }]}>· {daysLeft} days left</Text>
-            )}
-            <Ionicons name="pencil-outline" size={13} color={p.muted} style={{ marginLeft: 'auto' as any }} />
-          </TouchableOpacity>
-        )}
+          )}
+        </TouchableOpacity>
 
         <View style={styles.section}>
           {goal.measurables.length === 0 ? (
@@ -294,7 +303,6 @@ const styles = StyleSheet.create({
     borderRadius: 20, borderWidth: 1, borderStyle: 'dashed',
   },
   suggestionText: { fontSize: 13, fontWeight: '500' },
-  // Native date modal
   dateOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center', justifyContent: 'center', padding: 28,
