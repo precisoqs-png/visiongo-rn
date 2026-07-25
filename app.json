@@ -11,6 +11,9 @@
     "newArchEnabled": true,
     "githubUrl": "https://github.com/precisoqs-png/visiongo-rn",
     "splash": {
+      "image": "./assets/splash.png",
+      "imageWidth": 200,
+      "resizeMode": "contain",
       "backgroundColor": "#f3ecdd"
     },
     "ios": {
@@ -21,7 +24,8 @@
         "usesNonExemptEncryption": false
       },
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSUserNotificationUsageDescription": "VisionGo uses notifications to remind you about your goal check-ins."
       }
     },
     "android": {
