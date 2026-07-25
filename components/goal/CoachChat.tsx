@@ -9,6 +9,8 @@ import { Palette } from '../../theme/themes';
 import { coachService, CoachGoalContext, CoachMessageRaw } from '../../services/coachService';
 import { useAppStore } from '../../store/useAppStore';
 
+const DAILY_LIMIT = 20;
+
 interface Props {
   goal: Goal;
   palette: Palette;
@@ -104,6 +106,8 @@ export function CoachChat({ goal, palette: p }: Props) {
 
   const addChatMessage = useAppStore((s) => s.addChatMessage);
   const addSuggestion = useAppStore((s) => s.addSuggestion);
+  const incrementCoachUsage = useAppStore((s) => s.incrementCoachUsage);
+  const coachUsage = useAppStore((s) => s.coachUsage);
 
   const inputRef = useRef<TextInput>(null);
 
@@ -112,9 +116,25 @@ export function CoachChat({ goal, palette: p }: Props) {
     return () => clearTimeout(t);
   }, []);
 
+  // Derive today's remaining count reactively so the UI updates without a send
+  const todayKey = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+  const usedToday = coachUsage.date === todayKey ? coachUsage.count : 0;
+  const limitReached = usedToday >= DAILY_LIMIT;
+
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || loading) return;
+
+    // Check daily cap before doing anything
+    const allowed = incrementCoachUsage();
+    if (!allowed) {
+      setError("You've reached today's coaching limit — check back tomorrow!");
+      return;
+    }
+
     setInput('');
     setError('');
 
@@ -135,8 +155,6 @@ export function CoachChat({ goal, palette: p }: Props) {
       today: new Date(),
     };
 
-    // Build history from existing chat, then append the message just sent.
-    // goal.chat is the pre-update snapshot so we must include `text` explicitly.
     const history: CoachMessageRaw[] = [
       ...goal.chat.map((m) => ({
         role: m.sender === 'user' ? ('user' as const) : ('assistant' as const),
@@ -226,31 +244,46 @@ export function CoachChat({ goal, palette: p }: Props) {
         <Text style={[styles.errorText, { color: '#c0392b' }]}>{error}</Text>
       )}
 
-      <View style={[styles.inputRow, { backgroundColor: p.surface }]}>
-        <TextInput
-          ref={inputRef}
-          style={[styles.input, { color: p.text }]}
-          placeholder="Message your coach…"
-          placeholderTextColor={p.muted}
-          value={input}
-          onChangeText={setInput}
-          multiline
-          returnKeyType="send"
-          onSubmitEditing={sendMessage}
-          autoFocus={Platform.OS !== 'web'}
-        />
-        <TouchableOpacity
-          style={[
-            styles.sendBtn,
-            { backgroundColor: input.trim() && !loading ? p.accent : p.line },
-          ]}
-          onPress={sendMessage}
-          disabled={!input.trim() || loading}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="arrow-up" size={16} color={p.surface} />
-        </TouchableOpacity>
-      </View>
+      {limitReached ? (
+        <View style={[styles.limitBanner, { backgroundColor: p.surface }]}>
+          <Ionicons name="time-outline" size={16} color={p.muted} style={{ marginRight: 8 }} />
+          <Text style={[styles.limitText, { color: p.muted }]}>
+            You've reached today's coaching limit — check back tomorrow!
+          </Text>
+        </View>
+      ) : (
+        <View style={[styles.inputRow, { backgroundColor: p.surface }]}>
+          <TextInput
+            ref={inputRef}
+            style={[styles.input, { color: p.text }]}
+            placeholder="Message your coach…"
+            placeholderTextColor={p.muted}
+            value={input}
+            onChangeText={setInput}
+            multiline
+            returnKeyType="send"
+            onSubmitEditing={sendMessage}
+            autoFocus={Platform.OS !== 'web'}
+          />
+          <TouchableOpacity
+            style={[
+              styles.sendBtn,
+              { backgroundColor: input.trim() && !loading ? p.accent : p.line },
+            ]}
+            onPress={sendMessage}
+            disabled={!input.trim() || loading}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="arrow-up" size={16} color={p.surface} />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {!limitReached && usedToday > 0 && (
+        <Text style={[styles.usageHint, { color: p.muted }]}>
+          {DAILY_LIMIT - usedToday} of {DAILY_LIMIT} coaching messages remaining today
+        </Text>
+      )}
     </View>
   );
 }
@@ -268,6 +301,12 @@ const styles = StyleSheet.create({
   userBubble: { alignSelf: 'flex-end' },
   bubbleText: { fontSize: 14, lineHeight: 20 },
   errorText: { fontSize: 13, marginBottom: 8 },
+  limitBanner: {
+    flexDirection: 'row', alignItems: 'center',
+    borderRadius: 14, padding: 14, marginTop: 8,
+  },
+  limitText: { fontSize: 14, flex: 1, lineHeight: 20 },
+  usageHint: { fontSize: 11, marginTop: 6, textAlign: 'right' },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',

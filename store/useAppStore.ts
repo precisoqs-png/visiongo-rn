@@ -9,6 +9,12 @@ import {
 } from './models';
 import { GOAL_NOTE_COLORS as COLORS } from '../theme/themes';
 
+const COACH_DAILY_LIMIT = 20;
+
+function todayKey(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 interface AppState {
   years: YearData[];
@@ -17,6 +23,9 @@ interface AppState {
   selectedYear: number;
   boardLayout: BoardLayout;
   boardViewMode: BoardViewMode;
+
+  // Daily coach usage — { date: 'YYYY-MM-DD', count: number }
+  coachUsage: { date: string; count: number };
 
   selectYear: (year: number) => void;
   currentYearData: () => YearData | undefined;
@@ -41,7 +50,9 @@ interface AppState {
   allTasks: () => TaskGroup[];
   completeTaskItem: (item: TaskItem) => void;
 
-  // goals: pre-built Goal objects (from templates or custom)
+  // Returns true if the send is allowed, false if the daily cap is reached.
+  incrementCoachUsage: () => boolean;
+
   completeOnboarding: (year: number, motto: string, goals: Goal[]) => void;
   resetOnboarding: () => void;
 
@@ -86,6 +97,7 @@ export const useAppStore = create<AppState>()(
       selectedYear: new Date().getFullYear(),
       boardLayout: 'radial',
       boardViewMode: 'wholeYear',
+      coachUsage: { date: '', count: 0 },
 
       currentYearData: () => get().years.find((y) => y.year === get().selectedYear),
 
@@ -332,6 +344,21 @@ export const useAppStore = create<AppState>()(
             };
           }),
         }));
+      },
+
+      incrementCoachUsage: () => {
+        const today = todayKey();
+        const { coachUsage } = get();
+        if (coachUsage.date !== today) {
+          // New day — reset counter and allow
+          set({ coachUsage: { date: today, count: 1 } });
+          return true;
+        }
+        if (coachUsage.count >= COACH_DAILY_LIMIT) {
+          return false;
+        }
+        set({ coachUsage: { date: today, count: coachUsage.count + 1 } });
+        return true;
       },
 
       completeOnboarding: (year, motto, goals) => {
