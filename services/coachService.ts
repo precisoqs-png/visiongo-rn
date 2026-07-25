@@ -290,8 +290,17 @@ export class ProxyCoachService implements CoachService {
       return new StubCoachService().send(messages, ctx);
     }
 
-    const data = await response.json();
+    let data: any;
+    try {
+      data = await response.json();
+    } catch {
+      // Malformed body (e.g. an HTML error page from a static host)
+      return new StubCoachService().send(messages, ctx);
+    }
     const rawText: string = data.content?.[0]?.text ?? '';
+    if (!rawText) {
+      return new StubCoachService().send(messages, ctx);
+    }
     const { displayText, suggestions } = parseSuggestions(rawText);
     return { text: displayText, suggestions };
   }

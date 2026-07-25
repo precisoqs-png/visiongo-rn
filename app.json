@@ -30,6 +30,7 @@
     },
     "android": {
       "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#f3ecdd"
       },
       "package": "com.visiongo.app"
@@ -44,8 +45,8 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/icon.png",
-          "color": "#f3ecdd"
+          "icon": "./assets/notification-icon.png",
+          "color": "#5f9e5a"
         }
       ],
       [
