@@ -10,6 +10,7 @@ interface Props {
   yearData: YearData;
   palette: Palette;
   onGoalPress: (id: string) => void;
+  onGoalLongPress?: (id: string, title: string) => void;
   onAddGoal: () => void;
   onCompletedPress: () => void;
 }
@@ -17,7 +18,6 @@ interface Props {
 const CENTER_SIZE = 132;
 const MIN_BUBBLE = 70;
 const MAX_BUBBLE = 102;
-// Space to keep clear at the bottom of the onLayout container (FAB 54px + margin)
 const BOTTOM_SAFE = 88;
 const TOP_SAFE = 8;
 
@@ -29,13 +29,12 @@ function bubbleLayout(
   orbitR: number,
 ) {
   const angleDeg = -90 + idx * (360 / Math.max(total, 1));
-  // Alternate outer/inner orbit for organic feel — no random jitter so nothing clips
   const r = idx % 2 === 0 ? orbitR : orbitR * 0.87;
   const angle = (angleDeg * Math.PI) / 180;
   return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
 }
 
-export function RadialBoard({ yearData, palette, onGoalPress, onAddGoal, onCompletedPress }: Props) {
+export function RadialBoard({ yearData, palette, onGoalPress, onGoalLongPress, onAddGoal, onCompletedPress }: Props) {
   const [size, setSize] = useState({ w: 390, h: 420 });
 
   const activeGoals = yearData.goals.filter((g) => !isCompleted(g));
@@ -46,14 +45,12 @@ export function RadialBoard({ yearData, palette, onGoalPress, onAddGoal, onCompl
   const cx = size.w / 2;
   const cy = size.h * 0.44;
 
-  // Largest orbit radius that keeps every bubble edge inside the container at every angle
   const maxBubbleR = MAX_BUBBLE / 2 + 10;
   const safeOrbitR = Math.min(
-    cx - maxBubbleR,                         // left + right (symmetric)
-    cy - TOP_SAFE - maxBubbleR,              // top
-    size.h - BOTTOM_SAFE - cy - maxBubbleR,  // bottom (above FAB)
+    cx - maxBubbleR,
+    cy - TOP_SAFE - maxBubbleR,
+    size.h - BOTTOM_SAFE - cy - maxBubbleR,
   );
-  // Never let orbit shrink below the center ring
   const orbitR = Math.max(safeOrbitR, CENTER_SIZE / 2 + maxBubbleR + 6);
 
   return (
@@ -92,7 +89,7 @@ export function RadialBoard({ yearData, palette, onGoalPress, onAddGoal, onCompl
         </View>
       </View>
 
-      {/* Goal bubbles — evenly spaced around safe orbit, alternating inner/outer */}
+      {/* Goal bubbles */}
       {activeGoals.map((goal, idx) => {
         const prog = goalProgress(goal);
         const bubbleSize = Math.round(MIN_BUBBLE + prog * (MAX_BUBBLE - MIN_BUBBLE));
@@ -111,13 +108,14 @@ export function RadialBoard({ yearData, palette, onGoalPress, onAddGoal, onCompl
               size={bubbleSize}
               palette={palette}
               onPress={() => onGoalPress(goal.id)}
+              onLongPress={onGoalLongPress ? () => onGoalLongPress(goal.id, goal.title) : undefined}
               animDelay={idx * 70}
             />
           </View>
         );
       })}
 
-      {/* Completed badge — bottom left */}
+      {/* Completed badge */}
       {completedCount > 0 && (
         <TouchableOpacity
           style={[styles.completedPill, { backgroundColor: palette.accent }]}
@@ -131,7 +129,7 @@ export function RadialBoard({ yearData, palette, onGoalPress, onAddGoal, onCompl
         </TouchableOpacity>
       )}
 
-      {/* FAB — bottom right */}
+      {/* FAB */}
       <TouchableOpacity
         style={[
           styles.fab,

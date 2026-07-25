@@ -11,6 +11,7 @@ import { RadialBoard } from '../../components/board/RadialBoard';
 import { GridBoard } from '../../components/board/GridBoard';
 import { MonthBoard } from '../../components/board/MonthBoard';
 import { TemplatePicker } from '../../components/board/TemplatePicker';
+import { GoalActionSheet } from '../../components/board/GoalActionSheet';
 import { FONTS } from '../../theme/themes';
 
 export default function BoardScreen() {
@@ -29,7 +30,13 @@ export default function BoardScreen() {
   const yd = useAppStore((s) => s.years.find((y) => y.year === s.selectedYear));
 
   const [pickerVisible, setPickerVisible] = useState(false);
+  const [actionGoal, setActionGoal] = useState<{ id: string; title: string } | null>(null);
+
   const isEmpty = !yd || yd.goals.length === 0;
+
+  const handleGoalLongPress = (id: string, title: string) => {
+    setActionGoal({ id, title });
+  };
 
   return (
     <LinearGradient colors={p.bgGradient as any} style={styles.root}>
@@ -92,17 +99,14 @@ export default function BoardScreen() {
         )}
 
         {isEmpty ? (
-          <EmptyState
-            year={selectedYear}
-            p={p}
-            onAdd={() => setPickerVisible(true)}
-          />
+          <EmptyState year={selectedYear} p={p} onAdd={() => setPickerVisible(true)} />
         ) : boardViewMode === 'wholeYear' ? (
           boardLayout === 'radial' ? (
             <RadialBoard
               yearData={yd}
               palette={p}
               onGoalPress={(id) => router.push(`/goal/${id}`)}
+              onGoalLongPress={handleGoalLongPress}
               onAddGoal={() => setPickerVisible(true)}
               onCompletedPress={() => router.push('/completed')}
             />
@@ -111,6 +115,7 @@ export default function BoardScreen() {
               yearData={yd}
               palette={p}
               onGoalPress={(id) => router.push(`/goal/${id}`)}
+              onGoalLongPress={handleGoalLongPress}
               onAddGoal={() => setPickerVisible(true)}
             />
           )
@@ -128,6 +133,14 @@ export default function BoardScreen() {
         onDismiss={() => setPickerVisible(false)}
         palette={p}
       />
+
+      <GoalActionSheet
+        goalId={actionGoal?.id ?? null}
+        goalTitle={actionGoal?.title ?? ''}
+        visible={!!actionGoal}
+        onDismiss={() => setActionGoal(null)}
+        palette={p}
+      />
     </LinearGradient>
   );
 }
@@ -136,7 +149,6 @@ function EmptyState({ year, p, onAdd }: { year: number; p: any; onAdd: () => voi
   const RING = 200;
   return (
     <View style={styles.emptyWrap}>
-      {/* Dashed year ring with "+" badge */}
       <View style={styles.ringWrap}>
         <View
           style={[
@@ -198,7 +210,6 @@ const styles = StyleSheet.create({
   },
   segBtn: { flex: 1, paddingVertical: 7, borderRadius: 16, alignItems: 'center' },
   segText: { fontSize: 13, fontWeight: '500' },
-  // Empty state
   emptyWrap: {
     flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 16,
   },

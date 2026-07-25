@@ -8,10 +8,11 @@ interface Props {
   yearData: YearData;
   palette: Palette;
   onGoalPress: (id: string) => void;
+  onGoalLongPress?: (id: string, title: string) => void;
   onAddGoal: () => void;
 }
 
-export function GridBoard({ yearData, palette, onGoalPress, onAddGoal }: Props) {
+export function GridBoard({ yearData, palette, onGoalPress, onGoalLongPress, onAddGoal }: Props) {
   const active = yearData.goals.filter((g) => !isCompleted(g));
 
   return (
@@ -27,6 +28,8 @@ export function GridBoard({ yearData, palette, onGoalPress, onAddGoal }: Props) 
             key={goal.id}
             style={[styles.row, { backgroundColor: palette.surface }]}
             onPress={() => onGoalPress(goal.id)}
+            onLongPress={onGoalLongPress ? () => onGoalLongPress(goal.id, goal.title) : undefined}
+            delayLongPress={500}
             activeOpacity={0.75}
           >
             {/* Disc */}

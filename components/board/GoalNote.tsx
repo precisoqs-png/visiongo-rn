@@ -8,10 +8,11 @@ interface Props {
   size: number;
   palette: Palette;
   onPress: () => void;
+  onLongPress?: () => void;
   animDelay?: number;
 }
 
-export function GoalNote({ goal, size, palette, onPress, animDelay = 0 }: Props) {
+export function GoalNote({ goal, size, palette, onPress, onLongPress, animDelay = 0 }: Props) {
   const scale = useRef(new Animated.Value(0)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   const noteColor = GOAL_NOTE_COLORS[goal.colorIndex % GOAL_NOTE_COLORS.length];
@@ -40,7 +41,13 @@ export function GoalNote({ goal, size, palette, onPress, animDelay = 0 }: Props)
 
   return (
     <Animated.View style={[{ transform: [{ scale }], opacity }, styles.wrapper]}>
-      <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={Platform.OS === 'web' ? { cursor: 'pointer' } as any : undefined}>
+      <TouchableOpacity
+        onPress={onPress}
+        onLongPress={onLongPress}
+        delayLongPress={500}
+        activeOpacity={0.8}
+        style={Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : undefined}
+      >
         <View
           style={[
             styles.circle,
@@ -53,7 +60,6 @@ export function GoalNote({ goal, size, palette, onPress, animDelay = 0 }: Props)
             },
           ]}
         >
-          {/* Bottom fill — use the bubble's own color, not global accent */}
           <View
             style={{
               position: 'absolute',
@@ -62,7 +68,6 @@ export function GoalNote({ goal, size, palette, onPress, animDelay = 0 }: Props)
               backgroundColor: hexAlpha(noteColor, 0.72),
             }}
           />
-          {/* Label */}
           <View style={styles.labelContainer}>
             <Text style={[styles.pct, { color: palette.text, fontSize: size * 0.18 }]}>
               {pct}%

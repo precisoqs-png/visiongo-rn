@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, Platform, Modal,
+  StyleSheet, Platform, Modal, Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -14,7 +14,6 @@ import { MeasurableCard } from '../../components/goal/MeasurableCard';
 import { AddMeasurableForm } from '../../components/goal/AddMeasurableForm';
 import { CoachChat } from '../../components/goal/CoachChat';
 
-// Parse YYYY-MM-DD as a local date to avoid UTC-midnight timezone shift
 function localDate(iso: string): Date {
   const [y, mo, d] = iso.slice(0, 10).split('-').map(Number);
   return new Date(y, mo - 1, d);
@@ -27,36 +26,52 @@ export default function GoalDetailScreen() {
   const p = palette;
 
   const updateGoal = useAppStore((s) => s.updateGoal);
+  const deleteGoal = useAppStore((s) => s.deleteGoal);
   const addMeasurable = useAppStore((s) => s.addMeasurable);
   const updateMeasurable = useAppStore((s) => s.updateMeasurable);
   const deleteMeasurable = useAppStore((s) => s.deleteMeasurable);
   const addSuggestionAsMeasurable = useAppStore((s) => s.addSuggestionAsMeasurable);
   const removeSuggestion = useAppStore((s) => s.removeSuggestion);
 
-  // Reactive subscription so the component re-renders when store updates
   const goal = useAppStore((s) =>
     s.years.find((y) => y.year === s.selectedYear)?.goals.find((g) => g.id === id),
   );
 
-  // Local draft for the title field so typing feels instant
   const [titleDraft, setTitleDraft] = useState(goal?.title ?? '');
   useEffect(() => {
     if (goal?.id) setTitleDraft(goal.title);
   }, [goal?.id]);
 
-  // Native date picker state
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dateDraft, setDateDraft] = useState('');
 
-  // Web: ref to hidden <input type="date"> — opened imperatively via showPicker()
   const dateInputRef = useRef<any>(null);
   const openWebDatePicker = () => {
     if (!dateInputRef.current) return;
-    // showPicker() is the modern API; .click() as fallback for older browsers
     if (typeof dateInputRef.current.showPicker === 'function') {
       dateInputRef.current.showPicker();
     } else {
       dateInputRef.current.click();
+    }
+  };
+
+  const handleDelete = () => {
+    const title = goal?.title ?? 'this goal';
+    const doDelete = () => {
+      deleteGoal(id!);
+      router.back();
+    };
+    if (Platform.OS === 'web') {
+      if (window.confirm(`Delete "${title}"? This cannot be undone.`)) doDelete();
+    } else {
+      Alert.alert(
+        'Delete Goal',
+        `Delete "${title}"? This cannot be undone.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: doDelete },
+        ],
+      );
     }
   };
 
@@ -106,15 +121,20 @@ export default function GoalDetailScreen() {
               <Text style={[styles.backText, { color: p.text }]}>Board</Text>
             </TouchableOpacity>
             <Text style={[styles.goalLabel, { color: p.muted }]}>GOAL · {useAppStore.getState().selectedYear}</Text>
-            <TouchableOpacity
-              onPress={() => updateGoal({ ...goal, reminder: { ...goal.reminder, on: !goal.reminder.on } })}
-            >
-              <Ionicons
-                name={goal.reminder.on ? 'notifications' : 'notifications-outline'}
-                size={20}
-                color={goal.reminder.on ? p.accent : p.muted}
-              />
-            </TouchableOpacity>
+            <View style={styles.navActions}>
+              <TouchableOpacity
+                onPress={() => updateGoal({ ...goal, reminder: { ...goal.reminder, on: !goal.reminder.on } })}
+              >
+                <Ionicons
+                  name={goal.reminder.on ? 'notifications' : 'notifications-outline'}
+                  size={20}
+                  color={goal.reminder.on ? p.accent : p.muted}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleDelete} style={{ marginLeft: 14 }}>
+                <Ionicons name="trash-outline" size={20} color={p.muted} />
+              </TouchableOpacity>
+            </View>
           </View>
 
           <TextInput
@@ -137,13 +157,6 @@ export default function GoalDetailScreen() {
           </View>
         </LinearGradient>
 
-        {/*
-          ACHIEVE BY row — tappable to set a date.
-          Web: TouchableOpacity calls showPicker() on a hidden <input type="date">
-               via ref. This is more reliable than an opacity-0 overlay because
-               RN Web's overflow:hidden can swallow pointer events on abs children.
-          Native: opens a text-entry modal (YYYY-MM-DD).
-        */}
         <TouchableOpacity
           style={[styles.achieveRow, { backgroundColor: p.surface }]}
           onPress={Platform.OS === 'web' ? openWebDatePicker : openNativeDatePicker}
@@ -156,8 +169,7 @@ export default function GoalDetailScreen() {
           )}
           <Ionicons name="pencil-outline" size={13} color={p.muted} style={{ marginLeft: 'auto' as any }} />
           {Platform.OS === 'web' && (
-            // @ts-ignore — raw HTML input, zero-sized and non-interactive;
-            // opened imperatively by openWebDatePicker() via the ref above.
+            // @ts-ignore
             <input
               ref={dateInputRef}
               type="date"
@@ -225,6 +237,7 @@ export default function GoalDetailScreen() {
         <View style={styles.section}>
           <CoachChat goal={goal} palette={p} />
         </View>
+
       </ScrollView>
 
       {/* Native date entry modal */}
@@ -277,6 +290,7 @@ const styles = StyleSheet.create({
   backBtn: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   backText: { fontSize: 14, fontWeight: '500' },
   goalLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 1.5 },
+  navActions: { flexDirection: 'row', alignItems: 'center' },
   titleInput: {
     fontSize: 24, fontWeight: '700', fontFamily: FONTS.display,
     paddingHorizontal: 20, paddingBottom: 10,
