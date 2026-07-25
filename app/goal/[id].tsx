@@ -13,6 +13,12 @@ import { goalProgress, goalProgressPercent } from '../../store/models';
 import { MeasurableCard } from '../../components/goal/MeasurableCard';
 import { AddMeasurableForm } from '../../components/goal/AddMeasurableForm';
 import { CoachChat } from '../../components/goal/CoachChat';
+import {
+  requestNotificationPermission,
+  scheduleGoalNotification,
+  cancelGoalNotification,
+  alertNotificationsUnavailable,
+} from '../../services/notificationService';
 
 function localDate(iso: string): Date {
   const [y, mo, d] = iso.slice(0, 10).split('-').map(Number);
@@ -36,6 +42,25 @@ export default function GoalDetailScreen() {
   const goal = useAppStore((s) =>
     s.years.find((y) => y.year === s.selectedYear)?.goals.find((g) => g.id === id),
   );
+  const notificationsMasterOn = useAppStore((s) => s.notificationsMasterOn);
+
+  // The bell must actually schedule/cancel the reminder, not just flip the flag
+  const toggleReminder = async () => {
+    if (!goal) return;
+    if (!goal.reminder.on) {
+      const granted = await requestNotificationPermission();
+      if (!granted) {
+        alertNotificationsUnavailable();
+        return;
+      }
+      const updated = { ...goal, reminder: { ...goal.reminder, on: true } };
+      updateGoal(updated);
+      if (notificationsMasterOn) await scheduleGoalNotification(updated);
+    } else {
+      updateGoal({ ...goal, reminder: { ...goal.reminder, on: false } });
+      await cancelGoalNotification(goal.id);
+    }
+  };
 
   const [titleDraft, setTitleDraft] = useState(goal?.title ?? '');
   useEffect(() => {
@@ -122,9 +147,7 @@ export default function GoalDetailScreen() {
             </TouchableOpacity>
             <Text style={[styles.goalLabel, { color: p.muted }]}>GOAL · {useAppStore.getState().selectedYear}</Text>
             <View style={styles.navActions}>
-              <TouchableOpacity
-                onPress={() => updateGoal({ ...goal, reminder: { ...goal.reminder, on: !goal.reminder.on } })}
-              >
+              <TouchableOpacity onPress={toggleReminder}>
                 <Ionicons
                   name={goal.reminder.on ? 'notifications' : 'notifications-outline'}
                   size={20}

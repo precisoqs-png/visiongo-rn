@@ -19,22 +19,34 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'messages (array) and systemPrompt (string) are required' }, { status: 400 });
   }
 
-  const upstream = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-3-5-haiku-20241022',
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages,
-    }),
-  });
+  let upstream: globalThis.Response;
+  try {
+    upstream = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-3-5-haiku-20241022',
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages,
+      }),
+    });
+  } catch {
+    // Network failure reaching the model API — report a gateway error instead
+    // of crashing the route with an unhandled rejection.
+    return Response.json({ error: 'Could not reach the AI service.' }, { status: 502 });
+  }
 
-  const data = await upstream.json();
+  let data: unknown;
+  try {
+    data = await upstream.json();
+  } catch {
+    return Response.json({ error: 'Invalid response from the AI service.' }, { status: 502 });
+  }
 
   if (!upstream.ok) {
     return Response.json(data, { status: upstream.status });

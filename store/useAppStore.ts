@@ -4,8 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   YearData, Goal, Measurable, Suggestion, ChatMessage,
   BoardLayout, BoardViewMode,
-  newId, buildSeedData, buildLadderWeeks,
-  goalProgress, isCompleted, isoDate,
+  newId, buildLadderWeeks,
 } from './models';
 import { GOAL_NOTE_COLORS as COLORS } from '../theme/themes';
 
@@ -278,6 +277,9 @@ export const useAppStore = create<AppState>()(
         const yd = get().currentYearData();
         if (!yd) return [];
         const now = new Date();
+        // A task is overdue only once its due date is fully in the past —
+        // something due today belongs in "This Week", not "Overdue".
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const weekEnd = new Date(now); weekEnd.setDate(weekEnd.getDate() + 7);
         const monthEnd = new Date(now); monthEnd.setMonth(monthEnd.getMonth() + 1);
         const buckets: Record<TaskGroupKey, TaskItem[]> = {
@@ -293,7 +295,7 @@ export const useAppStore = create<AppState>()(
                 label: m.label, dueDate, done: m.done,
               };
               if (!dueDate) buckets['Anytime'].push(item);
-              else if (dueDate < now) buckets['Overdue'].push(item);
+              else if (dueDate < todayStart) buckets['Overdue'].push(item);
               else if (dueDate <= weekEnd) buckets['This Week'].push(item);
               else if (dueDate <= monthEnd) buckets['This Month'].push(item);
               else buckets['Upcoming'].push(item);
@@ -306,7 +308,7 @@ export const useAppStore = create<AppState>()(
                   label: `${fmtVal(week.value)} ${m.unit} – ${m.label}`,
                   dueDate: due, done: week.done,
                 };
-                if (due < now) buckets['Overdue'].push(item);
+                if (due < todayStart) buckets['Overdue'].push(item);
                 else if (due <= weekEnd) buckets['This Week'].push(item);
                 else if (due <= monthEnd) buckets['This Month'].push(item);
                 else buckets['Upcoming'].push(item);
@@ -379,9 +381,9 @@ export const useAppStore = create<AppState>()(
     {
       name: 'visiongo-app-data',
       storage: createJSONStorage(() => AsyncStorage),
-      onRehydrateStorage: () => (state) => {
-        if (state && state.years.length === 0) {
-          state.years = buildSeedData();
+      onRehydrateStorage: () => (_state, error) => {
+        if (error) {
+          console.warn('[VisionGo] Failed to restore saved data:', error);
         }
       },
     }

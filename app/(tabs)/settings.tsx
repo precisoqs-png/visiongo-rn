@@ -15,6 +15,7 @@ import {
   scheduleGoalNotification,
   cancelGoalNotification,
   cancelAllGoalNotifications,
+  alertNotificationsUnavailable,
 } from '../../services/notificationService';
 
 export default function SettingsScreen() {
@@ -137,7 +138,11 @@ function NotificationsModal({ visible, onClose, palette: p }: any) {
   async function handleMasterToggle(val: boolean) {
     if (val) {
       const granted = await requestNotificationPermission();
-      if (!granted) return;
+      if (!granted) {
+        // Tell the user why the switch didn't turn on instead of failing silently
+        alertNotificationsUnavailable();
+        return;
+      }
       setNotificationsMaster(true);
       await Promise.all(
         goals.filter((g) => g.reminder.on).map((g) => scheduleGoalNotification(g))
@@ -191,6 +196,12 @@ function NotificationsModal({ visible, onClose, palette: p }: any) {
           </View>
 
           <Text style={[styles.sectionLabel, { color: p.muted, marginTop: 8 }]}>PER GOAL</Text>
+
+          {goals.length === 0 && (
+            <Text style={[styles.emptyGoalsHint, { color: p.muted }]}>
+              No goals yet — add a goal to your board to set up reminders for it.
+            </Text>
+          )}
 
           {goals.map((goal) => (
             <View
@@ -250,6 +261,7 @@ const styles = StyleSheet.create({
   doneText: { fontSize: 16, fontWeight: '600' },
   masterToggle: { flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 14, gap: 10 },
   toggleDesc: { fontSize: 13, marginTop: 2 },
+  emptyGoalsHint: { fontSize: 14, lineHeight: 20, paddingHorizontal: 4 },
   goalNotifCard: { borderRadius: 14, padding: 14, marginBottom: 4 },
   goalDot: { width: 12, height: 12, borderRadius: 6, marginRight: 8 },
   goalNotifTitle: { fontSize: 15, fontWeight: '600' },

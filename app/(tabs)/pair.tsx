@@ -5,12 +5,14 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useThemeStore } from '../../store/useThemeStore';
 import { useAppStore } from '../../store/useAppStore';
 import { GOAL_NOTE_COLORS, FONTS } from '../../theme/themes';
 import { coachService, CoachGoalContext } from '../../services/coachService';
 
 export default function PairScreen() {
+  const router = useRouter();
   const palette = useThemeStore((s) => s.palette);
   const p = palette;
   const goals = useAppStore((s) => s.currentYearData())?.goals ?? [];
@@ -49,6 +51,38 @@ export default function PairScreen() {
     setPickerFor(null);
     setResult(null);
   };
+
+  // Pairing needs at least two goals — guide the user instead of showing
+  // dropdowns that open an empty picker.
+  if (goals.length < 2) {
+    return (
+      <LinearGradient colors={p.bgGradient as any} style={styles.root}>
+        <View style={styles.header}>
+          <Text style={[styles.eyebrow, { color: p.muted }]}>PAIR</Text>
+          <Text style={[styles.subtitle, { color: p.text }]}>See how two goals align</Text>
+        </View>
+        <View style={styles.emptyWrap}>
+          <Ionicons name="link-outline" size={48} color={`${p.muted}66`} />
+          <Text style={[styles.emptyTitle, { color: p.text }]}>
+            {goals.length === 0 ? 'No goals to pair yet' : 'One more goal needed'}
+          </Text>
+          <Text style={[styles.emptyBody, { color: p.muted }]}>
+            Pairing shows how two of your goals reinforce each other. Add at least
+            two goals to your board to try it.
+          </Text>
+          <TouchableOpacity
+            style={[styles.emptyBtn, { backgroundColor: p.ink }]}
+            onPress={() => router.push('/(tabs)/board')}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.emptyBtnText, { color: p.isDark ? p.bg : '#fff' }]}>
+              Go to Board
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </LinearGradient>
+    );
+  }
 
   return (
     <LinearGradient colors={p.bgGradient as any} style={styles.root}>
@@ -122,7 +156,7 @@ export default function PairScreen() {
 }
 
 function GoalDropdown({ label, selected, palette: p, onPress }: any) {
-  const noteColor = selected ? GOAL_NOTE_COLORS[selected.colorIndex % GOAL_NOTE_COLORS.length] : null;
+  const noteColor = selected ? GOAL_NOTE_COLORS[selected.colorIndex % GOAL_NOTE_COLORS.length] : undefined;
   return (
     <View style={{ marginBottom: 6 }}>
       <Text style={[{ fontSize: 11, fontWeight: '600', letterSpacing: 1, color: p.muted, marginBottom: 6 }]}>{label}</Text>
@@ -156,6 +190,11 @@ const styles = StyleSheet.create({
   resultTitle: { fontSize: 14, fontWeight: '600' },
   resultText: { fontSize: 15, lineHeight: 22 },
   goalDot: { width: 10, height: 10, borderRadius: 5 },
+  emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 40, paddingBottom: 60 },
+  emptyTitle: { fontSize: 20, fontWeight: '700', textAlign: 'center' },
+  emptyBody: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  emptyBtn: { borderRadius: 14, paddingVertical: 12, paddingHorizontal: 24, marginTop: 8 },
+  emptyBtnText: { fontSize: 15, fontWeight: '600' },
   // Modal: flex-end so sheet sticks to bottom; absoluteFill dismiss sits behind sheet
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modalSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 40, gap: 4 },
