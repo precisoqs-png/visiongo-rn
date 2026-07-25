@@ -48,7 +48,7 @@ export function TemplatePicker({ visible, onDismiss, palette }: Props) {
       animationType="slide"
       onRequestClose={onDismiss}
     >
-      {/* Scrim — sibling, not parent, so it doesn't swallow sheet taps */}
+      {/* Scrim — sibling before sheet so sheet renders on top */}
       <TouchableOpacity style={styles.scrim} activeOpacity={1} onPress={onDismiss} />
 
       <View style={[styles.sheet, { backgroundColor: p.surface }]}>
@@ -58,19 +58,24 @@ export function TemplatePicker({ visible, onDismiss, palette }: Props) {
         <Text style={[styles.sheetTitle, { color: p.muted }]}>ADD A GOAL</Text>
         <Text style={[styles.sheetSub, { color: p.text }]}>Start from a template</Text>
 
-        <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-          {/* Start from scratch */}
-          <TouchableOpacity
-            style={[styles.row, styles.scratchRow, { borderColor: p.accent }]}
-            onPress={handleScratch}
-          >
-            <View style={[styles.rowIcon, { backgroundColor: `${p.accent}22` }]}>
-              <Ionicons name="add" size={20} color={p.accent} />
-            </View>
-            <Text style={[styles.rowTitle, { color: p.accent }]}>Start from scratch</Text>
-            <Ionicons name="chevron-forward" size={16} color={p.accent} />
-          </TouchableOpacity>
+        {/*
+          "Start from scratch" lives OUTSIDE the ScrollView so its touch target
+          can never overlap with any template row. On RN Web the animated Modal
+          slide can offset internal scroll-item hit-rects, which caused taps on
+          this button to land on the first template below it instead.
+        */}
+        <TouchableOpacity
+          style={[styles.row, styles.scratchRow, { borderColor: p.accent }, styles.scratchOuter]}
+          onPress={handleScratch}
+        >
+          <View style={[styles.rowIcon, { backgroundColor: `${p.accent}22` }]}>
+            <Ionicons name="add" size={20} color={p.accent} />
+          </View>
+          <Text style={[styles.rowTitle, { color: p.accent }]}>Start from scratch</Text>
+          <Ionicons name="chevron-forward" size={16} color={p.accent} />
+        </TouchableOpacity>
 
+        <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
           {TEMPLATE_CATEGORIES.map((cat) => (
             <View key={cat.name} style={styles.category}>
               <Text style={[styles.catHeader, { color: p.muted }]}>{cat.name.toUpperCase()}</Text>
@@ -125,8 +130,9 @@ const styles = StyleSheet.create({
     fontSize: 11, fontWeight: '700', letterSpacing: 2, textAlign: 'center',
   },
   sheetSub: {
-    fontSize: 18, fontWeight: '700', textAlign: 'center', marginTop: 4, marginBottom: 16,
+    fontSize: 18, fontWeight: '700', textAlign: 'center', marginTop: 4, marginBottom: 12,
   },
+  scratchOuter: { marginBottom: 4 },
   list: { flex: 1 },
   category: { marginBottom: 8 },
   catHeader: {
