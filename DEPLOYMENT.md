@@ -138,13 +138,22 @@ npx expo start --dev-client --clear
 
 ### Before running a production build
 
-1. **Fill in `eas.json`** with your real Apple credentials:
+1. **Apple identifiers come from GitHub Secrets, not `eas.json`.**
+   The `submit.production.ios` profile is intentionally left empty so the
+   Apple ID email is not published in this (public) repository. Set the
+   three secrets from Step 2; CI maps them to the env vars EAS CLI reads:
 
-   | Field | Where to find it |
-   |---|---|
-   | `appleId` | Your Apple Developer account email |
-   | `ascAppId` | appstoreconnect.apple.com → your app → App Information → Apple ID |
-   | `appleTeamId` | developer.apple.com/account → Membership Details → Team ID |
+   | GitHub Secret | Env var EAS reads | Where to find the value |
+   |---|---|---|
+   | `APPLE_ID` | `EXPO_APPLE_ID` | Your Apple Developer account email |
+   | `APPLE_TEAM_ID` | `EXPO_APPLE_TEAM_ID` | developer.apple.com/account → Membership Details → Team ID |
+   | `ASC_APP_ID` | *(none — see note)* | appstoreconnect.apple.com → your app → App Information → Apple ID |
+
+   > EAS CLI has no env var for `ascAppId`. When you run `eas submit`
+   > interactively it resolves the app automatically from the bundle
+   > identifier, so you don't need it locally. Only a fully
+   > non-interactive CI submit step would need to inject
+   > `ASC_APP_ID` into `eas.json` at run time.
 
 2. **Make sure all four GitHub Secrets are set** (Step 2 above)
 

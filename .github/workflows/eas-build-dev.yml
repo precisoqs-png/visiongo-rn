@@ -63,6 +63,12 @@ jobs:
           --non-interactive
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
+          # EAS CLI reads these EXPO_-prefixed env vars when appleId /
+          # appleTeamId are omitted from eas.json (kept out of the repo
+          # so the Apple ID email isn't published in a public file).
+          EXPO_APPLE_ID: ${{ secrets.APPLE_ID }}
+          EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # There is no EXPO_* env var for ascAppId. Interactive `eas submit`
+          # auto-resolves it from the bundle id; a future non-interactive
+          # submit step must inject secrets.ASC_APP_ID into eas.json first.
           ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
