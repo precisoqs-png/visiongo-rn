@@ -21,6 +21,15 @@ android/
 # EAS
 .eas/build
 
+# Signing credentials — never commit these to this public repo
+credentials.json
+*.p12
+*.key
+*.cer
+*.pem
+*.mobileprovision
+*.csr
+
 # Editor
 .DS_Store
 *.swp
