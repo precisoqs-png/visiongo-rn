@@ -24,6 +24,7 @@ android/
 # Signing credentials — never commit these to this public repo
 credentials.json
 *.p12
+*.p8
 *.key
 *.cer
 *.pem
