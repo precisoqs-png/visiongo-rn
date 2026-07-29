@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Platform, Pressable,
+  View, Text, TouchableOpacity, StyleSheet, Platform, Pressable, Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../store/useThemeStore';
 import { useAppStore } from '../../store/useAppStore';
+import { BoardPosition } from '../../store/models';
+import { cancelEverythingForGoal } from '../../services/notificationService';
 import { RadialBoard } from '../../components/board/RadialBoard';
 import { GridBoard } from '../../components/board/GridBoard';
 import { MonthBoard } from '../../components/board/MonthBoard';
@@ -36,6 +38,32 @@ export default function BoardScreen() {
 
   const handleGoalLongPress = (id: string, title: string) => {
     setActionGoal({ id, title });
+  };
+
+  // Persist a bubble's dragged position (normalized to board size)
+  const handleGoalMove = (id: string, pos: BoardPosition) => {
+    const goal = useAppStore.getState().getGoal(id);
+    if (goal) useAppStore.getState().updateGoal({ ...goal, boardPosition: pos });
+  };
+
+  // Bubble dropped on the trash zone — confirm, then delete
+  const handleGoalDelete = (id: string, title: string) => {
+    const doDelete = () => {
+      void cancelEverythingForGoal(id);
+      useAppStore.getState().deleteGoal(id);
+    };
+    if (Platform.OS === 'web') {
+      if (window.confirm(`Delete "${title}"? This cannot be undone.`)) doDelete();
+    } else {
+      Alert.alert(
+        'Delete Goal',
+        `Delete "${title}"? This cannot be undone.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: doDelete },
+        ],
+      );
+    }
   };
 
   return (
@@ -106,7 +134,8 @@ export default function BoardScreen() {
               yearData={yd}
               palette={p}
               onGoalPress={(id) => router.push(`/goal/${id}`)}
-              onGoalLongPress={handleGoalLongPress}
+              onGoalMove={handleGoalMove}
+              onGoalDelete={handleGoalDelete}
               onAddGoal={() => setPickerVisible(true)}
               onCompletedPress={() => router.push('/completed')}
             />

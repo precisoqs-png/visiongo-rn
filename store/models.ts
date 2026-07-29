@@ -63,6 +63,13 @@ export interface Suggestion {
   ladderWeeks?: number;
 }
 
+// Normalized (0..1) position of a goal bubble on the radial board.
+// Absent = auto-placed on the orbit ring.
+export interface BoardPosition {
+  x: number;
+  y: number;
+}
+
 export interface Goal {
   id: string;
   title: string;
@@ -72,6 +79,7 @@ export interface Goal {
   chat: ChatMessage[];
   suggestions: Suggestion[];
   measurables: Measurable[];
+  boardPosition?: BoardPosition;
 }
 
 export function goalProgress(g: Goal): number {
@@ -123,7 +131,8 @@ export function buildLadderWeeks(
   const step = (end - start) / count;
   const weeks: LadderWeek[] = [];
   for (let i = 1; i <= Math.max(count, 1); i++) {
-    const value = start + step * i;
+    // Round to 1 decimal so week targets never show float noise like 3.4000001
+    const value = Math.round((start + step * i) * 10) / 10;
     const date = new Date(endDate);
     date.setDate(date.getDate() - (count - i) * 7);
     weeks.push({ id: newId(), value, targetDate: date.toISOString(), done: false });

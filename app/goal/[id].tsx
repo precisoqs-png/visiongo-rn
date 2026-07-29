@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, Platform, Modal, Alert,
+  StyleSheet, Platform, Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -13,10 +13,14 @@ import { goalProgress, goalProgressPercent } from '../../store/models';
 import { MeasurableCard } from '../../components/goal/MeasurableCard';
 import { AddMeasurableForm } from '../../components/goal/AddMeasurableForm';
 import { CoachChat } from '../../components/goal/CoachChat';
+import { CalendarPicker } from '../../components/shared/CalendarPicker';
 import {
   requestNotificationPermission,
   scheduleGoalNotification,
   cancelGoalNotification,
+  cancelWeeklyTargetNotifications,
+  syncWeeklyTargetNotifications,
+  cancelEverythingForGoal,
   alertNotificationsUnavailable,
 } from '../../services/notificationService';
 
@@ -44,7 +48,8 @@ export default function GoalDetailScreen() {
   );
   const notificationsMasterOn = useAppStore((s) => s.notificationsMasterOn);
 
-  // The bell must actually schedule/cancel the reminder, not just flip the flag
+  // The bell must actually schedule/cancel the reminder, not just flip the flag.
+  // Turning it on also schedules a push notification for each weekly target.
   const toggleReminder = async () => {
     if (!goal) return;
     if (!goal.reminder.on) {
@@ -55,10 +60,23 @@ export default function GoalDetailScreen() {
       }
       const updated = { ...goal, reminder: { ...goal.reminder, on: true } };
       updateGoal(updated);
-      if (notificationsMasterOn) await scheduleGoalNotification(updated);
+      if (notificationsMasterOn) {
+        await scheduleGoalNotification(updated);
+        await syncWeeklyTargetNotifications(updated);
+      }
     } else {
       updateGoal({ ...goal, reminder: { ...goal.reminder, on: false } });
       await cancelGoalNotification(goal.id);
+      await cancelWeeklyTargetNotifications(goal.id);
+    }
+  };
+
+  // Re-sync weekly-target notifications after any measurable change,
+  // reading the goal fresh from the store (state updates are synchronous).
+  const resyncWeekNotifications = () => {
+    const fresh = useAppStore.getState().getGoal(id!);
+    if (fresh && useAppStore.getState().notificationsMasterOn) {
+      void syncWeeklyTargetNotifications(fresh);
     }
   };
 
@@ -68,21 +86,11 @@ export default function GoalDetailScreen() {
   }, [goal?.id]);
 
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [dateDraft, setDateDraft] = useState('');
-
-  const dateInputRef = useRef<any>(null);
-  const openWebDatePicker = () => {
-    if (!dateInputRef.current) return;
-    if (typeof dateInputRef.current.showPicker === 'function') {
-      dateInputRef.current.showPicker();
-    } else {
-      dateInputRef.current.click();
-    }
-  };
 
   const handleDelete = () => {
     const title = goal?.title ?? 'this goal';
     const doDelete = () => {
+      void cancelEverythingForGoal(id!);
       deleteGoal(id!);
       router.back();
     };
@@ -119,18 +127,6 @@ export default function GoalDetailScreen() {
   const dateDisplay = goal.targetDate
     ? localDate(goal.targetDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     : 'No date set';
-
-  const openNativeDatePicker = () => {
-    setDateDraft(goal.targetDate ?? '');
-    setShowDatePicker(true);
-  };
-
-  const confirmNativeDate = () => {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dateDraft)) {
-      updateGoal({ ...goal, targetDate: dateDraft });
-    }
-    setShowDatePicker(false);
-  };
 
   return (
     <LinearGradient colors={p.bgGradient as any} style={styles.root}>
@@ -182,7 +178,7 @@ export default function GoalDetailScreen() {
 
         <TouchableOpacity
           style={[styles.achieveRow, { backgroundColor: p.surface }]}
-          onPress={Platform.OS === 'web' ? openWebDatePicker : openNativeDatePicker}
+          onPress={() => setShowDatePicker(true)}
           activeOpacity={0.75}
         >
           <Text style={[styles.eyebrow, { color: p.muted }]}>ACHIEVE BY</Text>
@@ -190,26 +186,7 @@ export default function GoalDetailScreen() {
           {daysLeft != null && (
             <Text style={[styles.daysLeft, { color: p.muted }]}>· {daysLeft} days left</Text>
           )}
-          <Ionicons name="pencil-outline" size={13} color={p.muted} style={{ marginLeft: 'auto' as any }} />
-          {Platform.OS === 'web' && (
-            // @ts-ignore
-            <input
-              ref={dateInputRef}
-              type="date"
-              value={goal.targetDate ?? ''}
-              onChange={(e: any) =>
-                updateGoal({ ...goal, targetDate: e.target.value || undefined })
-              }
-              style={{
-                position: 'absolute',
-                width: 0,
-                height: 0,
-                opacity: 0,
-                pointerEvents: 'none',
-                border: 'none',
-              }}
-            />
-          )}
+          <Ionicons name="calendar-outline" size={14} color={p.muted} style={{ marginLeft: 'auto' as any }} />
         </TouchableOpacity>
 
         <View style={styles.section}>
@@ -223,8 +200,8 @@ export default function GoalDetailScreen() {
                 key={m.id}
                 measurable={m}
                 palette={p}
-                onUpdate={(m) => updateMeasurable(m, goal.id)}
-                onDelete={(mid) => deleteMeasurable(mid, goal.id)}
+                onUpdate={(m) => { updateMeasurable(m, goal.id); resyncWeekNotifications(); }}
+                onDelete={(mid) => { deleteMeasurable(mid, goal.id); resyncWeekNotifications(); }}
               />
             ))
           )}
@@ -239,7 +216,7 @@ export default function GoalDetailScreen() {
                   <TouchableOpacity
                     key={s.id}
                     style={[styles.suggestionChip, { borderColor: `${p.accent}80` }]}
-                    onPress={() => addSuggestionAsMeasurable(s, goal.id)}
+                    onPress={() => { addSuggestionAsMeasurable(s, goal.id); resyncWeekNotifications(); }}
                   >
                     <Text style={[styles.suggestionText, { color: p.accent }]}>+ {s.label}</Text>
                   </TouchableOpacity>
@@ -253,7 +230,7 @@ export default function GoalDetailScreen() {
           <AddMeasurableForm
             goal={goal}
             palette={p}
-            onAdd={(m) => addMeasurable(m, goal.id)}
+            onAdd={(m) => { addMeasurable(m, goal.id); resyncWeekNotifications(); }}
           />
         </View>
 
@@ -263,41 +240,21 @@ export default function GoalDetailScreen() {
 
       </ScrollView>
 
-      {/* Native date entry modal */}
-      <Modal visible={showDatePicker} transparent animationType="fade">
-        <View style={styles.dateOverlay}>
-          <View style={[styles.dateModal, { backgroundColor: p.surface }]}>
-            <Text style={[styles.eyebrow, { color: p.muted, marginBottom: 12 }]}>SET TARGET DATE</Text>
-            <TextInput
-              style={[styles.dateInput, { color: p.text, borderColor: p.line }]}
-              placeholder="YYYY-MM-DD  (e.g. 2025-12-31)"
-              placeholderTextColor={p.muted}
-              value={dateDraft}
-              onChangeText={setDateDraft}
-              keyboardType="numbers-and-punctuation"
-              autoFocus
-            />
-            <View style={styles.dateActions}>
-              {goal.targetDate && (
-                <TouchableOpacity
-                  onPress={() => {
-                    updateGoal({ ...goal, targetDate: undefined });
-                    setShowDatePicker(false);
-                  }}
-                >
-                  <Text style={{ color: '#c0392b', fontSize: 15 }}>Clear</Text>
-                </TouchableOpacity>
-              )}
-              <TouchableOpacity onPress={() => setShowDatePicker(false)}>
-                <Text style={{ color: p.muted, fontSize: 15 }}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={confirmNativeDate}>
-                <Text style={{ color: p.accent, fontWeight: '600', fontSize: 15 }}>Set Date</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      {/* Calendar pop-up for the "Achieve by" date */}
+      <CalendarPicker
+        visible={showDatePicker}
+        value={goal.targetDate}
+        palette={p}
+        onSelect={(iso) => {
+          updateGoal({ ...goal, targetDate: iso });
+          setShowDatePicker(false);
+        }}
+        onClear={() => {
+          updateGoal({ ...goal, targetDate: undefined });
+          setShowDatePicker(false);
+        }}
+        onDismiss={() => setShowDatePicker(false)}
+      />
     </LinearGradient>
   );
 }
@@ -340,16 +297,4 @@ const styles = StyleSheet.create({
     borderRadius: 20, borderWidth: 1, borderStyle: 'dashed',
   },
   suggestionText: { fontSize: 13, fontWeight: '500' },
-  dateOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
-    alignItems: 'center', justifyContent: 'center', padding: 28,
-  },
-  dateModal: { width: '100%', borderRadius: 16, padding: 20 },
-  dateInput: {
-    fontSize: 16, borderBottomWidth: 1,
-    paddingVertical: 8, marginBottom: 20,
-  },
-  dateActions: {
-    flexDirection: 'row', justifyContent: 'flex-end', gap: 18,
-  },
 });

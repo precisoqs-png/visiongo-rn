@@ -5,6 +5,7 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppStore } from '../../store/useAppStore';
+import { cancelEverythingForGoal } from '../../services/notificationService';
 
 interface Props {
   goalId: string | null;
@@ -26,6 +27,7 @@ export function GoalActionSheet({ goalId, goalTitle, visible, onDismiss, palette
 
   const confirmDelete = () => {
     if (!goalId) return;
+    void cancelEverythingForGoal(goalId);
     deleteGoal(goalId);
     onDismiss();
   };

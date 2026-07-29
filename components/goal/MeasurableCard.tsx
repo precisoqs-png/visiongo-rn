@@ -91,13 +91,15 @@ function NumberRow({ m, p, onUpdate, onDelete, frac }: { m: Measurable; p: Palet
 
 function LadderRows({ m, p, onUpdate, onDelete, frac }: { m: Measurable; p: Palette; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number }) {
   const fmt = (v: number) => v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
-  const pct = Math.round(frac * 100);
+  const doneCount = m.weeks.filter((w) => w.done).length;
 
   return (
     <View>
       <View style={[styles.row, { marginBottom: 8 }]}>
         <Text style={[styles.numLabel, { color: p.text }]}>{m.label}</Text>
-        <Text style={[styles.ladderPct, { color: p.accent }]}>{pct}%</Text>
+        <Text style={[styles.ladderPct, { color: p.accent }]}>
+          {doneCount}/{m.weeks.length} wks
+        </Text>
         <TouchableOpacity onPress={() => onDelete(m.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={{ marginLeft: 8 }}>
           <Ionicons name="close" size={14} color={p.muted} />
         </TouchableOpacity>
