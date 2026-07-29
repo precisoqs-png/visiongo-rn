@@ -16,6 +16,10 @@ interface Props {
   palette: Palette;
   // Called after the store changed, so the screen can re-sync reminders.
   onGoalEdited?: () => void;
+  // A message handed over from elsewhere on the screen (the "Ask coach" button
+  // on an effort minor goal). Sent once, then cleared via onSeedConsumed.
+  seedMessage?: string | null;
+  onSeedConsumed?: () => void;
 }
 
 // ── Pulsing thinking dots ────────────────────────────────────
@@ -100,7 +104,9 @@ function TypewriterText({ text, color, speed = 30, onDone }: TypewriterProps) {
 
 // ── Main chat component ──────────────────────────────────
 
-export function CoachChat({ goal, palette: p, onGoalEdited }: Props) {
+export function CoachChat({
+  goal, palette: p, onGoalEdited, seedMessage, onSeedConsumed,
+}: Props) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -130,8 +136,8 @@ export function CoachChat({ goal, palette: p, onGoalEdited }: Props) {
   const usedToday = coachUsage.date === todayKey ? coachUsage.count : 0;
   const limitReached = usedToday >= DAILY_LIMIT;
 
-  const sendMessage = async () => {
-    const text = input.trim();
+  const sendText = async (raw: string) => {
+    const text = raw.trim();
     if (!text || loading) return;
 
     // Check daily cap before doing anything
@@ -141,7 +147,6 @@ export function CoachChat({ goal, palette: p, onGoalEdited }: Props) {
       return;
     }
 
-    setInput('');
     setError('');
 
     const userMsg: ChatMessage = {
@@ -160,6 +165,7 @@ export function CoachChat({ goal, palette: p, onGoalEdited }: Props) {
       weeksRemaining: weeksLeft,
       today: new Date(),
       measurables: goal.measurables,
+      minorGoals: goal.minorGoals ?? [],
       exchangeCount: goal.chat.filter((m) => m.sender === 'coach').length,
     };
 
@@ -186,6 +192,26 @@ export function CoachChat({ goal, palette: p, onGoalEdited }: Props) {
       setLoading(false);
     }
   };
+
+  // The composer's own send. Kept argument-free so onPress's gesture event
+  // can never be mistaken for message text.
+  const sendMessage = () => {
+    const text = input.trim();
+    if (!text || loading) return;
+    setInput('');
+    void sendText(text);
+  };
+
+  // "Ask coach" on an effort minor goal seeds a message from outside the
+  // composer; send it once, guarding against the re-render that clears it.
+  const seedSentRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!seedMessage || loading) return;
+    if (seedSentRef.current === seedMessage) return;
+    seedSentRef.current = seedMessage;
+    onSeedConsumed?.();
+    void sendText(seedMessage);
+  }, [seedMessage, loading]);
 
   return (
     <View>

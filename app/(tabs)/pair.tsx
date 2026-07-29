@@ -37,6 +37,7 @@ export default function PairScreen() {
         goalTitle: `${g1.title} + ${g2.title}`,
         today: new Date(),
         measurables: [],
+        minorGoals: [],
         exchangeCount: 0,
         kind: 'pairing',
       };

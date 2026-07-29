@@ -64,6 +64,233 @@ export function measurableFraction(m: Measurable): number {
   }
 }
 
+// ── Minor goals and accountable steps ─────────────────────────
+//
+// A goal breaks down into Minor Goals ("Save $10,000", "Run a marathon"), and
+// each Minor Goal carries Accountable Steps — one concrete recurring
+// commitment ("Save $1,000 per month") that can drive a push reminder.
+
+export type Cadence = 'weekly' | 'monthly' | 'custom';
+
+// Notification config for one accountable step. The user picks the day and
+// time; nothing is scheduled while `on` is false.
+export interface StepSchedule {
+  on: boolean;
+  weekday: number;    // 1 = Sunday … 7 = Saturday (expo convention), weekly
+  dayOfMonth: number; // 1–28, monthly — capped so every month has the day
+  hour: number;
+  minute: number;
+}
+
+export interface AccountableStep {
+  id: string;
+  label: string;          // "Save $1,000 per month"
+  amount?: number;        // per-period target, for numeric minor goals
+  unit?: string;
+  cadence: Cadence;
+  intervalDays?: number;  // custom cadence only
+  schedule: StepSchedule;
+  // Period keys ("2026-W31", "2026-08", "2026-08-14") the user has checked off.
+  completions: string[];
+  createdAt: string;
+}
+
+export type MinorGoalKind = 'numeric' | 'effort';
+
+export interface MinorGoal {
+  id: string;
+  title: string;
+  kind: MinorGoalKind;
+  // numeric only
+  target?: number;
+  current?: number;
+  unit?: string;
+  step?: number;
+  deadline?: string;      // ISO date string
+  // effort goals are simply marked done; numeric ones derive from current/target
+  done: boolean;
+  steps: AccountableStep[];
+}
+
+export const DEFAULT_SCHEDULE: StepSchedule = {
+  on: false, weekday: 2, dayOfMonth: 1, hour: 9, minute: 0,
+};
+
+export function newAccountableStep(
+  init: Partial<AccountableStep> & { label: string; cadence: Cadence },
+): AccountableStep {
+  return {
+    id: newId(),
+    completions: [],
+    createdAt: new Date().toISOString(),
+    ...init,
+    schedule: { ...DEFAULT_SCHEDULE, ...(init.schedule ?? {}) },
+  };
+}
+
+export function newMinorGoal(
+  init: Partial<MinorGoal> & { title: string; kind: MinorGoalKind },
+): MinorGoal {
+  return { id: newId(), done: false, steps: [], ...init };
+}
+
+export function minorGoalStep(mg: MinorGoal): number {
+  return typeof mg.step === 'number' && mg.step > 0 ? mg.step : 1;
+}
+
+// ── Cadence periods ───────────────────────────────────────────
+
+export function cadenceIntervalDays(step: AccountableStep): number {
+  switch (step.cadence) {
+    case 'weekly': return 7;
+    case 'monthly': return 30;
+    case 'custom': return step.intervalDays && step.intervalDays > 0 ? step.intervalDays : 7;
+  }
+}
+
+export function cadenceLabel(step: AccountableStep): string {
+  switch (step.cadence) {
+    case 'weekly': return 'Weekly';
+    case 'monthly': return 'Monthly';
+    case 'custom': {
+      const d = cadenceIntervalDays(step);
+      return d === 1 ? 'Daily' : `Every ${d} days`;
+    }
+  }
+}
+
+function isoWeekKey(d: Date): string {
+  // ISO week number, so a "weekly" check-in maps to one stable key per week.
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((t.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${t.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+/** Key identifying the period `when` falls in, for this step's cadence. */
+export function periodKey(step: AccountableStep, when: Date = new Date()): string {
+  switch (step.cadence) {
+    case 'weekly':
+      return isoWeekKey(when);
+    case 'monthly':
+      return `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, '0')}`;
+    case 'custom': {
+      // Fixed windows counted from the step's creation date.
+      const start = new Date(step.createdAt);
+      const days = Math.floor((when.getTime() - start.getTime()) / 86400000);
+      const idx = Math.max(0, Math.floor(days / cadenceIntervalDays(step)));
+      return `${step.createdAt.slice(0, 10)}+${idx}`;
+    }
+  }
+}
+
+export function isStepDoneThisPeriod(step: AccountableStep, when: Date = new Date()): boolean {
+  return step.completions.includes(periodKey(step, when));
+}
+
+/** How many periods of this cadence fit between now and the deadline. */
+export function periodsUntil(deadline: string, cadence: Cadence, intervalDays = 7, today = new Date()): number {
+  const end = new Date(deadline);
+  const days = Math.ceil((end.getTime() - today.getTime()) / 86400000);
+  if (days <= 0) return 0;
+  switch (cadence) {
+    case 'weekly': return Math.max(1, Math.ceil(days / 7));
+    case 'monthly': return Math.max(1, Math.round(days / 30.44));
+    case 'custom': return Math.max(1, Math.ceil(days / Math.max(intervalDays, 1)));
+  }
+}
+
+// ── Breakdown suggestions (case 1: arithmetic minor goals) ────
+
+export interface BreakdownOption {
+  cadence: Cadence;
+  periods: number;
+  amountPerPeriod: number;
+  label: string;       // "Save $1,000 per month"
+  summary: string;     // "12 payments of $1,000"
+}
+
+// Round to something a human would actually commit to, scaled to size.
+function friendlyAmount(v: number): number {
+  if (v >= 1000) return Math.round(v / 50) * 50;
+  if (v >= 100) return Math.round(v / 10) * 10;
+  if (v >= 10) return Math.round(v);
+  return Math.round(v * 10) / 10;
+}
+
+/** "$1,000" for currency symbols, "40 km" for everything else. */
+export function formatAmount(v: number, unit?: string): string {
+  const n = v % 1 === 0 ? v.toLocaleString('en-US') : v.toFixed(1);
+  if (!unit) return n;
+  // Currency-ish units read better in front: $1,000 not 1,000 $
+  return /^[$£€¥]$/.test(unit.trim()) ? `${unit.trim()}${n}` : `${n} ${unit}`;
+}
+const fmtAmount = formatAmount;
+
+/**
+ * Turns "Save $10,000 by <deadline>" into weekly/monthly commitments sized
+ * from what is still OUTSTANDING, so a part-funded goal is not over-split.
+ * Returns [] when there is no numeric target or no time left to plan over.
+ */
+export function suggestBreakdowns(mg: MinorGoal, today: Date = new Date()): BreakdownOption[] {
+  if (mg.kind !== 'numeric' || !mg.target || !mg.deadline) return [];
+  const remaining = Math.max(0, mg.target - (mg.current ?? 0));
+  if (remaining <= 0) return [];
+
+  const verb = /save|fund|budget|invest/i.test(mg.title) ? 'Save' : 'Add';
+  const out: BreakdownOption[] = [];
+  for (const cadence of ['weekly', 'monthly'] as const) {
+    const periods = periodsUntil(mg.deadline, cadence, 7, today);
+    if (periods < 2) continue;
+    const amountPerPeriod = friendlyAmount(remaining / periods);
+    if (amountPerPeriod <= 0) continue;
+    const per = cadence === 'weekly' ? 'per week' : 'per month';
+    out.push({
+      cadence,
+      periods,
+      amountPerPeriod,
+      label: `${verb} ${fmtAmount(amountPerPeriod, mg.unit)} ${per}`,
+      summary: `${periods} × ${fmtAmount(amountPerPeriod, mg.unit)}`,
+    });
+  }
+  return out;
+}
+
+// ── Progress ──────────────────────────────────────────────────
+
+export function accountableStepProgress(step: AccountableStep, deadline?: string): number {
+  const expected = deadline
+    ? periodsUntil(deadline, step.cadence, cadenceIntervalDays(step), new Date(step.createdAt))
+    : 0;
+  if (expected <= 0) return step.completions.length > 0 ? 1 : 0;
+  return Math.min(1, step.completions.length / expected);
+}
+
+export function minorGoalFraction(mg: MinorGoal): number {
+  if (mg.done) return 1;
+  if (mg.kind === 'numeric' && (mg.target ?? 0) > 0) {
+    return Math.min(Math.max((mg.current ?? 0) / (mg.target as number), 0), 1);
+  }
+  // Effort goals move as their recurring commitments get checked off.
+  if (mg.steps.length === 0) return 0;
+  const sum = mg.steps.reduce((acc, s) => acc + accountableStepProgress(s, mg.deadline), 0);
+  return Math.min(1, sum / mg.steps.length);
+}
+
+export function minorGoalPercent(mg: MinorGoal): number {
+  return Math.round(minorGoalFraction(mg) * 100);
+}
+
+export function steppedMinorGoalValue(mg: MinorGoal, direction: 1 | -1): number {
+  const step = minorGoalStep(mg);
+  const raw = (mg.current ?? 0) + direction * step;
+  const snapped = snapToStep(raw, step);
+  const moved = snapped === (mg.current ?? 0) ? (mg.current ?? 0) + direction * step : snapped;
+  return Math.min(Math.max(moved, 0), Math.max(mg.target ?? 0, 0));
+}
+
 export type ReminderFrequency = 'Daily' | 'Weekly' | 'Monthly';
 
 export interface Reminder {
@@ -86,7 +313,9 @@ export interface ChatMessage {
 // goal. Each action is queued on the goal as a PendingAction and only touches
 // the store once the user confirms it.
 
-export type CoachActionKind = 'addTask' | 'editTask' | 'removeTask' | 'setTarget';
+export type CoachActionKind =
+  | 'addTask' | 'editTask' | 'removeTask' | 'setTarget'
+  | 'addMinorGoal' | 'addAccountableStep' | 'removeMinorGoal';
 
 export interface CoachAction {
   kind: CoachActionKind;
@@ -104,6 +333,16 @@ export interface CoachAction {
   // fallback match if the measurable was edited after the action was proposed.
   measurableId?: string;
   measurableLabel?: string;
+  // addMinorGoal
+  minorGoalKind?: MinorGoalKind;
+  deadline?: string;
+  // addAccountableStep — attaches to a minor goal, recurring at `cadence`
+  cadence?: Cadence;
+  intervalDays?: number;
+  amount?: number;
+  // addAccountableStep / removeMinorGoal — which minor goal it hits
+  minorGoalId?: string;
+  minorGoalLabel?: string;
 }
 
 export interface PendingAction {
@@ -141,6 +380,26 @@ export function describeAction(a: CoachAction, goal: Goal): string {
       return `Remove "${name}"`;
     case 'setTarget':
       return `Set "${name}" target to ${fmtNum(a.target ?? 0)} ${unit}`.trimEnd();
+    case 'addMinorGoal': {
+      const bits: string[] = [];
+      if (a.target != null) bits.push(`${fmtNum(a.target)} ${a.unit ?? ''}`.trim());
+      if (a.deadline) bits.push(`by ${new Date(a.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`);
+      return `Add minor goal "${a.label}"${bits.length ? ` — ${bits.join(' ')}` : ''}`;
+    }
+    case 'addAccountableStep': {
+      const every = a.cadence === 'monthly'
+        ? 'monthly'
+        : a.cadence === 'custom'
+          ? `every ${a.intervalDays ?? 7} days`
+          : 'weekly';
+      const target = resolveMinorGoal(a, goal);
+      const under = target?.title ?? a.minorGoalLabel;
+      return `Add ${every} step "${a.label}"${under ? ` under "${under}"` : ''}`;
+    }
+    case 'removeMinorGoal': {
+      const target = resolveMinorGoal(a, goal);
+      return `Remove minor goal "${target?.title ?? a.minorGoalLabel}"`;
+    }
   }
 }
 
@@ -156,6 +415,20 @@ export function resolveMeasurable(a: CoachAction, goal: Goal): Measurable | unde
   return (
     goal.measurables.find((m) => m.label.trim().toLowerCase() === wanted) ??
     goal.measurables.find((m) => m.label.toLowerCase().includes(wanted))
+  );
+}
+
+export function resolveMinorGoal(a: CoachAction, goal: Goal): MinorGoal | undefined {
+  const list = goal.minorGoals ?? [];
+  if (a.minorGoalId) {
+    const byId = list.find((mg) => mg.id === a.minorGoalId);
+    if (byId) return byId;
+  }
+  const wanted = (a.minorGoalLabel ?? '').trim().toLowerCase();
+  if (!wanted) return undefined;
+  return (
+    list.find((mg) => mg.title.trim().toLowerCase() === wanted) ??
+    list.find((mg) => mg.title.toLowerCase().includes(wanted))
   );
 }
 
@@ -175,13 +448,19 @@ export interface Goal {
   chat: ChatMessage[];
   pendingActions: PendingAction[];
   measurables: Measurable[];
+  minorGoals: MinorGoal[];
   boardPosition?: BoardPosition;
 }
 
+// Measurables and minor goals each count as one unit of the goal, so adding a
+// minor goal shows real movement on the board instead of sitting at 0%.
 export function goalProgress(g: Goal): number {
-  if (g.measurables.length === 0) return 0;
-  const sum = g.measurables.reduce((acc, m) => acc + measurableFraction(m), 0);
-  return sum / g.measurables.length;
+  const parts = [
+    ...g.measurables.map(measurableFraction),
+    ...(g.minorGoals ?? []).map(minorGoalFraction),
+  ];
+  if (parts.length === 0) return 0;
+  return parts.reduce((acc, f) => acc + f, 0) / parts.length;
 }
 
 export function goalProgressPercent(g: Goal): number {
@@ -189,7 +468,8 @@ export function goalProgressPercent(g: Goal): number {
 }
 
 export function isCompleted(g: Goal): boolean {
-  return g.measurables.length > 0 && goalProgress(g) >= 1;
+  const tracked = g.measurables.length + (g.minorGoals?.length ?? 0);
+  return tracked > 0 && goalProgress(g) >= 1;
 }
 
 export interface YearData {

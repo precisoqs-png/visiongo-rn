@@ -1,5 +1,7 @@
 import {
   CoachAction, Measurable, MeasurableType, measurableStep,
+  MinorGoal, MinorGoalKind, Cadence,
+  minorGoalPercent, cadenceLabel, isStepDoneThisPeriod,
 } from '../store/models';
 
 // ── Types ──────────────────────────────────────────
@@ -12,6 +14,9 @@ export interface CoachGoalContext {
   // The goal's real steps, so the coach talks about what actually exists
   // instead of inventing a plan the user cannot see.
   measurables: Measurable[];
+  // The goal's minor goals and their recurring commitments, so the coach can
+  // build on what exists instead of duplicating it.
+  minorGoals: MinorGoal[];
   // Coach replies so far — drives the "plan within ~5 messages" budget.
   exchangeCount: number;
   // 'pairing' is the one-shot reading on the Pair tab: no goal to edit, so no
@@ -104,6 +109,59 @@ export const COACH_TOOLS = [
       required: ['step_label', 'target'],
     },
   },
+  {
+    name: 'add_minor_goal',
+    description:
+      'Add a Minor Goal — a milestone under this goal that the user works ' +
+      'towards, e.g. "Save $10,000" or "Run a marathon". Use kind "numeric" ' +
+      'when there is a number to accumulate, "effort" when the work is not ' +
+      'arithmetic. Follow it with add_accountable_step to give it a recurring ' +
+      'commitment.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        kind: { type: 'string', enum: ['numeric', 'effort'] },
+        target: { type: 'number', description: 'Total to reach. Numeric minor goals only.' },
+        unit: { type: 'string', description: 'e.g. "$", "km", "books".' },
+        step_size: { type: 'number', description: 'How much one +/- tap moves the counter. Default 1.' },
+        deadline: { type: 'string', description: 'ISO date (YYYY-MM-DD) the minor goal is due. Defaults to the goal\'s own date.' },
+      },
+      required: ['title', 'kind'],
+    },
+  },
+  {
+    name: 'add_accountable_step',
+    description:
+      'Add ONE recurring commitment under a Minor Goal — the thing the user ' +
+      'repeats and gets reminded about, e.g. "Save $1,000 per month" or ' +
+      '"Run 40 km this week". Keep it to a single simple recurring target: do ' +
+      'NOT lay out a multi-week training programme or a sequence of escalating ' +
+      'steps. The user schedules the reminder themselves afterwards.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        minor_goal_title: { type: 'string', description: 'Title of the Minor Goal this belongs to.' },
+        label: { type: 'string', description: 'The commitment, e.g. "Run 40 km this week".' },
+        amount: { type: 'number', description: 'Per-period amount, if it is numeric.' },
+        unit: { type: 'string' },
+        cadence: { type: 'string', enum: ['weekly', 'monthly', 'custom'] },
+        interval_days: { type: 'integer', description: 'Days between check-ins. Cadence "custom" only.' },
+      },
+      required: ['minor_goal_title', 'label', 'cadence'],
+    },
+  },
+  {
+    name: 'remove_minor_goal',
+    description: 'Delete a Minor Goal and its accountable steps.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        minor_goal_title: { type: 'string' },
+      },
+      required: ['minor_goal_title'],
+    },
+  },
 ];
 
 // ── System prompt ─────────────────────────────────────────
@@ -119,6 +177,22 @@ function describeMeasurable(m: Measurable): string {
       return `- "${m.label}" (weekly ladder) — ${done}/${m.weeks.length} weeks done, final target ${m.target} ${m.unit}`;
     }
   }
+}
+
+function describeMinorGoal(mg: MinorGoal): string {
+  const head = mg.kind === 'numeric'
+    ? `- MINOR GOAL "${mg.title}" (numeric) — ${mg.current ?? 0}/${mg.target ?? 0} ${mg.unit ?? ''}, ${minorGoalPercent(mg)}%`
+    : `- MINOR GOAL "${mg.title}" (effort) — ${minorGoalPercent(mg)}%${mg.done ? ', marked done' : ''}`;
+  const due = mg.deadline
+    ? `, due ${new Date(mg.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+    : '';
+  const steps = mg.steps.length
+    ? mg.steps.map((s) =>
+        `    · step "${s.label}" — ${cadenceLabel(s)}, ${s.completions.length} check-ins` +
+        `${isStepDoneThisPeriod(s) ? ', done this period' : ''}` +
+        `${s.schedule.on ? ', reminder on' : ''}`).join('\n')
+    : '    · (no accountable steps yet)';
+  return `${head}${due}\n${steps}`;
 }
 
 export function buildSystemPrompt(ctx: CoachGoalContext): string {
@@ -142,6 +216,9 @@ give financial, investment, tax, legal or medical/mental-health advice.`;
   const stepsStr = ctx.measurables.length
     ? ctx.measurables.map(describeMeasurable).join('\n')
     : '(none yet — this goal has no steps at all)';
+  const minorStr = (ctx.minorGoals ?? []).length
+    ? ctx.minorGoals.map(describeMinorGoal).join('\n')
+    : '(none yet)';
   const replyNo = ctx.exchangeCount + 1;
 
   return `You are the AI coach inside VisionGo, a goal-planning app. VisionGo is NOT a \
@@ -155,17 +232,41 @@ THE GOAL YOU ARE COACHING
 - Achieve by: ${achieveStr}${weeksStr}
 - Steps currently on this goal:
 ${stepsStr}
+- Minor goals on this goal:
+${minorStr}
 
 This is reply #${replyNo} of the conversation.
 
+HOW THIS GOAL IS STRUCTURED
+A goal holds steps (measurables) and MINOR GOALS. A minor goal is a milestone \
+("Save $10,000", "Run a marathon") and carries ACCOUNTABLE STEPS — one simple \
+recurring commitment each ("Save $1,000 per month", "Run 40 km this week") that the \
+user can turn into a push reminder.
+- Numeric minor goal (a number to accumulate by a date): the app can already do the \
+arithmetic. Add the minor goal with its target and deadline and let the user pick the \
+weekly/monthly split, or propose one accountable step yourself if they asked you to.
+- Effort minor goal (not arithmetic): establish their baseline with ONE question, then \
+propose ONE recurring target sized from that baseline.
+
+NEVER PRESCRIBE A PROGRAMME
+Propose at most one accountable step per minor goal. Do NOT lay out a multi-week \
+training plan, an escalating weekly schedule, or a periodised programme, even if asked \
+— VisionGo prompts and tracks a simple recurring commitment, it does not coach \
+technique. Keep it supportive and general. Never give medical, injury, nutrition, \
+financial or investment advice; redirect to a planning action instead.
+
 YOU CAN ACTUALLY EDIT THIS GOAL
-You have tools — add_step, edit_step, remove_step, set_target — that change the user's \
-real goal. Never describe a step you could create instead of creating it: if you say a \
+You have tools — add_step, edit_step, remove_step, set_target, add_minor_goal, \
+add_accountable_step, remove_minor_goal — that change the user's real goal. Never describe a step you could create instead of creating it: if you say a \
 step belongs in the plan, call add_step for it in the same reply. Every tool call is \
 shown to the user as a chip they confirm before it is applied, so proposing is safe — \
 but do not ask "shall I add this?" and then wait. Propose the calls, and say in your \
 text that they can tap to confirm.
-When editing or removing, pass the step's exact label from the list above.
+When editing or removing, pass the step's exact label from the list above. When adding \
+an accountable step, pass the exact minor goal title it belongs under — add the minor \
+goal first in the same reply if it does not exist yet.
+Reminders are never switched on by you: say the user can tap the bell on the step to \
+pick the day and time (e.g. payday).
 
 STAY GROUNDED — DO NOT JUST PRAISE
 - Anchor every reply to "${ctx.goalTitle}" and the steps listed above.
@@ -222,9 +323,11 @@ function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() ? v.trim() : undefined;
 }
 
-// Turn one tool_use block into a CoachAction, resolving the step label the
-// coach quoted back to a real measurable id where we can.
-function toolUseToAction(block: ToolUseBlock, measurables: Measurable[]): CoachAction | null {
+// Turn one tool_use block into a CoachAction, resolving the labels the coach
+// quoted back to real ids where we can.
+function toolUseToAction(
+  block: ToolUseBlock, measurables: Measurable[], minorGoals: MinorGoal[],
+): CoachAction | null {
   const input = block.input ?? {};
   const stepLabel = str(input.step_label);
   const match = stepLabel
@@ -232,7 +335,57 @@ function toolUseToAction(block: ToolUseBlock, measurables: Measurable[]): CoachA
       measurables.find((m) => m.label.toLowerCase().includes(stepLabel.toLowerCase()))
     : undefined;
 
+  const mgTitle = str(input.minor_goal_title);
+  const mgMatch = mgTitle
+    ? minorGoals.find((mg) => mg.title.trim().toLowerCase() === mgTitle.toLowerCase()) ??
+      minorGoals.find((mg) => mg.title.toLowerCase().includes(mgTitle.toLowerCase()))
+    : undefined;
+
+  const cadence = ((): Cadence | undefined => {
+    const c = str(input.cadence);
+    return c === 'weekly' || c === 'monthly' || c === 'custom' ? c : undefined;
+  })();
+
   switch (block.name) {
+    case 'add_minor_goal': {
+      const title = str(input.title);
+      if (!title) return null;
+      const rawKind = str(input.kind);
+      const target = num(input.target);
+      const kind: MinorGoalKind =
+        rawKind === 'numeric' || rawKind === 'effort'
+          ? rawKind
+          : target != null ? 'numeric' : 'effort';
+      // Accept a bare YYYY-MM-DD and anything Date can parse; ignore garbage.
+      const rawDeadline = str(input.deadline);
+      const parsed = rawDeadline ? new Date(rawDeadline) : null;
+      return {
+        kind: 'addMinorGoal',
+        label: title,
+        minorGoalKind: kind,
+        target: kind === 'numeric' ? target : undefined,
+        unit: str(input.unit),
+        step: num(input.step_size),
+        deadline: parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : undefined,
+      };
+    }
+    case 'add_accountable_step': {
+      const label = str(input.label);
+      if (!label || !mgTitle) return null;
+      return {
+        kind: 'addAccountableStep',
+        label,
+        minorGoalId: mgMatch?.id,
+        minorGoalLabel: mgTitle,
+        amount: num(input.amount),
+        unit: str(input.unit),
+        cadence: cadence ?? 'weekly',
+        intervalDays: num(input.interval_days),
+      };
+    }
+    case 'remove_minor_goal':
+      if (!mgTitle) return null;
+      return { kind: 'removeMinorGoal', minorGoalId: mgMatch?.id, minorGoalLabel: mgTitle };
     case 'add_step': {
       const label = str(input.label);
       const rawType = str(input.type);
@@ -291,6 +444,39 @@ export function parseSuggestions(text: string): {
   for (const line of lines) {
     // Models like to bullet or indent these — strip that before matching.
     const cleaned = line.trim().replace(/^[-*•]\s*/, '');
+
+    // MINOR|<title>|<numeric|effort>|<target?>|<unit?>
+    if (cleaned.startsWith('MINOR|')) {
+      const p = cleaned.split('|').map((s) => s.trim());
+      const title = p[1];
+      if (title) {
+        const kind: MinorGoalKind = p[2] === 'numeric' ? 'numeric' : 'effort';
+        actions.push({
+          kind: 'addMinorGoal', label: title, minorGoalKind: kind,
+          target: kind === 'numeric' && p[3] ? Number(p[3]) : undefined,
+          unit: p[4] || undefined,
+        });
+        continue;
+      }
+    }
+
+    // STEP|<minor goal title>|<label>|<weekly|monthly|custom>|<amount?>|<unit?>|<intervalDays?>
+    if (cleaned.startsWith('STEP|')) {
+      const p = cleaned.split('|').map((s) => s.trim());
+      const [, mgTitle, label, cadenceRaw] = p;
+      if (mgTitle && label) {
+        const cadence: Cadence =
+          cadenceRaw === 'monthly' || cadenceRaw === 'custom' ? cadenceRaw : 'weekly';
+        actions.push({
+          kind: 'addAccountableStep', minorGoalLabel: mgTitle, label, cadence,
+          amount: p[4] ? Number(p[4]) : undefined,
+          unit: p[5] || undefined,
+          intervalDays: p[6] ? Number(p[6]) : undefined,
+        });
+        continue;
+      }
+    }
+
     if (!cleaned.startsWith('SUGGEST|')) {
       display.push(line);
       continue;
@@ -473,6 +659,42 @@ function buildTurn3(userReply: string): string {
   return 'Tell me the number you’d change and I’ll re-cut the plan around it — which step is off?';
 }
 
+// The goal screen's "Ask your coach" button sends a message naming one effort
+// minor goal. Offline, match it back so the stub can still answer usefully.
+function matchEffortHandoff(text: string, ctx: CoachGoalContext): MinorGoal | undefined {
+  if (!/weekly target|baseline|accountable|break .* down/i.test(text)) return undefined;
+  const lower = text.toLowerCase();
+  return (ctx.minorGoals ?? []).find(
+    (mg) => mg.kind === 'effort' && lower.includes(mg.title.toLowerCase()),
+  );
+}
+
+// One simple recurring commitment, sized from any number the user mentioned —
+// deliberately not a training programme.
+function buildEffortStep(mg: MinorGoal, userReply: string): string {
+  const domain = detectDomain(mg.title);
+  const n = extractNumber(userReply, 0);
+  const [amount, unit] = ((): [number, string] => {
+    switch (domain) {
+      case 'fitness': return [n > 0 ? Math.max(1, Math.round(n * 1.2)) : 20, 'km'];
+      case 'learn': return [n > 0 ? n : 5, 'hrs'];
+      case 'read': return [n > 0 ? n * 7 : 100, 'pages'];
+      default: return [n > 0 ? n : 3, 'sessions'];
+    }
+  })();
+  const label = `${amount} ${unit} this week`;
+  const baseline = n > 0
+    ? `You're at ${n} now, so let's commit to a bit above that.`
+    : `You didn't give me a baseline, so I've kept this gentle — edit the number to fit.`;
+  return [
+    `Let's keep "${mg.title}" simple: one weekly commitment you either hit or you don't. ${baseline}`,
+    '',
+    `STEP|${mg.title}|${label}|weekly|${amount}|${unit}`,
+    '',
+    `Tap to add it, then tap the bell on the step to pick the day and time you want me to ask "have you completed ${label}?".`,
+  ].join('\n');
+}
+
 export class StubCoachService implements CoachService {
   async send(messages: CoachMessageRaw[], ctx: CoachGoalContext): Promise<CoachResponse> {
     await new Promise((r) => setTimeout(r, 750));
@@ -491,6 +713,14 @@ export class StubCoachService implements CoachService {
     // Count how many assistant turns have already happened
     const assistantTurns = messages.filter((m) => m.role === 'assistant').length;
     const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user')?.text ?? '';
+
+    // Effort minor-goal handoff: the goal screen sends a message naming the
+    // minor goal it wants a recurring target for.
+    const handoff = matchEffortHandoff(lastUserMsg, ctx);
+    if (handoff) {
+      const { displayText, actions } = parseSuggestions(buildEffortStep(handoff, lastUserMsg));
+      return { text: displayText, actions };
+    }
 
     let rawText: string;
     if (assistantTurns === 0) {
@@ -563,7 +793,7 @@ export class ProxyCoachService implements CoachService {
 
     const toolActions = blocks
       .filter((b) => b.type === 'tool_use')
-      .map((b) => toolUseToAction(b, ctx.measurables))
+      .map((b) => toolUseToAction(b, ctx.measurables, ctx.minorGoals ?? []))
       .filter((a): a is CoachAction => a !== null);
 
     // A refusal with no text and no tool calls means we got nothing usable.
