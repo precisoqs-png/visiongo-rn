@@ -40,8 +40,6 @@ export default function GoalDetailScreen() {
   const addMeasurable = useAppStore((s) => s.addMeasurable);
   const updateMeasurable = useAppStore((s) => s.updateMeasurable);
   const deleteMeasurable = useAppStore((s) => s.deleteMeasurable);
-  const addSuggestionAsMeasurable = useAppStore((s) => s.addSuggestionAsMeasurable);
-  const removeSuggestion = useAppStore((s) => s.removeSuggestion);
 
   const goal = useAppStore((s) =>
     s.years.find((y) => y.year === s.selectedYear)?.goals.find((g) => g.id === id),
@@ -207,25 +205,6 @@ export default function GoalDetailScreen() {
           )}
         </View>
 
-        {goal.suggestions.length > 0 && (
-          <View style={styles.section}>
-            <Text style={[styles.eyebrow, { color: p.muted }]}>SUGGESTED BY YOUR COACH</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View style={{ flexDirection: 'row', gap: 8, paddingVertical: 4 }}>
-                {goal.suggestions.map((s) => (
-                  <TouchableOpacity
-                    key={s.id}
-                    style={[styles.suggestionChip, { borderColor: `${p.accent}80` }]}
-                    onPress={() => { addSuggestionAsMeasurable(s, goal.id); resyncWeekNotifications(); }}
-                  >
-                    <Text style={[styles.suggestionText, { color: p.accent }]}>+ {s.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
-          </View>
-        )}
-
         <View style={styles.section}>
           <AddMeasurableForm
             goal={goal}
@@ -235,7 +214,7 @@ export default function GoalDetailScreen() {
         </View>
 
         <View style={styles.section}>
-          <CoachChat goal={goal} palette={p} />
+          <CoachChat goal={goal} palette={p} onGoalEdited={resyncWeekNotifications} />
         </View>
 
       </ScrollView>
@@ -292,9 +271,4 @@ const styles = StyleSheet.create({
   daysLeft: { fontSize: 13 },
   section: { padding: 18 },
   emptyHint: { fontSize: 14, lineHeight: 20 },
-  suggestionChip: {
-    paddingHorizontal: 12, paddingVertical: 7,
-    borderRadius: 20, borderWidth: 1, borderStyle: 'dashed',
-  },
-  suggestionText: { fontSize: 13, fontWeight: '500' },
 });

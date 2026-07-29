@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
-import { MeasurableType, Measurable, newId, buildLadderWeeks, Goal } from '../../store/models';
+import { MeasurableType, Measurable, newMeasurable, buildLadderWeeks, Goal } from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
 
 interface Props {
@@ -22,16 +22,17 @@ export function AddMeasurableForm({ goal, palette: p, onAdd }: Props) {
   const [unit, setUnit] = useState('');
   const [startStr, setStartStr] = useState('');
   const [weeksStr, setWeeksStr] = useState('');
+  const [stepStr, setStepStr] = useState('');
 
   const commit = () => {
     if (!label.trim()) return;
-    const m: Measurable = {
-      id: newId(), type, label: label.trim(),
-      done: false, current: 0, target: 0, unit: '', weeks: [],
-    };
+    const m: Measurable = newMeasurable({ type, label: label.trim() });
     if (type === 'number') {
       m.target = parseFloat(targetStr) || 1;
       m.unit = unit;
+      // Blank or nonsense step falls back to 1 rather than a hardcoded jump.
+      const parsedStep = parseFloat(stepStr);
+      m.step = Number.isFinite(parsedStep) && parsedStep > 0 ? parsedStep : 1;
     } else if (type === 'ladder') {
       const start = parseFloat(startStr) || 0;
       const end = parseFloat(targetStr) || 1;
@@ -41,6 +42,7 @@ export function AddMeasurableForm({ goal, palette: p, onAdd }: Props) {
     }
     onAdd(m);
     setLabel(''); setTargetStr(''); setUnit(''); setStartStr(''); setWeeksStr('');
+    setStepStr('');
   };
 
   return (
@@ -72,23 +74,37 @@ export function AddMeasurableForm({ goal, palette: p, onAdd }: Props) {
 
       {/* Type-specific inputs */}
       {type === 'number' && (
-        <View style={styles.inputRow}>
-          <TextInput
-            style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
-            placeholder="Target"
-            placeholderTextColor={p.muted}
-            keyboardType="numeric"
-            value={targetStr}
-            onChangeText={setTargetStr}
-          />
-          <TextInput
-            style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 2 }]}
-            placeholder="Unit (e.g. miles)"
-            placeholderTextColor={p.muted}
-            value={unit}
-            onChangeText={setUnit}
-          />
-        </View>
+        <>
+          <View style={styles.inputRow}>
+            <TextInput
+              style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
+              placeholder="Target"
+              placeholderTextColor={p.muted}
+              keyboardType="numeric"
+              value={targetStr}
+              onChangeText={setTargetStr}
+            />
+            <TextInput
+              style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1.6 }]}
+              placeholder="Unit (e.g. mi)"
+              placeholderTextColor={p.muted}
+              value={unit}
+              onChangeText={setUnit}
+            />
+            <TextInput
+              style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
+              placeholder="Step"
+              placeholderTextColor={p.muted}
+              keyboardType="numeric"
+              value={stepStr}
+              onChangeText={setStepStr}
+            />
+          </View>
+          <Text style={[styles.fieldHint, { color: p.muted }]}>
+            Step is how much one tap of +/- adds — defaults to 1
+            {unit.trim() ? ` ${unit.trim()}` : ''}.
+          </Text>
+        </>
       )}
 
       {type === 'ladder' && (
@@ -150,7 +166,10 @@ const styles = StyleSheet.create({
   typeBtn: { flex: 1, paddingVertical: 6, paddingHorizontal: 6, borderRadius: 16, alignItems: 'center' },
   typeBtnText: { fontSize: 12, fontWeight: '500' },
   inputRow: { flexDirection: 'row', gap: 6, marginBottom: 10, alignItems: 'center' },
-  inputSmall: { borderRadius: 8, padding: 8, fontSize: 13 },
+  // minWidth 0 lets these flex children shrink below their placeholder width —
+  // without it the last field in the row is pushed off-screen on web.
+  inputSmall: { borderRadius: 8, padding: 8, fontSize: 13, minWidth: 0 },
+  fieldHint: { fontSize: 11, marginTop: -4, marginBottom: 10 },
   addBtn: { borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
   addBtnText: { fontSize: 15, fontWeight: '600' },
 });
