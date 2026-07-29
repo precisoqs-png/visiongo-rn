@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../store/useThemeStore';
 import { useAppStore, TaskItem, TaskGroup, TASK_GROUP_ORDER } from '../../store/useAppStore';
 import { GOAL_NOTE_COLORS, FONTS } from '../../theme/themes';
+import { cancelWeeklyTargetNotification } from '../../services/notificationService';
 
 export default function TasksScreen() {
   const palette = useThemeStore((s) => s.palette);
@@ -56,7 +57,17 @@ export default function TasksScreen() {
                   <View style={[styles.rule, { backgroundColor: p.line }]} />
                 </View>
                 {items.map((item) => (
-                  <TaskRow key={item.id} item={item} palette={p} onComplete={() => completeTaskItem(item)} />
+                  <TaskRow
+                    key={item.id}
+                    item={item}
+                    palette={p}
+                    onComplete={() => {
+                      completeTaskItem(item);
+                      if (item.ladderWeekId) {
+                        void cancelWeeklyTargetNotification(item.goalId, item.ladderWeekId);
+                      }
+                    }}
+                  />
                 ))}
               </React.Fragment>
             );
