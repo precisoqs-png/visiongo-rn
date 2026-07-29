@@ -4,7 +4,7 @@ import {
   Animated, StyleSheet, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Goal, ChatMessage, Suggestion, newId } from '../../store/models';
+import { Goal, ChatMessage, describeAction, newId } from '../../store/models';
 import { Palette } from '../../theme/themes';
 import { coachService, CoachGoalContext, CoachMessageRaw } from '../../services/coachService';
 import { useAppStore } from '../../store/useAppStore';
@@ -14,6 +14,8 @@ const DAILY_LIMIT = 20;
 interface Props {
   goal: Goal;
   palette: Palette;
+  // Called after the store changed, so the screen can re-sync reminders.
+  onGoalEdited?: () => void;
 }
 
 // ── Pulsing thinking dots ────────────────────────────────────
@@ -98,14 +100,18 @@ function TypewriterText({ text, color, speed = 30, onDone }: TypewriterProps) {
 
 // ── Main chat component ──────────────────────────────────
 
-export function CoachChat({ goal, palette: p }: Props) {
+export function CoachChat({ goal, palette: p, onGoalEdited }: Props) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [streamingId, setStreamingId] = useState<string | null>(null);
 
   const addChatMessage = useAppStore((s) => s.addChatMessage);
-  const addSuggestion = useAppStore((s) => s.addSuggestion);
+  const addPendingActions = useAppStore((s) => s.addPendingActions);
+  const applyPendingAction = useAppStore((s) => s.applyPendingAction);
+  const applyAllPendingActions = useAppStore((s) => s.applyAllPendingActions);
+  const dismissPendingAction = useAppStore((s) => s.dismissPendingAction);
+  const clearPendingActions = useAppStore((s) => s.clearPendingActions);
   const incrementCoachUsage = useAppStore((s) => s.incrementCoachUsage);
   const coachUsage = useAppStore((s) => s.coachUsage);
 
@@ -153,6 +159,8 @@ export function CoachChat({ goal, palette: p }: Props) {
       achieveByDate: goal.targetDate,
       weeksRemaining: weeksLeft,
       today: new Date(),
+      measurables: goal.measurables,
+      exchangeCount: goal.chat.filter((m) => m.sender === 'coach').length,
     };
 
     const history: CoachMessageRaw[] = [
@@ -171,20 +179,7 @@ export function CoachChat({ goal, palette: p }: Props) {
       };
       addChatMessage(coachMsg, goal.id);
       setStreamingId(msgId);
-
-      for (const ps of response.suggestions) {
-        const s: Suggestion = {
-          id: newId(),
-          label: ps.label,
-          type: ps.type,
-          target: ps.target,
-          unit: ps.unit,
-          ladderStart: ps.start,
-          ladderEnd: ps.end,
-          ladderWeeks: ps.weeks,
-        };
-        addSuggestion(s, goal.id);
-      }
+      addPendingActions(response.actions, goal.id);
     } catch {
       setError('Coach is unavailable right now. Try again.');
     } finally {
@@ -240,6 +235,75 @@ export function CoachChat({ goal, palette: p }: Props) {
         </View>
       )}
 
+      {/* Changes the coach wants to make to this goal. Nothing is written
+          until the user taps a chip (one change) or Add all. */}
+      {goal.pendingActions.length > 0 && (
+        <View style={[styles.actionsCard, { backgroundColor: p.surface, borderColor: `${p.accent}55` }]}>
+          <View style={styles.actionsHeader}>
+            <Ionicons name="sparkles-outline" size={14} color={p.accent} />
+            <Text style={[styles.actionsTitle, { color: p.text }]}>
+              {goal.pendingActions.length === 1
+                ? 'Your coach suggests 1 change'
+                : `Your coach suggests ${goal.pendingActions.length} changes`}
+            </Text>
+          </View>
+          <Text style={[styles.actionsHint, { color: p.muted }]}>
+            Tap one to apply it to your goal.
+          </Text>
+
+          {goal.pendingActions.map((pa) => (
+            <View key={pa.id} style={styles.actionRow}>
+              <TouchableOpacity
+                style={[styles.actionChip, { borderColor: `${p.accent}80` }]}
+                onPress={() => {
+                  applyPendingAction(pa.id, goal.id);
+                  onGoalEdited?.();
+                }}
+                activeOpacity={0.75}
+              >
+                <Ionicons
+                  name={ACTION_ICONS[pa.action.kind]}
+                  size={13}
+                  color={pa.action.kind === 'removeTask' ? '#c0392b' : p.accent}
+                />
+                <Text
+                  style={[
+                    styles.actionText,
+                    { color: pa.action.kind === 'removeTask' ? '#c0392b' : p.accent },
+                  ]}
+                >
+                  {describeAction(pa.action, goal)}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => dismissPendingAction(pa.id, goal.id)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={14} color={p.muted} />
+              </TouchableOpacity>
+            </View>
+          ))}
+
+          <View style={styles.actionsFooter}>
+            <TouchableOpacity
+              style={[styles.applyAllBtn, { backgroundColor: p.accent }]}
+              onPress={() => {
+                applyAllPendingActions(goal.id);
+                onGoalEdited?.();
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.applyAllText, { color: p.surface }]}>
+                {goal.pendingActions.length === 1 ? 'Apply' : 'Apply all'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => clearPendingActions(goal.id)}>
+              <Text style={[styles.dismissAllText, { color: p.muted }]}>Dismiss</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       {!!error && (
         <Text style={[styles.errorText, { color: '#c0392b' }]}>{error}</Text>
       )}
@@ -288,7 +352,31 @@ export function CoachChat({ goal, palette: p }: Props) {
   );
 }
 
+const ACTION_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
+  addTask: 'add-circle-outline',
+  editTask: 'create-outline',
+  removeTask: 'trash-outline',
+  setTarget: 'flag-outline',
+};
+
 const styles = StyleSheet.create({
+  actionsCard: {
+    borderRadius: 14, borderWidth: 1, padding: 12, marginTop: 4, marginBottom: 8,
+  },
+  actionsHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  actionsTitle: { fontSize: 13, fontWeight: '700' },
+  actionsHint: { fontSize: 12, marginTop: 2, marginBottom: 10 },
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  actionChip: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 10, paddingVertical: 8,
+    borderRadius: 12, borderWidth: 1, borderStyle: 'dashed',
+  },
+  actionText: { fontSize: 13, fontWeight: '500', flex: 1 },
+  actionsFooter: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 2 },
+  applyAllBtn: { borderRadius: 12, paddingVertical: 9, paddingHorizontal: 18 },
+  applyAllText: { fontSize: 13, fontWeight: '700' },
+  dismissAllText: { fontSize: 13, fontWeight: '500' },
   eyebrow: {
     fontSize: 11, fontWeight: '600', letterSpacing: 1.5, marginBottom: 10,
   },

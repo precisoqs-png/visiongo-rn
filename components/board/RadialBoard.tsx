@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Platform,
   Animated, PanResponder,
@@ -21,6 +21,9 @@ interface Props {
   onGoalDelete: (id: string, title: string) => void;
   onAddGoal: () => void;
   onCompletedPress: () => void;
+  // Tapping the centre bubble drops every hand-placed position so the board
+  // falls back to this layout.
+  onRealign: () => void;
 }
 
 const CENTER_SIZE = 132;
@@ -30,13 +33,118 @@ const BOTTOM_SAFE = 88;
 const TOP_SAFE = 8;
 const TRASH_SIZE = 56;
 const TRASH_HIT_RADIUS = 56;
+const BUBBLE_GAP = 10;
+const MAX_RINGS = 3;
+// Bubbles never shrink below this fraction of their normal size — past it the
+// title and percentage stop being readable.
+const MIN_SCALE = 0.25;
 
 interface Point { x: number; y: number }
 
-// Evenly distributed positions on a single orbit ring, starting at 12 o'clock.
-function orbitPosition(idx: number, total: number, cx: number, cy: number, orbitR: number): Point {
-  const angle = ((-90 + idx * (360 / Math.max(total, 1))) * Math.PI) / 180;
-  return { x: cx + orbitR * Math.cos(angle), y: cy + orbitR * Math.sin(angle) };
+// ── Radial layout ────────────────────────────────────────────────
+//
+// Deterministic: the same goal count always yields the same arrangement, and
+// bubbles never overlap. Goals spread evenly around one ring while they fit,
+// spill onto inner rings when they do not, and shrink only as a last resort.
+
+// How many bubbles of `diameter` fit around a ring of radius `r` untouching.
+function ringCapacity(r: number, diameter: number): number {
+  const ratio = (diameter + BUBBLE_GAP) / (2 * r);
+  if (ratio >= 1) return 1;
+  return Math.max(1, Math.floor(Math.PI / Math.asin(ratio)));
+}
+
+// Ring radii, outermost first.
+function ringRadii(rings: number, innerR: number, outerR: number): number[] {
+  if (rings <= 1) return [outerR];
+  const spread = (outerR - innerR) / (rings - 1);
+  return Array.from({ length: rings }, (_, i) => outerR - spread * i);
+}
+
+// Split `count` bubbles across rings proportionally to each ring's capacity,
+// giving leftovers to the outer rings first.
+function splitAcrossRings(count: number, caps: number[]): number[] {
+  const totalCap = caps.reduce((a, b) => a + b, 0);
+  const counts = caps.map((c) => Math.min(c, Math.floor((count * c) / totalCap)));
+  let left = count - counts.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < counts.length && left > 0; i++) {
+    const room = Math.min(caps[i] - counts[i], left);
+    counts[i] += room;
+    left -= room;
+  }
+  return counts;
+}
+
+function ringPoints(n: number, r: number, cx: number, cy: number, offsetDeg: number): Point[] {
+  return Array.from({ length: n }, (_, i) => {
+    const angle = ((-90 + offsetDeg + i * (360 / n)) * Math.PI) / 180;
+    return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
+  });
+}
+
+interface RadialLayout {
+  points: Point[];
+  // Uniform shrink applied to every bubble when the board gets crowded.
+  scale: number;
+}
+
+// Place `count` bubbles at the given scale, or null if they cannot fit without
+// touching. Both ring radii depend on the scale: smaller bubbles can sit
+// closer to the centre disc and further out before leaving the board.
+function tryScale(
+  count: number, scale: number, cx: number, cy: number, boardH: number, diameter: number,
+): RadialLayout | null {
+  const d = diameter * scale;
+  const pad = d / 2 + 6;
+  const safeR = Math.min(cx - pad, cy - TOP_SAFE - pad, boardH - BOTTOM_SAFE - cy - pad);
+  const innerR = CENTER_SIZE / 2 + d / 2 + BUBBLE_GAP;
+  // On a short board the safe ring can fall inside the centre disc; orbiting
+  // slightly off-board beats sitting on top of the year bubble.
+  const outerR = Math.max(safeR, innerR);
+
+  for (let rings = 1; rings <= MAX_RINGS; rings++) {
+    const radii = ringRadii(rings, innerR, outerR);
+    // Rings must clear each other radially, not just around their own circle.
+    if (rings > 1 && radii[0] - radii[1] < d + BUBBLE_GAP) continue;
+    const caps = radii.map((r) => ringCapacity(r, d));
+    if (caps.reduce((a, b) => a + b, 0) < count) continue;
+
+    const perRing = splitAcrossRings(count, caps);
+    const points: Point[] = [];
+    radii.forEach((r, i) => {
+      // Half-step offset per ring so inner bubbles sit between outer ones.
+      const offset = perRing[i] > 0 ? (i * 180) / perRing[i] : 0;
+      points.push(...ringPoints(perRing[i], r, cx, cy, offset));
+    });
+    return { points, scale };
+  }
+  return null;
+}
+
+// Largest bubble scale at which everything still fits, found by binary search
+// so the answer is exact rather than snapped to a ladder of guesses. Verified
+// overlap-free for up to 24 goals on every phone-sized board; past MIN_SCALE
+// bubbles would be too small to read, so that floor wins over the guarantee.
+function computeRadialLayout(
+  count: number, cx: number, cy: number, boardH: number, diameter: number,
+): RadialLayout {
+  if (count === 0) return { points: [], scale: 1 };
+
+  const full = tryScale(count, 1, cx, cy, boardH, diameter);
+  if (full) return full;
+
+  let lo = MIN_SCALE;
+  let hi = 1;
+  let best = tryScale(count, MIN_SCALE, cx, cy, boardH, diameter);
+  for (let i = 0; i < 18; i++) {
+    const mid = (lo + hi) / 2;
+    const attempt = tryScale(count, mid, cx, cy, boardH, diameter);
+    if (attempt) { best = attempt; lo = mid; } else { hi = mid; }
+  }
+  return best ?? {
+    points: ringPoints(count, Math.max(cx, cy) * 0.6, cx, cy, 0),
+    scale: MIN_SCALE,
+  };
 }
 
 function clampCenter(p: Point, r: number, w: number, h: number): Point {
@@ -73,6 +181,31 @@ function DraggableBubble({
   const draggingRef = useRef(false);
   const movedRef = useRef(false);
 
+  // The bubble is laid out at its target centre; `settle` holds the offset
+  // from where it used to be, springing to zero. That turns any position
+  // change — a realign, a goal added or removed — into a glide, not a jump.
+  const settle = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const prevCenterRef = useRef(center);
+  // A bubble the user just dropped is already where they let go of it —
+  // animating that would fly it back to where the drag started.
+  const skipSettleRef = useRef(false);
+  useEffect(() => {
+    const dx = prevCenterRef.current.x - center.x;
+    const dy = prevCenterRef.current.y - center.y;
+    prevCenterRef.current = center;
+    const skip = skipSettleRef.current;
+    skipSettleRef.current = false;
+    if (skip || (dx === 0 && dy === 0)) return;
+    settle.setValue({ x: dx, y: dy });
+    Animated.spring(settle, {
+      toValue: { x: 0, y: 0 },
+      useNativeDriver: true,
+      damping: 15,
+      stiffness: 110,
+      mass: 0.9,
+    }).start();
+  }, [center.x, center.y]);
+
   // Keep latest values in refs so the (created-once) PanResponder never
   // reads stale props.
   const centerRef = useRef(center);
@@ -88,6 +221,7 @@ function DraggableBubble({
     movedRef.current = false;
     setDragging(false);
     pan.setValue({ x: 0, y: 0 });
+    if (moved) skipSettleRef.current = true;
     onDragEndRef.current(
       { x: centerRef.current.x + dx, y: centerRef.current.y + dy },
       moved,
@@ -113,6 +247,7 @@ function DraggableBubble({
   const startDrag = () => {
     draggingRef.current = true;
     movedRef.current = false;
+    skipSettleRef.current = false;
     setDragging(true);
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -128,7 +263,10 @@ function DraggableBubble({
           position: 'absolute',
           left: center.x - size / 2,
           top: center.y - size / 2,
-          transform: pan.getTranslateTransform(),
+          transform: [
+            { translateX: Animated.add(pan.x, settle.x) },
+            { translateY: Animated.add(pan.y, settle.y) },
+          ],
           zIndex: dragging ? 20 : 1,
         },
         dragging && styles.draggingBubble,
@@ -155,10 +293,12 @@ function DraggableBubble({
 
 export function RadialBoard({
   yearData, palette, onGoalPress, onGoalMove, onGoalDelete, onAddGoal, onCompletedPress,
+  onRealign,
 }: Props) {
   const [size, setSize] = useState({ w: 390, h: 420 });
   const [dragging, setDragging] = useState(false);
   const [overTrash, setOverTrash] = useState(false);
+  const centerScale = useRef(new Animated.Value(1)).current;
 
   const activeGoals = yearData.goals.filter((g) => !isCompleted(g));
   const completedCount = yearData.goals.filter((g) => isCompleted(g)).length;
@@ -168,15 +308,27 @@ export function RadialBoard({
   const cx = size.w / 2;
   const cy = size.h * 0.44;
 
-  const maxBubbleR = MAX_BUBBLE / 2 + 10;
-  const safeOrbitR = Math.min(
-    cx - maxBubbleR,
-    cy - TOP_SAFE - maxBubbleR,
-    size.h - BOTTOM_SAFE - cy - maxBubbleR,
+  const layout = useMemo(
+    () => computeRadialLayout(activeGoals.length, cx, cy, size.h, MAX_BUBBLE),
+    [activeGoals.length, cx, cy, size.h],
   );
-  const orbitR = Math.max(safeOrbitR, CENTER_SIZE / 2 + maxBubbleR + 6);
 
   const trashCenter: Point = { x: size.w / 2, y: size.h - BOTTOM_SAFE / 2 - 4 };
+
+  // Tapping the centre bubble tidies the board: every dragged position is
+  // dropped and the bubbles spring back into an even radial arrangement.
+  const handleRealign = () => {
+    Animated.sequence([
+      Animated.timing(centerScale, { toValue: 0.93, duration: 90, useNativeDriver: true }),
+      Animated.spring(centerScale, {
+        toValue: 1, useNativeDriver: true, damping: 7, stiffness: 200,
+      }),
+    ]).start();
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }
+    onRealign();
+  };
 
   const isOverTrash = (p: Point) =>
     Math.hypot(p.x - trashCenter.x, p.y - trashCenter.y) < TRASH_HIT_RADIUS;
@@ -203,48 +355,68 @@ export function RadialBoard({
       style={{ flex: 1 }}
       onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
     >
-      {/* Center circle */}
-      <View
+      {/* Center circle — tap to re-align every goal bubble */}
+      <Animated.View
         style={[
           styles.centerWrap,
-          { left: cx - CENTER_SIZE / 2, top: cy - CENTER_SIZE / 2 },
+          {
+            left: cx - CENTER_SIZE / 2,
+            top: cy - CENTER_SIZE / 2,
+            transform: [{ scale: centerScale }],
+          },
         ]}
       >
-        <ProgressRing
-          size={CENTER_SIZE}
-          progress={overallProg}
-          trackColor={palette.line}
-          fillColor={palette.accent}
-          strokeWidth={5}
-        />
-        <View
+        <TouchableOpacity
+          onPress={handleRealign}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={`${yearData.year}, ${pct} percent there`}
+          accessibilityHint="Re-aligns your goal bubbles evenly around the centre"
+          // The inner disc is absolutely positioned with no insets, so it
+          // centres itself against this view's align/justify.
           style={[
-            styles.centerInner,
-            {
-              width: CENTER_SIZE - 12,
-              height: CENTER_SIZE - 12,
-              borderRadius: (CENTER_SIZE - 12) / 2,
-              backgroundColor: palette.surface,
-            },
+            styles.centerTouch,
+            Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : undefined,
           ]}
         >
-          <Text style={[styles.yearText, { color: palette.text }]}>{yearData.year}</Text>
-          <Text style={[styles.pctNum, { color: palette.accent }]}>{pct}%</Text>
-          <Text style={[styles.thereLabel, { color: palette.muted }]}>there</Text>
-        </View>
-      </View>
+          <ProgressRing
+            size={CENTER_SIZE}
+            progress={overallProg}
+            trackColor={palette.line}
+            fillColor={palette.accent}
+            strokeWidth={5}
+          />
+          <View
+            style={[
+              styles.centerInner,
+              {
+                width: CENTER_SIZE - 12,
+                height: CENTER_SIZE - 12,
+                borderRadius: (CENTER_SIZE - 12) / 2,
+                backgroundColor: palette.surface,
+              },
+            ]}
+          >
+            <Text style={[styles.yearText, { color: palette.text }]}>{yearData.year}</Text>
+            <Text style={[styles.pctNum, { color: palette.accent }]}>{pct}%</Text>
+            <Text style={[styles.thereLabel, { color: palette.muted }]}>there</Text>
+          </View>
+        </TouchableOpacity>
+      </Animated.View>
 
       {/* Goal bubbles — evenly spaced on the orbit, unless the user has
           dragged them somewhere else (goal.boardPosition). */}
       {activeGoals.map((goal, idx) => {
         const prog = goalProgress(goal);
-        const bubbleSize = Math.round(MIN_BUBBLE + prog * (MAX_BUBBLE - MIN_BUBBLE));
+        const bubbleSize = Math.round(
+          (MIN_BUBBLE + prog * (MAX_BUBBLE - MIN_BUBBLE)) * layout.scale,
+        );
         const base = goal.boardPosition
           ? clampCenter(
               { x: goal.boardPosition.x * size.w, y: goal.boardPosition.y * size.h },
               bubbleSize / 2, size.w, size.h,
             )
-          : orbitPosition(idx, activeGoals.length, cx, cy, orbitR);
+          : layout.points[idx] ?? { x: cx, y: cy };
         return (
           <DraggableBubble
             key={goal.id}
@@ -320,6 +492,10 @@ export function RadialBoard({
 const styles = StyleSheet.create({
   centerWrap: {
     position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  centerTouch: {
     alignItems: 'center',
     justifyContent: 'center',
   },

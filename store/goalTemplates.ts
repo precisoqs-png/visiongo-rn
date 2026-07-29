@@ -1,4 +1,4 @@
-import { Goal, Measurable, newId, buildLadderWeeks } from './models';
+import { Goal, Measurable, newId, newMeasurable, buildLadderWeeks } from './models';
 
 export interface GoalTemplate {
   id: string;
@@ -15,16 +15,18 @@ export interface TemplateCategory {
 }
 
 function mkCheck(label: string): Measurable {
-  return { id: newId(), type: 'check', label, done: false, current: 0, target: 0, unit: '', weeks: [] };
+  return newMeasurable({ type: 'check', label });
 }
-function mkNumber(label: string, target: number, unit: string): Measurable {
-  return { id: newId(), type: 'number', label, done: false, current: 0, target, unit, weeks: [] };
+// `step` is how far one tap of +/- moves the counter — 1 for day/session
+// counts, coarser for targets counted in hundreds.
+function mkNumber(label: string, target: number, unit: string, step = 1): Measurable {
+  return newMeasurable({ type: 'number', label, target, unit, step });
 }
 function mkLadder(label: string, start: number, end: number, weekCount: number, unit: string): Measurable {
-  return {
-    id: newId(), type: 'ladder', label, done: false, current: 0, target: end, unit,
+  return newMeasurable({
+    type: 'ladder', label, target: end, unit,
     weeks: buildLadderWeeks(start, end, weekCount),
-  };
+  });
 }
 
 export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
@@ -94,7 +96,7 @@ export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
         id: 'money-emergency', emoji: '🏦', title: 'Build an emergency fund',
         category: 'Money', stepCount: 2,
         buildMeasurables: () => [
-          mkNumber('Amount saved', 5000, '$'),
+          mkNumber('Amount saved', 5000, '$', 50),
           mkCheck('Open a savings account'),
         ],
       },
@@ -102,7 +104,7 @@ export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
         id: 'money-trip', emoji: '✈️', title: 'Save for a dream trip',
         category: 'Money', stepCount: 2,
         buildMeasurables: () => [
-          mkNumber('Amount set aside', 6000, '$'),
+          mkNumber('Amount set aside', 6000, '$', 50),
           mkCheck('Choose destination'),
         ],
       },
@@ -169,7 +171,7 @@ export function instantiateTemplate(t: GoalTemplate, colorIndex: number): Goal {
     colorIndex,
     reminder: { on: false, frequency: 'Daily' },
     chat: [],
-    suggestions: [],
+    pendingActions: [],
     measurables: t.buildMeasurables(),
   };
 }

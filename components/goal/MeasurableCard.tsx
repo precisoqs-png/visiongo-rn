@@ -1,7 +1,9 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Measurable, measurableFraction } from '../../store/models';
+import {
+  Measurable, measurableFraction, measurableStep, steppedValue,
+} from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
 
 interface Props {
@@ -54,8 +56,12 @@ function CheckRow({ m, p, onUpdate, onDelete }: { m: Measurable; p: Palette; onU
 }
 
 function NumberRow({ m, p, onUpdate, onDelete, frac }: { m: Measurable; p: Palette; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number }) {
-  const stepSize = m.target >= 500 ? 100 : m.target >= 50 ? 5 : 1;
+  // Each measurable carries its own increment — "145 / 150 days" ticks by 1,
+  // while "$5000 saved" can tick by 50. No global guess from the target.
+  const stepSize = measurableStep(m);
   const fmt = (v: number) => v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
+  const atMin = m.current <= 0;
+  const atMax = m.target > 0 && m.current >= m.target;
 
   return (
     <View>
@@ -67,8 +73,10 @@ function NumberRow({ m, p, onUpdate, onDelete, frac }: { m: Measurable; p: Palet
       </View>
       <View style={[styles.row, { marginBottom: 10 }]}>
         <TouchableOpacity
-          style={[styles.stepper, { backgroundColor: p.line }]}
-          onPress={() => onUpdate({ ...m, current: Math.max(0, m.current - stepSize) })}
+          style={[styles.stepper, { backgroundColor: p.line, opacity: atMin ? 0.4 : 1 }]}
+          onPress={() => onUpdate({ ...m, current: steppedValue(m, -1) })}
+          disabled={atMin}
+          accessibilityLabel={`Subtract ${fmt(stepSize)} ${m.unit}`.trim()}
         >
           <Ionicons name="remove" size={16} color={p.text} />
         </TouchableOpacity>
@@ -76,11 +84,16 @@ function NumberRow({ m, p, onUpdate, onDelete, frac }: { m: Measurable; p: Palet
           {fmt(m.current)} / {fmt(m.target)} {m.unit}
         </Text>
         <TouchableOpacity
-          style={[styles.stepper, { backgroundColor: p.line }]}
-          onPress={() => onUpdate({ ...m, current: Math.min(m.target, m.current + stepSize) })}
+          style={[styles.stepper, { backgroundColor: p.line, opacity: atMax ? 0.4 : 1 }]}
+          onPress={() => onUpdate({ ...m, current: steppedValue(m, 1) })}
+          disabled={atMax}
+          accessibilityLabel={`Add ${fmt(stepSize)} ${m.unit}`.trim()}
         >
           <Ionicons name="add" size={16} color={p.text} />
         </TouchableOpacity>
+        <Text style={[styles.stepHint, { color: p.muted }]}>
+          ±{fmt(stepSize)}{m.unit ? ` ${m.unit}` : ''}
+        </Text>
       </View>
       <View style={[styles.progressTrack, { backgroundColor: p.line }]}>
         <View style={[styles.progressFill, { backgroundColor: p.accent, width: `${frac * 100}%` }]} />
@@ -142,6 +155,7 @@ const styles = StyleSheet.create({
   numLabel: { flex: 1, fontSize: 15, fontWeight: '600' },
   stepper: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   stepperVal: { fontSize: 15, fontWeight: '700' },
+  stepHint: { fontSize: 11, marginLeft: 'auto' },
   progressTrack: { height: 5, borderRadius: 3, overflow: 'hidden' },
   progressFill: { height: 5, borderRadius: 3 },
   ladderPct: { fontSize: 13, fontWeight: '700' },

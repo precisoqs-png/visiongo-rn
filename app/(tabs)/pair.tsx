@@ -33,7 +33,13 @@ export default function PairScreen() {
     setLoading(true);
     const prompt = `Two of my goals this year are:\n1. ${g1.title}\n2. ${g2.title}\n\nIn 2-3 encouraging sentences, describe how these two goals reinforce each other and help me become a better version of myself. If there's any potential tension between them, frame it as an exciting balance to manage — never discourage either goal.`;
     try {
-      const ctx: CoachGoalContext = { goalTitle: `${g1.title} + ${g2.title}`, today: new Date() };
+      const ctx: CoachGoalContext = {
+        goalTitle: `${g1.title} + ${g2.title}`,
+        today: new Date(),
+        measurables: [],
+        exchangeCount: 0,
+        kind: 'pairing',
+      };
       const res = await coachService.send([{ role: 'user', text: prompt }], ctx);
       setResult(res.text);
     } catch {

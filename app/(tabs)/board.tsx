@@ -28,6 +28,7 @@ export default function BoardScreen() {
   const selectYear = useAppStore((s) => s.selectYear);
   const setBoardLayout = useAppStore((s) => s.setBoardLayout);
   const setBoardViewMode = useAppStore((s) => s.setBoardViewMode);
+  const realignBoard = useAppStore((s) => s.realignBoard);
 
   const yd = useAppStore((s) => s.years.find((y) => y.year === s.selectedYear));
 
@@ -138,6 +139,7 @@ export default function BoardScreen() {
               onGoalDelete={handleGoalDelete}
               onAddGoal={() => setPickerVisible(true)}
               onCompletedPress={() => router.push('/completed')}
+              onRealign={realignBoard}
             />
           ) : (
             <GridBoard
