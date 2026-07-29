@@ -27,10 +27,17 @@ export async function POST(request: Request): Promise<Response> {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'server-side-fallback-2026-07-01',
       },
       body: JSON.stringify({
-        model: 'claude-3-5-haiku-20241022',
-        max_tokens: 1024,
+        // claude-3-5-haiku-20241022 was retired Feb 2026 (the route 404'd and the
+        // app silently fell back to the offline stub — a major cause of vague
+        // plans). Opus 5 with low effort keeps coach replies fast; the server-side
+        // fallback re-runs any safety-classifier decline on another model.
+        model: 'claude-opus-5',
+        max_tokens: 4096,
+        output_config: { effort: 'low' },
+        fallbacks: 'default',
         system: systemPrompt,
         messages,
       }),

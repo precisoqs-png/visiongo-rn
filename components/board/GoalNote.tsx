@@ -9,10 +9,11 @@ interface Props {
   palette: Palette;
   onPress: () => void;
   onLongPress?: () => void;
+  onPressOut?: () => void;
   animDelay?: number;
 }
 
-export function GoalNote({ goal, size, palette, onPress, onLongPress, animDelay = 0 }: Props) {
+export function GoalNote({ goal, size, palette, onPress, onLongPress, onPressOut, animDelay = 0 }: Props) {
   const scale = useRef(new Animated.Value(0)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   const noteColor = GOAL_NOTE_COLORS[goal.colorIndex % GOAL_NOTE_COLORS.length];
@@ -44,7 +45,8 @@ export function GoalNote({ goal, size, palette, onPress, onLongPress, animDelay 
       <TouchableOpacity
         onPress={onPress}
         onLongPress={onLongPress}
-        delayLongPress={500}
+        onPressOut={onPressOut}
+        delayLongPress={400}
         activeOpacity={0.8}
         style={Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : undefined}
       >

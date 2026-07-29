@@ -96,3 +96,84 @@ export async function cancelGoalNotification(goalId: string): Promise<void> {
 export async function cancelAllGoalNotifications(goalIds: string[]): Promise<void> {
   await Promise.all(goalIds.map(cancelGoalNotification));
 }
+
+// ── Weekly-target notifications ─────────────────────────────────
+//
+// Each ladder week ("6 km by Sun, Aug 2 – Step 1") gets its own one-shot
+// notification at 9:00 local time on its due date, identified by
+// `week-<goalId>-<weekId>` so they can be cancelled per goal or per week.
+
+function weekIdentifier(goalId: string, weekId: string): string {
+  return `week-${goalId}-${weekId}`;
+}
+
+export async function cancelWeeklyTargetNotification(goalId: string, weekId: string): Promise<void> {
+  if (!SUPPORTED) return;
+  try {
+    await Notifications.cancelScheduledNotificationAsync(weekIdentifier(goalId, weekId));
+  } catch (e) {
+    console.warn('[VisionGo] Failed to cancel weekly target reminder:', e);
+  }
+}
+
+export async function cancelWeeklyTargetNotifications(goalId: string): Promise<void> {
+  if (!SUPPORTED) return;
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    const prefix = `week-${goalId}-`;
+    await Promise.all(
+      scheduled
+        .filter((n) => n.identifier.startsWith(prefix))
+        .map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier)),
+    );
+  } catch (e) {
+    console.warn('[VisionGo] Failed to cancel weekly target reminders:', e);
+  }
+}
+
+function fmtVal(v: number): string {
+  return v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
+}
+
+/**
+ * Re-schedules all weekly-target notifications for a goal from its current
+ * ladder measurables. Cancels stale ones first, then schedules one per
+ * not-yet-done future week (9:00 local on the due date).
+ */
+export async function syncWeeklyTargetNotifications(goal: Goal): Promise<void> {
+  if (!SUPPORTED) return;
+  try {
+    await cancelWeeklyTargetNotifications(goal.id);
+    if (!goal.reminder.on) return;
+
+    const now = Date.now();
+    for (const m of goal.measurables) {
+      if (m.type !== 'ladder') continue;
+      for (const week of m.weeks) {
+        if (week.done) continue;
+        const due = new Date(week.targetDate);
+        due.setHours(9, 0, 0, 0);
+        if (due.getTime() <= now) continue;
+        await Notifications.scheduleNotificationAsync({
+          identifier: weekIdentifier(goal.id, week.id),
+          content: {
+            title: `${goal.title} — weekly target due`,
+            body: `${fmtVal(week.value)} ${m.unit} · ${m.label}`,
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: due,
+          },
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('[VisionGo] Failed to sync weekly target reminders:', e);
+  }
+}
+
+/** Cancels the goal reminder and every weekly-target notification for a goal. */
+export async function cancelEverythingForGoal(goalId: string): Promise<void> {
+  await cancelGoalNotification(goalId);
+  await cancelWeeklyTargetNotifications(goalId);
+}

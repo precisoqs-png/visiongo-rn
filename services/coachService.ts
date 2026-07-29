@@ -41,28 +41,49 @@ export function buildSystemPrompt(ctx: CoachGoalContext): string {
   const weeksStr =
     ctx.weeksRemaining != null ? ` (${ctx.weeksRemaining} weeks remaining)` : '';
 
-  return `You are a warm, encouraging goal-planning coach inside the VisionGo app. \
-Your job is to help the user turn their goal into concrete, measurable steps.
+  return `You are the AI coach inside VisionGo, a goal-planning app. VisionGo is NOT a \
+to-do or habit app: users bring short-, medium-, and long-term GOALS and rely on you — their \
+accountability partner — to break each goal into concrete steps and micro-steps they can \
+check off week by week.
 
 Context:
 - Today: ${todayStr}
 - Goal: "${ctx.goalTitle}"
 - Achieve by: ${achieveStr}${weeksStr}
 
+YOUR JOB — a complete plan within at most 5 exchanges:
+1. Exchange 1: Ask ONE focused question that unlocks the plan (usually the user's current \
+starting point / baseline). Never ask more than one question per reply.
+2. Exchange 2 (or 3 at the latest): Propose the FULL plan as SUGGEST lines (format below):
+   - 1–2 LADDER groups: each is a NAMED, measurable step group (e.g. "Weekly long-run \
+build-up") that the app expands into dated weekly micro-step targets with checkboxes.
+   - 1–2 supporting CHECK or NUMBER steps (habits, logistics, checkpoints).
+   Every step must be concrete and measurable — never vague ("get fitter") — and sized \
+realistically from the user's baseline to the goal within the weeks remaining.
+3. Remaining exchanges: adjust numbers the user pushes back on (re-emit corrected SUGGEST \
+lines), then close with a one-line summary and remind them to tap the suggestion chips to \
+add the steps to their goal.
+
 Rules:
-1. Ask at most 5 short, focused questions — one per reply — to understand the goal.
-2. After gathering enough info, summarize the concrete steps and ask “Anything else to add?”
-3. Never ask how many weeks the user has — you already know from the context above.
-4. Be warm, brief, and encouraging. Never negative or preachy.
-5. LEGAL GUARDRAIL (required): Do NOT give financial, investment, tax, legal, or \
+- Never ask how many weeks the user has — you already know from the context above.
+- If the user gives no baseline after one ask, assume a sensible beginner baseline, say so, \
+and propose the plan anyway. Never stall waiting for more info.
+- Ladder <weeks> must fit within the weeks remaining (cap at 12 if no target date).
+- Be warm, brief, and encouraging. Never negative or preachy.
+- LEGAL GUARDRAIL (required): Do NOT give financial, investment, tax, legal, or \
 medical/mental-health advice. If asked, kindly decline and redirect to a planning action.
 
-When a concrete measurable step emerges, emit it on its own line in EXACTLY one of:
+SUGGEST line format — each on its own line, EXACTLY one of:
   SUGGEST|<label>|check
   SUGGEST|<label>|number|<target>|<unit>
   SUGGEST|<label>|ladder|<start>|<end>|<weeks>|<unit>
 
-These lines are parsed by the app — keep the format exact.`;
+Example (goal "Run 10 km", baseline 4 km, 10 weeks left):
+  SUGGEST|Weekly long-run build-up|ladder|5|10|8|km
+  SUGGEST|Two easy runs each week|check
+  SUGGEST|Log every run|check
+
+These lines are parsed by the app — keep the format exact and put nothing else on those lines.`;
 }
 
 // ── SUGGEST parser ──────────────────────────────────────────
@@ -175,8 +196,9 @@ function buildTurn2(ctx: CoachGoalContext, userReply: string): string {
     }
     case 'weight': {
       const target = n > 0 ? n : 500;
+      const w = Math.min(weeks, 8);
       suggests = [
-        `SUGGEST|Weigh-in every Monday morning|check`,
+        `SUGGEST|Weekly active-days build-up|ladder|3|6|${w}|days/week`,
         `SUGGEST|Daily calorie target|number|${target}|cal/day`,
         `SUGGEST|Meal prep done each Sunday|check`,
       ].join('\n');
@@ -184,8 +206,9 @@ function buildTurn2(ctx: CoachGoalContext, userReply: string): string {
     }
     case 'learn': {
       const hrs = n > 0 ? n : 5;
+      const w = Math.min(weeks, 8);
       suggests = [
-        `SUGGEST|Study sessions this week|number|${hrs}|hrs`,
+        `SUGGEST|Weekly study-hours build-up|ladder|${Math.max(1, Math.round(hrs / 2))}|${hrs}|${w}|hrs/week`,
         `SUGGEST|Complete one module or chapter per week|check`,
         `SUGGEST|Weekly review — what did I learn?|check`,
       ].join('\n');
@@ -193,8 +216,9 @@ function buildTurn2(ctx: CoachGoalContext, userReply: string): string {
     }
     case 'finance': {
       const amount = n > 0 ? n : 200;
+      const w = Math.min(weeks, 12);
       suggests = [
-        `SUGGEST|Monthly transfer to savings|number|${amount}|$/month`,
+        `SUGGEST|Weekly savings build-up|ladder|${Math.max(10, Math.round(amount / 8))}|${Math.round(amount / 4)}|${w}|$/week`,
         `SUGGEST|Review budget every Sunday|check`,
         `SUGGEST|No impulse purchases over $50 without 24hr wait|check`,
       ].join('\n');
@@ -202,16 +226,18 @@ function buildTurn2(ctx: CoachGoalContext, userReply: string): string {
     }
     case 'read': {
       const pages = n > 0 ? n : 20;
+      const w = Math.min(weeks, 8);
       suggests = [
-        `SUGGEST|Daily reading habit|number|${pages}|pages/day`,
+        `SUGGEST|Weekly pages build-up|ladder|${Math.max(10, Math.round((pages * 7) / 2))}|${pages * 7}|${w}|pages/week`,
         `SUGGEST|Finish one book this month|check`,
         `SUGGEST|Weekly reading log|check`,
       ].join('\n');
       break;
     }
     default: {
+      const w = Math.min(weeks, 8);
       suggests = [
-        `SUGGEST|Weekly check-in on progress|check`,
+        `SUGGEST|Weekly milestone build-up|ladder|1|${w}|${w}|milestones`,
         `SUGGEST|Define one milestone this month|check`,
         `SUGGEST|Share progress with someone|check`,
       ].join('\n');
@@ -297,7 +323,12 @@ export class ProxyCoachService implements CoachService {
       // Malformed body (e.g. an HTML error page from a static host)
       return new StubCoachService().send(messages, ctx);
     }
-    const rawText: string = data.content?.[0]?.text ?? '';
+    // The model may emit thinking blocks before the text block — find the first
+    // text block instead of assuming content[0] is it. A refusal or empty
+    // content falls through to the stub below.
+    const rawText: string = Array.isArray(data.content)
+      ? (data.content.find((b: any) => b?.type === 'text' && typeof b.text === 'string')?.text ?? '')
+      : '';
     if (!rawText) {
       return new StubCoachService().send(messages, ctx);
     }
