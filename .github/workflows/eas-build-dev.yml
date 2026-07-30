@@ -2,18 +2,37 @@
 # No Mac required. The GitHub Action just authenticates and kicks off
 # the build; all compilation happens on Expo's macOS build servers.
 #
-# Required GitHub Secrets (Settings → Secrets and variables → Actions):
+# The `production` profile additionally submits the finished build to
+# App Store Connect (and therefore TestFlight) via `eas build --auto-submit`,
+# which runs the submit profile of the same name from eas.json.
+#
+# ── Required GitHub Secret ──────────────────────────────────────────
 #   EXPO_TOKEN    — expo.dev account access token
 #                   (expo.dev → Account Settings → Access Tokens → Create)
-#   APPLE_ID      — Apple Developer account email
-#   ASC_APP_ID    — App Store Connect numeric app ID (10-digit number)
-#                   (appstoreconnect.apple.com → your app → App Information → Apple ID)
-#   APPLE_TEAM_ID — Apple team ID
-#                   (developer.apple.com/account → Membership Details → Team ID)
 #
-# APPLE_ID / ASC_APP_ID / APPLE_TEAM_ID are only needed for
-# production builds that auto-submit to App Store Connect.
-# Development and preview builds only require EXPO_TOKEN.
+# ── Optional, for production builds ─────────────────────────────────
+#   APPLE_ID      — Apple Developer account email
+#   APPLE_TEAM_ID — developer.apple.com/account → Membership Details → Team ID
+#
+# ── App Store Connect authentication for the submit step ────────────
+# `eas submit` needs an App Store Connect API key. Pick ONE of:
+#
+#   A. Store the key on EAS (recommended — nothing extra to manage in CI).
+#      Run `eas credentials` locally once, choose iOS → App Store Connect
+#      API Key, and upload the .p8. CI then needs only EXPO_TOKEN below;
+#      the "Provide App Store Connect API key" step is skipped entirely.
+#
+#   B. Keep the key in GitHub Secrets instead. Set all three and this
+#      workflow decodes the key to a temp file and points EAS at it:
+#        ASC_API_KEY_BASE64 — base64 of the AuthKey_XXXX.p8 file
+#        ASC_KEY_ID         — the key's Key ID
+#        ASC_ISSUER_ID      — the App Store Connect Issuer ID
+#
+# The numeric app id lives in eas.json as submit.production.ios.ascAppId,
+# so it does not need to be supplied here.
+#
+# No Apple credentials are stored in this repository. Everything above
+# comes from secrets you set yourself in the repo/org settings.
 
 name: EAS Build
 
@@ -55,12 +74,59 @@ jobs:
       - name: Install EAS CLI
         run: npm install -g eas-cli
 
+      - name: Resolve build profile
+        id: cfg
+        run: |
+          PROFILE="${{ github.event.inputs.profile || 'development' }}"
+          echo "profile=$PROFILE" >> "$GITHUB_OUTPUT"
+          # Only production is wired to App Store Connect; dev/preview builds
+          # are internal-distribution artifacts and must never be submitted.
+          if [ "$PROFILE" = "production" ]; then
+            echo "submit_flag=--auto-submit" >> "$GITHUB_OUTPUT"
+            echo "Production build — will auto-submit to App Store Connect on completion."
+          else
+            echo "submit_flag=" >> "$GITHUB_OUTPUT"
+            echo "$PROFILE build — no submission."
+          fi
+
+      # Option B only. If ASC_API_KEY_BASE64 is unset this step is a no-op
+      # and EAS falls back to the API key stored on its credentials service
+      # (option A above).
+      - name: Provide App Store Connect API key from secrets
+        if: steps.cfg.outputs.profile == 'production'
+        env:
+          ASC_API_KEY_BASE64: ${{ secrets.ASC_API_KEY_BASE64 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          if [ -z "$ASC_API_KEY_BASE64" ]; then
+            echo "ASC_API_KEY_BASE64 not set — relying on the App Store Connect"
+            echo "API key stored on the EAS credentials service instead."
+            exit 0
+          fi
+          if [ -z "$ASC_KEY_ID" ] || [ -z "$ASC_ISSUER_ID" ]; then
+            echo "::error::ASC_API_KEY_BASE64 is set but ASC_KEY_ID and/or ASC_ISSUER_ID are missing. Set all three secrets, or none of them to use the key stored on EAS."
+            exit 1
+          fi
+          umask 077
+          KEY_PATH="$RUNNER_TEMP/asc-api-key.p8"
+          printf '%s' "$ASC_API_KEY_BASE64" | base64 -d > "$KEY_PATH"
+          if [ ! -s "$KEY_PATH" ]; then
+            echo "::error::Decoded App Store Connect key is empty — is ASC_API_KEY_BASE64 valid base64 of the .p8 file?"
+            exit 1
+          fi
+          echo "EXPO_ASC_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          echo "EXPO_ASC_KEY_ID=$ASC_KEY_ID" >> "$GITHUB_ENV"
+          echo "EXPO_ASC_ISSUER_ID=$ASC_ISSUER_ID" >> "$GITHUB_ENV"
+          echo "App Store Connect API key staged for eas submit."
+
       - name: Build on EAS
         run: >
           eas build
-          --profile ${{ github.event.inputs.profile || 'development' }}
+          --profile ${{ steps.cfg.outputs.profile }}
           --platform ios
           --non-interactive
+          ${{ steps.cfg.outputs.submit_flag }}
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           # EAS CLI reads these EXPO_-prefixed env vars when appleId /
@@ -68,7 +134,9 @@ jobs:
           # so the Apple ID email isn't published in a public file).
           EXPO_APPLE_ID: ${{ secrets.APPLE_ID }}
           EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # There is no EXPO_* env var for ascAppId. Interactive `eas submit`
-          # auto-resolves it from the bundle id; a future non-interactive
-          # submit step must inject secrets.ASC_APP_ID into eas.json first.
-          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+
+      # Runners are ephemeral and torn down after the job, but don't leave a
+      # signing key sitting on disk for the rest of this job either.
+      - name: Remove App Store Connect API key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/asc-api-key.p8"

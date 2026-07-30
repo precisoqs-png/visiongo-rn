@@ -50,9 +50,25 @@ npm install -g eas-cli
 eas login
 eas init                                          # links repo to EAS project
 eas build --platform ios --profile development   # dev build for physical device
-eas build --platform ios --profile production    # production build for TestFlight
-eas submit --platform ios --latest               # upload to App Store Connect
+eas build --platform ios --profile production    # production build
+
+# Then either submit separately:
+eas submit --platform ios --latest               # upload the latest build to App Store Connect
+# ...or build and submit in one step:
+eas build --platform ios --profile production --auto-submit
 ```
+
+The `.github/workflows/eas-build-dev.yml` GitHub Action runs the same
+`--auto-submit` flow for the `production` profile, so a build triggered from
+Actions goes straight to App Store Connect/TestFlight without a separate
+manual `eas submit`. This needs an App Store Connect API key on top of the
+usual `EXPO_TOKEN` — see [`DEPLOYMENT.md`](./DEPLOYMENT.md#step-8b--app-store-connect-api-key-for-the-submit-step)
+for how to set that up (either uploaded to EAS once via `eas credentials`,
+or via `ASC_API_KEY_BASE64`/`ASC_KEY_ID`/`ASC_ISSUER_ID` GitHub secrets).
+
+`eas submit` authenticates with an App Store Connect API key, not with the
+`APPLE_ID`/`APPLE_TEAM_ID` env vars — those only matter for interactive
+code-signing flows and are unrelated to submission.
 
 ## Screens
 
