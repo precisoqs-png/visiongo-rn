@@ -17,7 +17,7 @@ interface Props {
   // Called after the store changed, so the screen can re-sync reminders.
   onGoalEdited?: () => void;
   // A message handed over from elsewhere on the screen (the "Ask coach" button
-  // on an effort minor goal). Sent once, then cleared via onSeedConsumed.
+  // on an effort milestone). Sent once, then cleared via onSeedConsumed.
   seedMessage?: string | null;
   onSeedConsumed?: () => void;
 }
@@ -165,7 +165,7 @@ export function CoachChat({
       weeksRemaining: weeksLeft,
       today: new Date(),
       measurables: goal.measurables,
-      minorGoals: goal.minorGoals ?? [],
+      milestones: goal.milestones ?? [],
       exchangeCount: goal.chat.filter((m) => m.sender === 'coach').length,
     };
 
@@ -202,7 +202,7 @@ export function CoachChat({
     void sendText(text);
   };
 
-  // "Ask coach" on an effort minor goal seeds a message from outside the
+  // "Ask coach" on an effort milestone seeds a message from outside the
   // composer; send it once, guarding against the re-render that clears it.
   const seedSentRef = useRef<string | null>(null);
   useEffect(() => {

@@ -4,18 +4,22 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   YearData, Goal, Measurable, ChatMessage,
   CoachAction, PendingAction,
-  MinorGoal, AccountableStep, StepSchedule,
+  Milestone, AccountableStep, StepSchedule,
   BoardLayout, BoardViewMode,
-  newId, newMeasurable, newMinorGoal, newAccountableStep, buildLadderWeeks,
-  resolveMeasurable, resolveMinorGoal, periodKey, minorGoalStep, snapToStep,
+  newId, newMeasurable, newMilestone, newAccountableStep, buildLadderWeeks,
+  resolveMeasurable, resolveMilestone, periodKey, milestoneStep, snapToStep,
   DEFAULT_SCHEDULE, currentRampWeek, isStepDoneThisPeriod, currentStepPeriodDueDate,
+  formatNumber,
 } from './models';
 import { GOAL_NOTE_COLORS as COLORS } from '../theme/themes';
 
 const COACH_DAILY_LIMIT = 20;
 
 // Bumped whenever the persisted shape changes — see migrateState below.
-const STORE_VERSION = 2;
+// v3: Goal.minorGoals -> Goal.milestones, and the matching CoachAction kind/
+// field renames (addMinorGoal -> addMilestone, minorGoalId -> milestoneId,
+// etc.) from the "Minor Goal" -> "Milestone" rename.
+const STORE_VERSION = 3;
 
 function todayKey(): string {
   const d = new Date();
@@ -50,17 +54,17 @@ interface AppState {
   updateMeasurable: (m: Measurable, goalId: string) => void;
   deleteMeasurable: (mid: string, goalId: string) => void;
 
-  // Minor goals — the layer between a goal and its accountable steps.
-  addMinorGoal: (mg: MinorGoal, goalId: string) => void;
-  updateMinorGoal: (mg: MinorGoal, goalId: string) => void;
-  deleteMinorGoal: (mgId: string, goalId: string) => void;
+  // Milestones — the layer between a goal and its accountable steps.
+  addMilestone: (mg: Milestone, goalId: string) => void;
+  updateMilestone: (mg: Milestone, goalId: string) => void;
+  deleteMilestone: (mgId: string, goalId: string) => void;
 
-  // Accountable steps — recurring commitments under a minor goal.
+  // Accountable steps — recurring commitments under a milestone.
   addAccountableStep: (step: AccountableStep, mgId: string, goalId: string) => void;
   updateAccountableStep: (step: AccountableStep, mgId: string, goalId: string) => void;
   deleteAccountableStep: (stepId: string, mgId: string, goalId: string) => void;
   setStepSchedule: (schedule: StepSchedule, stepId: string, mgId: string, goalId: string) => void;
-  // Confirms (or un-confirms) this period's commitment; numeric minor goals
+  // Confirms (or un-confirms) this period's commitment; numeric milestones
   // also advance by the step's amount. For a ramp step, toggles the current
   // (earliest not-yet-due) ramp week rather than a period key.
   toggleStepCheckIn: (stepId: string, mgId: string, goalId: string) => void;
@@ -105,9 +109,9 @@ export interface TaskItem {
   // Measurable-based task (check, or one ladder week).
   measurableId?: string;
   ladderWeekId?: string;
-  // Accountable Step task (from a Minor Goal) — either a flat step's current
+  // Accountable Step task (from a Milestone) — either a flat step's current
   // period, or one week of a progressive ramp.
-  minorGoalId?: string;
+  milestoneId?: string;
   stepId?: string;
   rampWeekId?: string;
 }
@@ -177,7 +181,7 @@ export const useAppStore = create<AppState>()(
         const goal: Goal = {
           id: newId(), title, colorIndex,
           reminder: { on: false, frequency: 'Daily' },
-          chat: [], pendingActions: [], measurables: [], minorGoals: [],
+          chat: [], pendingActions: [], measurables: [], milestones: [],
         };
         set((s) => ({
           years: s.years.map((y) =>
@@ -264,51 +268,51 @@ export const useAppStore = create<AppState>()(
         }));
       },
 
-      addMinorGoal: (mg, goalId) => {
-        get()._patchGoal(goalId, (g) => ({ ...g, minorGoals: [...(g.minorGoals ?? []), mg] }));
+      addMilestone: (mg, goalId) => {
+        get()._patchGoal(goalId, (g) => ({ ...g, milestones: [...(g.milestones ?? []), mg] }));
       },
 
-      updateMinorGoal: (mg, goalId) => {
+      updateMilestone: (mg, goalId) => {
         get()._patchGoal(goalId, (g) => ({
           ...g,
-          minorGoals: (g.minorGoals ?? []).map((m) => (m.id === mg.id ? mg : m)),
+          milestones: (g.milestones ?? []).map((m) => (m.id === mg.id ? mg : m)),
         }));
       },
 
-      deleteMinorGoal: (mgId, goalId) => {
+      deleteMilestone: (mgId, goalId) => {
         get()._patchGoal(goalId, (g) => ({
           ...g,
-          minorGoals: (g.minorGoals ?? []).filter((m) => m.id !== mgId),
+          milestones: (g.milestones ?? []).filter((m) => m.id !== mgId),
         }));
       },
 
       addAccountableStep: (step, mgId, goalId) => {
-        get()._patchGoal(goalId, (g) => patchMinorGoal(g, mgId, (mg) => ({
+        get()._patchGoal(goalId, (g) => patchMilestone(g, mgId, (mg) => ({
           ...mg, steps: [...mg.steps, step],
         })));
       },
 
       updateAccountableStep: (step, mgId, goalId) => {
-        get()._patchGoal(goalId, (g) => patchMinorGoal(g, mgId, (mg) => ({
+        get()._patchGoal(goalId, (g) => patchMilestone(g, mgId, (mg) => ({
           ...mg, steps: mg.steps.map((s) => (s.id === step.id ? step : s)),
         })));
       },
 
       deleteAccountableStep: (stepId, mgId, goalId) => {
-        get()._patchGoal(goalId, (g) => patchMinorGoal(g, mgId, (mg) => ({
+        get()._patchGoal(goalId, (g) => patchMilestone(g, mgId, (mg) => ({
           ...mg, steps: mg.steps.filter((s) => s.id !== stepId),
         })));
       },
 
       setStepSchedule: (schedule, stepId, mgId, goalId) => {
-        get()._patchGoal(goalId, (g) => patchMinorGoal(g, mgId, (mg) => ({
+        get()._patchGoal(goalId, (g) => patchMilestone(g, mgId, (mg) => ({
           ...mg,
           steps: mg.steps.map((s) => (s.id === stepId ? { ...s, schedule } : s)),
         })));
       },
 
       toggleStepCheckIn: (stepId, mgId, goalId) => {
-        get()._patchGoal(goalId, (g) => patchMinorGoal(g, mgId, (mg) => {
+        get()._patchGoal(goalId, (g) => patchMilestone(g, mgId, (mg) => {
           const step = mg.steps.find((s) => s.id === stepId);
           if (!step) return mg;
 
@@ -330,7 +334,7 @@ export const useAppStore = create<AppState>()(
           const completions = wasDone
             ? step.completions.filter((k) => k !== key)
             : [...step.completions, key];
-          // A numeric minor goal moves by the step's own amount, so checking off
+          // A numeric milestone moves by the step's own amount, so checking off
           // "Save $830 per month" adds exactly $830 — deliberately NOT snapped
           // to the +/- grid, which would silently inflate the commitment.
           let current = mg.current;
@@ -348,7 +352,7 @@ export const useAppStore = create<AppState>()(
       },
 
       toggleRampWeek: (stepId, weekId, mgId, goalId) => {
-        get()._patchGoal(goalId, (g) => patchMinorGoal(g, mgId, (mg) => ({
+        get()._patchGoal(goalId, (g) => patchMilestone(g, mgId, (mg) => ({
           ...mg,
           steps: mg.steps.map((s) => (s.id === stepId && s.ramp
             ? { ...s, ramp: s.ramp.map((w) => (w.id === weekId ? { ...w, done: !w.done } : w)) }
@@ -437,7 +441,7 @@ export const useAppStore = create<AppState>()(
                 const item: TaskItem = {
                   id: `task-${m.id}-${week.id}`, measurableId: m.id, ladderWeekId: week.id,
                   goalId: goal.id, goalTitle: goal.title, goalColorIndex: goal.colorIndex,
-                  label: `${fmtVal(week.value)} ${m.unit} – ${m.label}`,
+                  label: `${formatNumber(week.value)} ${m.unit} – ${m.label}`,
                   dueDate: due, done: week.done,
                 };
                 if (due < todayStart) buckets['Overdue'].push(item);
@@ -452,16 +456,16 @@ export const useAppStore = create<AppState>()(
           // so a "Save $830 per month" or "Run 40 km this week" commitment
           // shows up right alongside ladder/check tasks instead of only
           // living on the goal's own screen.
-          for (const mg of goal.minorGoals ?? []) {
+          for (const mg of goal.milestones ?? []) {
             for (const step of mg.steps) {
               if (step.ramp) {
                 for (const week of step.ramp) {
                   if (week.done) continue;
                   const due = localDate(week.targetDate);
                   const item: TaskItem = {
-                    id: `task-step-${step.id}-${week.id}`, minorGoalId: mg.id, stepId: step.id, rampWeekId: week.id,
+                    id: `task-step-${step.id}-${week.id}`, milestoneId: mg.id, stepId: step.id, rampWeekId: week.id,
                     goalId: goal.id, goalTitle: goal.title, goalColorIndex: goal.colorIndex,
-                    label: `${fmtVal(week.value)} ${step.unit ?? ''} – ${step.label}`.trim(),
+                    label: `${formatNumber(week.value)} ${step.unit ?? ''} – ${step.label}`.trim(),
                     dueDate: due, done: false,
                   };
                   if (due < todayStart) buckets['Overdue'].push(item);
@@ -472,10 +476,10 @@ export const useAppStore = create<AppState>()(
               } else if (!isStepDoneThisPeriod(step, now)) {
                 const due = currentStepPeriodDueDate(step, now);
                 const item: TaskItem = {
-                  id: `task-step-${step.id}`, minorGoalId: mg.id, stepId: step.id,
+                  id: `task-step-${step.id}`, milestoneId: mg.id, stepId: step.id,
                   goalId: goal.id, goalTitle: goal.title, goalColorIndex: goal.colorIndex,
                   label: step.amount != null
-                    ? `${fmtVal(step.amount)} ${step.unit ?? ''} – ${step.label}`.trim()
+                    ? `${formatNumber(step.amount)} ${step.unit ?? ''} – ${step.label}`.trim()
                     : step.label,
                   dueDate: due, done: false,
                 };
@@ -494,16 +498,16 @@ export const useAppStore = create<AppState>()(
 
       completeTaskItem: (item) => {
         // An Accountable Step task — delegate to the same actions the goal
-        // screen uses, so the numeric-minor-goal current-value bump and
+        // screen uses, so the numeric-milestone current-value bump and
         // ramp/period bookkeeping stay in exactly one place. These toggle
         // done<->not-done, but the Tasks UI only ever calls completeTaskItem
         // on an item it knows is not yet done, so a toggle here always lands
         // on "done" — never flips a genuinely-done item back off.
-        if (item.stepId && item.minorGoalId) {
+        if (item.stepId && item.milestoneId) {
           if (item.rampWeekId) {
-            get().toggleRampWeek(item.stepId, item.rampWeekId, item.minorGoalId, item.goalId);
+            get().toggleRampWeek(item.stepId, item.rampWeekId, item.milestoneId, item.goalId);
           } else {
-            get().toggleStepCheckIn(item.stepId, item.minorGoalId, item.goalId);
+            get().toggleStepCheckIn(item.stepId, item.milestoneId, item.goalId);
           }
           return;
         }
@@ -599,20 +603,20 @@ export const useAppStore = create<AppState>()(
 // Anything that cannot be resolved (an edit to a step the user already deleted)
 // is a no-op rather than an error — the action has already left the queue.
 
-function patchMinorGoal(goal: Goal, mgId: string, fn: (mg: MinorGoal) => MinorGoal): Goal {
+function patchMilestone(goal: Goal, mgId: string, fn: (mg: Milestone) => Milestone): Goal {
   return {
     ...goal,
-    minorGoals: (goal.minorGoals ?? []).map((mg) => (mg.id === mgId ? fn(mg) : mg)),
+    milestones: (goal.milestones ?? []).map((mg) => (mg.id === mgId ? fn(mg) : mg)),
   };
 }
 
 function applyCoachAction(goal: Goal, a: CoachAction): Goal {
-  if (a.kind === 'addMinorGoal') {
+  if (a.kind === 'addMilestone') {
     const title = (a.label ?? '').trim();
     if (!title) return goal;
-    const mg = newMinorGoal({
+    const mg = newMilestone({
       title,
-      kind: a.minorGoalKind ?? (a.target != null ? 'numeric' : 'effort'),
+      kind: a.milestoneKind ?? (a.target != null ? 'numeric' : 'effort'),
       target: a.target,
       current: a.target != null ? 0 : undefined,
       unit: a.unit,
@@ -623,15 +627,15 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
       // flagged outdated later — the coach naming its own date is deliberate.
       sizedForGoalDate: a.deadline == null ? goal.targetDate : undefined,
     });
-    return { ...goal, minorGoals: [...(goal.minorGoals ?? []), mg] };
+    return { ...goal, milestones: [...(goal.milestones ?? []), mg] };
   }
 
   if (a.kind === 'addAccountableStep') {
     const label = (a.label ?? '').trim();
     if (!label) return goal;
-    // Attach to the named minor goal, or the only one if the coach did not say.
-    const list = goal.minorGoals ?? [];
-    const target = resolveMinorGoal(a, goal) ?? (list.length === 1 ? list[0] : undefined);
+    // Attach to the named milestone, or the only one if the coach did not say.
+    const list = goal.milestones ?? [];
+    const target = resolveMilestone(a, goal) ?? (list.length === 1 ? list[0] : undefined);
     if (!target) return goal;
     const step = newAccountableStep({
       label,
@@ -643,15 +647,15 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
       // user's call, made from the goal screen.
       schedule: { ...DEFAULT_SCHEDULE, on: false },
     });
-    return patchMinorGoal(goal, target.id, (mg) => ({ ...mg, steps: [...mg.steps, step] }));
+    return patchMilestone(goal, target.id, (mg) => ({ ...mg, steps: [...mg.steps, step] }));
   }
 
-  if (a.kind === 'removeMinorGoal') {
-    const target = resolveMinorGoal(a, goal);
+  if (a.kind === 'removeMilestone') {
+    const target = resolveMilestone(a, goal);
     if (!target) return goal;
     return {
       ...goal,
-      minorGoals: (goal.minorGoals ?? []).filter((mg) => mg.id !== target.id),
+      milestones: (goal.milestones ?? []).filter((mg) => mg.id !== target.id),
     };
   }
 
@@ -707,7 +711,7 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
 // ── Persist migration ─────────────────────────────────────────
 //
 // v1: measurables gained a per-measurable `step`, and coach `suggestions`
-// became `pendingActions`. v2: goals gained `minorGoals`, each with its own
+// became `pendingActions`. v2: goals gained `milestones`, each with its own
 // accountable steps. Saved data predating any of these must be backfilled or
 // the +/- controls freeze and the goal screen reads an undefined array.
 
@@ -723,7 +727,7 @@ interface LegacySuggestion {
 }
 
 type LegacyMeasurable = Omit<Measurable, 'step'> & { step?: number };
-type LegacyMinorGoal = Omit<MinorGoal, 'steps' | 'done'> & {
+type LegacyMilestone = Omit<Milestone, 'steps' | 'done'> & {
   done?: boolean;
   steps?: (Omit<AccountableStep, 'completions' | 'schedule' | 'createdAt'> & {
     completions?: string[];
@@ -731,28 +735,66 @@ type LegacyMinorGoal = Omit<MinorGoal, 'steps' | 'done'> & {
     createdAt?: string;
   })[];
 };
-type LegacyGoal = Omit<Goal, 'pendingActions' | 'measurables' | 'minorGoals'> & {
-  pendingActions?: PendingAction[];
+// v2-and-earlier field/action names, from before the "Minor Goal" ->
+// "Milestone" rename — still readable so nobody's existing saved goals
+// silently lose their data on this upgrade.
+type LegacyCoachActionKind = 'addMinorGoal' | 'removeMinorGoal';
+type LegacyCoachAction = Omit<CoachAction, 'kind'> & {
+  kind: CoachAction['kind'] | LegacyCoachActionKind;
+  minorGoalKind?: Milestone['kind'];
+  minorGoalId?: string;
+  minorGoalLabel?: string;
+};
+type LegacyPendingAction = Omit<PendingAction, 'action'> & { action: LegacyCoachAction };
+type LegacyGoal = Omit<Goal, 'pendingActions' | 'measurables' | 'milestones'> & {
+  pendingActions?: LegacyPendingAction[];
   measurables?: LegacyMeasurable[];
-  minorGoals?: LegacyMinorGoal[];
+  milestones?: LegacyMilestone[];
+  minorGoals?: LegacyMilestone[];
   suggestions?: LegacySuggestion[];
 };
 type LegacyState = Omit<AppState, 'years'> & { years?: (Omit<YearData, 'goals'> & { goals: LegacyGoal[] })[] };
+
+const LEGACY_ACTION_KIND: Record<LegacyCoachActionKind, CoachAction['kind']> = {
+  addMinorGoal: 'addMilestone',
+  removeMinorGoal: 'removeMilestone',
+};
+
+function migratePendingAction(p: LegacyPendingAction): PendingAction {
+  const { kind, minorGoalKind, minorGoalId, minorGoalLabel, ...rest } = p.action;
+  const migratedKind: CoachAction['kind'] =
+    (LEGACY_ACTION_KIND as Record<string, CoachAction['kind']>)[kind] ?? (kind as CoachAction['kind']);
+  return {
+    id: p.id,
+    action: {
+      ...rest,
+      kind: migratedKind,
+      milestoneKind: rest.milestoneKind ?? minorGoalKind,
+      milestoneId: rest.milestoneId ?? minorGoalId,
+      milestoneLabel: rest.milestoneLabel ?? minorGoalLabel,
+    },
+  };
+}
 
 // Idempotent: safe to run on already-migrated data.
 function normalizeYears(years: LegacyState['years']): YearData[] {
   return (years ?? []).map((y) => ({
     ...y,
-    goals: (y.goals ?? []).map(({ suggestions, ...g }): Goal => ({
+    goals: (y.goals ?? []).map(({ suggestions, minorGoals, ...g }): Goal => ({
       ...g,
       measurables: (g.measurables ?? []).map((m) => ({
         ...m,
         step: typeof m.step === 'number' && m.step > 0 ? m.step : 1,
       })),
-      pendingActions: g.pendingActions ?? (suggestions ?? []).map(legacySuggestionToPending),
-      // v2: goals saved before minor goals existed have no array at all, and a
+      pendingActions: g.pendingActions
+        ? g.pendingActions.map(migratePendingAction)
+        : (suggestions ?? []).map(legacySuggestionToPending),
+      // v2: goals saved before milestones existed have no array at all, and a
       // step persisted mid-upgrade may be missing its schedule or history.
-      minorGoals: (g.minorGoals ?? []).map((mg) => ({
+      // v3: the array itself moved from `minorGoals` to `milestones` — read
+      // the old key as a fallback and drop it from the destructured `g` above
+      // so the stale duplicate doesn't linger in the re-saved blob.
+      milestones: (g.milestones ?? minorGoals ?? []).map((mg) => ({
         ...mg,
         done: mg.done ?? false,
         steps: (mg.steps ?? []).map((s) => ({
@@ -797,6 +839,3 @@ function legacySuggestionToPending(s: LegacySuggestion): PendingAction {
   };
 }
 
-function fmtVal(v: number): string {
-  return v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
-}

@@ -10,11 +10,11 @@ import { useThemeStore } from '../../store/useThemeStore';
 import { useAppStore } from '../../store/useAppStore';
 import { GOAL_NOTE_COLORS, hexAlpha, FONTS } from '../../theme/themes';
 import {
-  goalProgress, goalProgressPercent, AccountableStep, MinorGoal,
+  goalProgress, goalProgressPercent, AccountableStep, Milestone,
 } from '../../store/models';
 import { MeasurableCard } from '../../components/goal/MeasurableCard';
 import { AddMeasurableForm } from '../../components/goal/AddMeasurableForm';
-import { MinorGoalSection } from '../../components/goal/MinorGoalSection';
+import { MilestoneSection } from '../../components/goal/MilestoneSection';
 import { CoachChat } from '../../components/goal/CoachChat';
 import { CalendarPicker } from '../../components/shared/CalendarPicker';
 import {
@@ -45,9 +45,9 @@ export default function GoalDetailScreen() {
   const addMeasurable = useAppStore((s) => s.addMeasurable);
   const updateMeasurable = useAppStore((s) => s.updateMeasurable);
   const deleteMeasurable = useAppStore((s) => s.deleteMeasurable);
-  const addMinorGoal = useAppStore((s) => s.addMinorGoal);
-  const updateMinorGoal = useAppStore((s) => s.updateMinorGoal);
-  const deleteMinorGoal = useAppStore((s) => s.deleteMinorGoal);
+  const addMilestone = useAppStore((s) => s.addMilestone);
+  const updateMilestone = useAppStore((s) => s.updateMilestone);
+  const deleteMilestone = useAppStore((s) => s.deleteMilestone);
   const addAccountableStep = useAppStore((s) => s.addAccountableStep);
   const updateAccountableStep = useAppStore((s) => s.updateAccountableStep);
   const deleteAccountableStep = useAppStore((s) => s.deleteAccountableStep);
@@ -92,7 +92,7 @@ export default function GoalDetailScreen() {
   };
 
   // Same for accountable-step reminders. Each step owns its own schedule, so
-  // this runs on every minor-goal edit rather than off the goal-level bell.
+  // this runs on every milestone edit rather than off the goal-level bell.
   const resyncStepNotifications = () => {
     const fresh = useAppStore.getState().getGoal(id!);
     if (fresh && useAppStore.getState().notificationsMasterOn) {
@@ -116,12 +116,12 @@ export default function GoalDetailScreen() {
     resyncStepNotifications();
   };
 
-  // Hands an effort minor goal to the coach: seeds a message the coach answers
+  // Hands an effort milestone to the coach: seeds a message the coach answers
   // with a baseline question and one simple weekly target.
   const [coachSeed, setCoachSeed] = useState<string | null>(null);
-  const askCoachAbout = (mg: MinorGoal) => {
+  const askCoachAbout = (mg: Milestone) => {
     setCoachSeed(
-      `Help me with my minor goal "${mg.title}". Ask me what my current baseline is, ` +
+      `Help me with my milestone "${mg.title}". Ask me what my current baseline is, ` +
       `then suggest one simple weekly accountable step I can be reminded about — ` +
       `not a full training plan.`,
     );
@@ -237,6 +237,11 @@ export default function GoalDetailScreen() {
         </TouchableOpacity>
 
         <View style={styles.section}>
+          <Text style={[styles.eyebrow, { color: p.muted }]}>MEASURABLES</Text>
+          <Text style={[styles.layerHint, { color: p.muted }]}>
+            Quick checklist items you track directly on this goal. For a sub-goal with its
+            own recurring commitment and reminder, use Milestones below instead.
+          </Text>
           {goal.measurables.length === 0 ? (
             <Text style={[styles.emptyHint, { color: p.muted }]}>
               No measurables yet. Add one below or ask your coach.
@@ -255,13 +260,13 @@ export default function GoalDetailScreen() {
         </View>
 
         <View style={styles.section}>
-          <MinorGoalSection
+          <MilestoneSection
             goal={goal}
             palette={p}
-            onAddMinorGoal={(mg) => addMinorGoal(mg, goal.id)}
-            onUpdateMinorGoal={(mg) => updateMinorGoal(mg, goal.id)}
-            onDeleteMinorGoal={(mgId) => {
-              deleteMinorGoal(mgId, goal.id);
+            onAddMilestone={(mg) => addMilestone(mg, goal.id)}
+            onUpdateMilestone={(mg) => updateMilestone(mg, goal.id)}
+            onDeleteMilestone={(mgId) => {
+              deleteMilestone(mgId, goal.id);
               resyncStepNotifications();
             }}
             onAddStep={(step, mgId) => {
@@ -356,6 +361,7 @@ const styles = StyleSheet.create({
   eyebrow: { fontSize: 11, fontWeight: '600', letterSpacing: 1.5 },
   dateText: { fontSize: 14, fontWeight: '600' },
   daysLeft: { fontSize: 13 },
+  layerHint: { fontSize: 11, lineHeight: 15, marginTop: 4, marginBottom: 10 },
   section: { padding: 18 },
   emptyHint: { fontSize: 14, lineHeight: 20 },
 });

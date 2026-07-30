@@ -64,10 +64,10 @@ export function measurableFraction(m: Measurable): number {
   }
 }
 
-// ── Minor goals and accountable steps ─────────────────────────
+// ── Milestones and accountable steps ─────────────────────────
 //
-// A goal breaks down into Minor Goals ("Save $10,000", "Run a marathon"), and
-// each Minor Goal carries Accountable Steps — one concrete recurring
+// A goal breaks down into Milestones ("Save $10,000", "Run a marathon"), and
+// each Milestone carries Accountable Steps — one concrete recurring
 // commitment ("Save $1,000 per month") that can drive a push reminder.
 
 export type Cadence = 'weekly' | 'monthly' | 'custom';
@@ -103,12 +103,12 @@ export interface AccountableStep {
   ramp?: LadderWeek[];
 }
 
-export type MinorGoalKind = 'numeric' | 'effort';
+export type MilestoneKind = 'numeric' | 'effort';
 
-export interface MinorGoal {
+export interface Milestone {
   id: string;
   title: string;
-  kind: MinorGoalKind;
+  kind: MilestoneKind;
   // numeric only
   target?: number;
   current?: number;
@@ -116,9 +116,9 @@ export interface MinorGoal {
   step?: number;
   deadline?: string;      // ISO date string
   // Set only when `deadline` was inherited from (or explicitly re-synced to)
-  // the parent Goal's own targetDate, so the minor goal's sizing can be
+  // the parent Goal's own targetDate, so the milestone's sizing can be
   // flagged as outdated if that parent date later changes. Left unset when
-  // the user picked a deliberately different date for this minor goal —
+  // the user picked a deliberately different date for this milestone —
   // that choice is never second-guessed.
   sizedForGoalDate?: string;
   // effort goals are simply marked done; numeric ones derive from current/target
@@ -127,11 +127,11 @@ export interface MinorGoal {
 }
 
 /**
- * True when this minor goal's deadline was sized against the parent goal's
+ * True when this milestone's deadline was sized against the parent goal's
  * PRIOR targetDate and that date has since changed (or been cleared/added).
- * A minor goal the user gave its own independent deadline is never flagged.
+ * A milestone the user gave its own independent deadline is never flagged.
  */
-export function isMinorGoalDeadlineOutdated(mg: MinorGoal, goalTargetDate?: string): boolean {
+export function isMilestoneDeadlineOutdated(mg: Milestone, goalTargetDate?: string): boolean {
   return mg.sizedForGoalDate != null && mg.sizedForGoalDate !== goalTargetDate;
 }
 
@@ -151,13 +151,13 @@ export function newAccountableStep(
   };
 }
 
-export function newMinorGoal(
-  init: Partial<MinorGoal> & { title: string; kind: MinorGoalKind },
-): MinorGoal {
+export function newMilestone(
+  init: Partial<Milestone> & { title: string; kind: MilestoneKind },
+): Milestone {
   return { id: newId(), done: false, steps: [], ...init };
 }
 
-export function minorGoalStep(mg: MinorGoal): number {
+export function milestoneStep(mg: Milestone): number {
   return typeof mg.step === 'number' && mg.step > 0 ? mg.step : 1;
 }
 
@@ -175,7 +175,7 @@ export function cadenceLabel(step: AccountableStep): string {
   if (step.ramp) {
     const first = step.ramp[0], last = step.ramp[step.ramp.length - 1];
     return first && last
-      ? `Ramp · ${fmtVal(first.value)}→${fmtVal(last.value)} ${step.unit ?? ''}`.trim()
+      ? `Ramp · ${formatNumber(first.value)}→${formatNumber(last.value)} ${step.unit ?? ''}`.trim()
       : 'Ramp';
   }
   switch (step.cadence) {
@@ -188,8 +188,14 @@ export function cadenceLabel(step: AccountableStep): string {
   }
 }
 
-function fmtVal(v: number): string {
-  return v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
+// The single source of truth for displaying a Measurable/Milestone/
+// Accountable Step value — "1,000" for whole numbers, "3.4" for anything
+// with a fractional part. Every call site (cadence labels, breakdown
+// suggestions, coach confirmation chips, measurable/milestone cards) used to
+// carry its own slightly different copy of this; formatAmount below adds
+// unit-aware wrapping on top of it.
+export function formatNumber(v: number): string {
+  return v % 1 === 0 ? v.toLocaleString('en-US') : v.toFixed(1);
 }
 
 /**
@@ -278,7 +284,7 @@ export function periodsUntil(deadline: string, cadence: Cadence, intervalDays = 
   }
 }
 
-// ── Breakdown suggestions (case 1: arithmetic minor goals) ────
+// ── Breakdown suggestions (case 1: arithmetic milestones) ────
 
 export interface BreakdownOption {
   cadence: Cadence;
@@ -299,7 +305,7 @@ function friendlyAmount(v: number): number {
 
 /** "$1,000" for currency symbols, "40 km" for everything else. */
 export function formatAmount(v: number, unit?: string): string {
-  const n = v % 1 === 0 ? v.toLocaleString('en-US') : v.toFixed(1);
+  const n = formatNumber(v);
   if (!unit) return n;
   // Currency-ish units read better in front: $1,000 not 1,000 $
   return /^[$£€¥]$/.test(unit.trim()) ? `${unit.trim()}${n}` : `${n} ${unit}`;
@@ -307,14 +313,14 @@ export function formatAmount(v: number, unit?: string): string {
 const fmtAmount = formatAmount;
 
 // Explicit recurrence language in the title — "each morning", "every day",
-// "daily", "each week", "weekly" — marks a minor goal as a repeating HABIT
+// "daily", "each week", "weekly" — marks a milestone as a repeating HABIT
 // rather than a one-time cumulative sum. For a habit, `target` is already the
 // per-occurrence amount ("30 min each morning" means 30 min EVERY morning,
 // not 30 min total to divide across the weeks remaining).
 const DAILY_HABIT_CUE = /\b(each|every)\s+(day|morning|evening|night)\b|\bdaily\b/i;
 const WEEKLY_HABIT_CUE = /\b(each|every)\s+week\b|\bweekly\b/i;
 
-export function isRecurringHabit(mg: MinorGoal): boolean {
+export function isRecurringHabit(mg: Milestone): boolean {
   return mg.kind === 'numeric' && (DAILY_HABIT_CUE.test(mg.title) || WEEKLY_HABIT_CUE.test(mg.title));
 }
 
@@ -327,7 +333,7 @@ export function isRecurringHabit(mg: MinorGoal): boolean {
  * problem — the target already IS the per-occurrence amount, so it is routed
  * to suggestHabitCadence instead of being divided by the weeks remaining.
  */
-export function suggestBreakdowns(mg: MinorGoal, today: Date = new Date()): BreakdownOption[] {
+export function suggestBreakdowns(mg: Milestone, today: Date = new Date()): BreakdownOption[] {
   if (mg.kind !== 'numeric' || !mg.target || !mg.deadline) return [];
   const remaining = Math.max(0, mg.target - (mg.current ?? 0));
   if (remaining <= 0) return [];
@@ -359,7 +365,7 @@ export function suggestBreakdowns(mg: MinorGoal, today: Date = new Date()): Brea
 // named in the title — never divided by the weeks remaining, since the
 // "amount" is a per-occurrence dose (30 min of no-phone time every single
 // morning), not a cumulative sum being paid off over time.
-function suggestHabitCadence(mg: MinorGoal, today: Date): BreakdownOption[] {
+function suggestHabitCadence(mg: Milestone, today: Date): BreakdownOption[] {
   const target = mg.target as number;
   const daily = DAILY_HABIT_CUE.test(mg.title);
   const cadence: Cadence = daily ? 'custom' : 'weekly';
@@ -391,7 +397,7 @@ export function accountableStepProgress(step: AccountableStep, deadline?: string
   return Math.min(1, step.completions.length / expected);
 }
 
-export function minorGoalFraction(mg: MinorGoal): number {
+export function milestoneFraction(mg: Milestone): number {
   if (mg.done) return 1;
   if (mg.kind === 'numeric' && (mg.target ?? 0) > 0) {
     return Math.min(Math.max((mg.current ?? 0) / (mg.target as number), 0), 1);
@@ -402,12 +408,12 @@ export function minorGoalFraction(mg: MinorGoal): number {
   return Math.min(1, sum / mg.steps.length);
 }
 
-export function minorGoalPercent(mg: MinorGoal): number {
-  return Math.round(minorGoalFraction(mg) * 100);
+export function milestonePercent(mg: Milestone): number {
+  return Math.round(milestoneFraction(mg) * 100);
 }
 
-export function steppedMinorGoalValue(mg: MinorGoal, direction: 1 | -1): number {
-  const step = minorGoalStep(mg);
+export function steppedMilestoneValue(mg: Milestone, direction: 1 | -1): number {
+  const step = milestoneStep(mg);
   const raw = (mg.current ?? 0) + direction * step;
   const snapped = snapToStep(raw, step);
   const moved = snapped === (mg.current ?? 0) ? (mg.current ?? 0) + direction * step : snapped;
@@ -438,7 +444,7 @@ export interface ChatMessage {
 
 export type CoachActionKind =
   | 'addTask' | 'editTask' | 'removeTask' | 'setTarget'
-  | 'addMinorGoal' | 'addAccountableStep' | 'removeMinorGoal';
+  | 'addMilestone' | 'addAccountableStep' | 'removeMilestone';
 
 export interface CoachAction {
   kind: CoachActionKind;
@@ -456,25 +462,21 @@ export interface CoachAction {
   // fallback match if the measurable was edited after the action was proposed.
   measurableId?: string;
   measurableLabel?: string;
-  // addMinorGoal
-  minorGoalKind?: MinorGoalKind;
+  // addMilestone
+  milestoneKind?: MilestoneKind;
   deadline?: string;
-  // addAccountableStep — attaches to a minor goal, recurring at `cadence`
+  // addAccountableStep — attaches to a milestone, recurring at `cadence`
   cadence?: Cadence;
   intervalDays?: number;
   amount?: number;
-  // addAccountableStep / removeMinorGoal — which minor goal it hits
-  minorGoalId?: string;
-  minorGoalLabel?: string;
+  // addAccountableStep / removeMilestone — which milestone it hits
+  milestoneId?: string;
+  milestoneLabel?: string;
 }
 
 export interface PendingAction {
   id: string;
   action: CoachAction;
-}
-
-function fmtNum(v: number): string {
-  return v % 1 === 0 ? String(Math.round(v)) : String(Math.round(v * 10) / 10);
 }
 
 // One-line human summary shown on the confirmation chip.
@@ -485,29 +487,29 @@ export function describeAction(a: CoachAction, goal: Goal): string {
   switch (a.kind) {
     case 'addTask':
       if (a.type === 'ladder') {
-        return `Add "${a.label}" — ${fmtNum(a.ladderStart ?? 0)}→${fmtNum(a.ladderEnd ?? 0)} ${unit} over ${a.ladderWeeks ?? 0} weeks`;
+        return `Add "${a.label}" — ${formatNumber(a.ladderStart ?? 0)}→${formatNumber(a.ladderEnd ?? 0)} ${unit} over ${a.ladderWeeks ?? 0} weeks`;
       }
       if (a.type === 'number') {
-        return `Add "${a.label}" — target ${fmtNum(a.target ?? 0)} ${unit}`.trimEnd();
+        return `Add "${a.label}" — target ${formatNumber(a.target ?? 0)} ${unit}`.trimEnd();
       }
       return `Add "${a.label}"`;
     case 'editTask': {
       const bits: string[] = [];
       if (a.label && a.label !== existing?.label) bits.push(`rename to "${a.label}"`);
-      if (a.target != null) bits.push(`target ${fmtNum(a.target)} ${unit}`.trimEnd());
-      if (a.step != null) bits.push(`step ${fmtNum(a.step)}`);
+      if (a.target != null) bits.push(`target ${formatNumber(a.target)} ${unit}`.trimEnd());
+      if (a.step != null) bits.push(`step ${formatNumber(a.step)}`);
       if (a.unit != null && a.unit !== existing?.unit) bits.push(`unit ${a.unit}`);
       return `Edit "${name}"${bits.length ? ` — ${bits.join(', ')}` : ''}`;
     }
     case 'removeTask':
       return `Remove "${name}"`;
     case 'setTarget':
-      return `Set "${name}" target to ${fmtNum(a.target ?? 0)} ${unit}`.trimEnd();
-    case 'addMinorGoal': {
+      return `Set "${name}" target to ${formatNumber(a.target ?? 0)} ${unit}`.trimEnd();
+    case 'addMilestone': {
       const bits: string[] = [];
-      if (a.target != null) bits.push(`${fmtNum(a.target)} ${a.unit ?? ''}`.trim());
+      if (a.target != null) bits.push(`${formatNumber(a.target)} ${a.unit ?? ''}`.trim());
       if (a.deadline) bits.push(`by ${new Date(a.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`);
-      return `Add minor goal "${a.label}"${bits.length ? ` — ${bits.join(' ')}` : ''}`;
+      return `Add milestone "${a.label}"${bits.length ? ` — ${bits.join(' ')}` : ''}`;
     }
     case 'addAccountableStep': {
       const every = a.cadence === 'monthly'
@@ -515,13 +517,13 @@ export function describeAction(a: CoachAction, goal: Goal): string {
         : a.cadence === 'custom'
           ? `every ${a.intervalDays ?? 7} days`
           : 'weekly';
-      const target = resolveMinorGoal(a, goal);
-      const under = target?.title ?? a.minorGoalLabel;
+      const target = resolveMilestone(a, goal);
+      const under = target?.title ?? a.milestoneLabel;
       return `Add ${every} step "${a.label}"${under ? ` under "${under}"` : ''}`;
     }
-    case 'removeMinorGoal': {
-      const target = resolveMinorGoal(a, goal);
-      return `Remove minor goal "${target?.title ?? a.minorGoalLabel}"`;
+    case 'removeMilestone': {
+      const target = resolveMilestone(a, goal);
+      return `Remove milestone "${target?.title ?? a.milestoneLabel}"`;
     }
   }
 }
@@ -541,13 +543,13 @@ export function resolveMeasurable(a: CoachAction, goal: Goal): Measurable | unde
   );
 }
 
-export function resolveMinorGoal(a: CoachAction, goal: Goal): MinorGoal | undefined {
-  const list = goal.minorGoals ?? [];
-  if (a.minorGoalId) {
-    const byId = list.find((mg) => mg.id === a.minorGoalId);
+export function resolveMilestone(a: CoachAction, goal: Goal): Milestone | undefined {
+  const list = goal.milestones ?? [];
+  if (a.milestoneId) {
+    const byId = list.find((mg) => mg.id === a.milestoneId);
     if (byId) return byId;
   }
-  const wanted = (a.minorGoalLabel ?? '').trim().toLowerCase();
+  const wanted = (a.milestoneLabel ?? '').trim().toLowerCase();
   if (!wanted) return undefined;
   return (
     list.find((mg) => mg.title.trim().toLowerCase() === wanted) ??
@@ -571,16 +573,16 @@ export interface Goal {
   chat: ChatMessage[];
   pendingActions: PendingAction[];
   measurables: Measurable[];
-  minorGoals: MinorGoal[];
+  milestones: Milestone[];
   boardPosition?: BoardPosition;
 }
 
-// Measurables and minor goals each count as one unit of the goal, so adding a
-// minor goal shows real movement on the board instead of sitting at 0%.
+// Measurables and milestones each count as one unit of the goal, so adding a
+// milestone shows real movement on the board instead of sitting at 0%.
 export function goalProgress(g: Goal): number {
   const parts = [
     ...g.measurables.map(measurableFraction),
-    ...(g.minorGoals ?? []).map(minorGoalFraction),
+    ...(g.milestones ?? []).map(milestoneFraction),
   ];
   if (parts.length === 0) return 0;
   return parts.reduce((acc, f) => acc + f, 0) / parts.length;
@@ -591,7 +593,7 @@ export function goalProgressPercent(g: Goal): number {
 }
 
 export function isCompleted(g: Goal): boolean {
-  const tracked = g.measurables.length + (g.minorGoals?.length ?? 0);
+  const tracked = g.measurables.length + (g.milestones?.length ?? 0);
   return tracked > 0 && goalProgress(g) >= 1;
 }
 
@@ -657,6 +659,6 @@ export function buildLadderWeeks(
 }
 
 // A progressive ramp for an Accountable Step is exactly a ladder measurable's
-// weekly schedule (same shape, same math) attached to a Minor Goal instead of
+// weekly schedule (same shape, same math) attached to a Milestone instead of
 // standing alone as a Measurable — this is that reuse, named for the call site.
 export const buildAccountableRamp = buildLadderWeeks;

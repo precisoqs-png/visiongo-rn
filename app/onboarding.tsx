@@ -72,7 +72,7 @@ export default function OnboardingScreen() {
           chat: [],
           pendingActions: [],
           measurables: [],
-          minorGoals: [],
+          milestones: [],
         });
       }
       const effectiveMotto = motto.trim() || 'Dream it. Plan it. Live it.';

@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  Measurable, measurableFraction, measurableStep, steppedValue,
+  Measurable, measurableFraction, measurableStep, steppedValue, formatNumber,
 } from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
 
@@ -59,7 +59,7 @@ function NumberRow({ m, p, onUpdate, onDelete, frac }: { m: Measurable; p: Palet
   // Each measurable carries its own increment — "145 / 150 days" ticks by 1,
   // while "$5000 saved" can tick by 50. No global guess from the target.
   const stepSize = measurableStep(m);
-  const fmt = (v: number) => v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
+  const fmt = formatNumber;
   const atMin = m.current <= 0;
   const atMax = m.target > 0 && m.current >= m.target;
 
@@ -103,7 +103,7 @@ function NumberRow({ m, p, onUpdate, onDelete, frac }: { m: Measurable; p: Palet
 }
 
 function LadderRows({ m, p, onUpdate, onDelete, frac }: { m: Measurable; p: Palette; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number }) {
-  const fmt = (v: number) => v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
+  const fmt = formatNumber;
   const doneCount = m.weeks.filter((w) => w.done).length;
 
   return (
