@@ -52,6 +52,7 @@ export default function GoalDetailScreen() {
   const updateAccountableStep = useAppStore((s) => s.updateAccountableStep);
   const deleteAccountableStep = useAppStore((s) => s.deleteAccountableStep);
   const toggleStepCheckIn = useAppStore((s) => s.toggleStepCheckIn);
+  const toggleRampWeek = useAppStore((s) => s.toggleRampWeek);
 
   const goal = useAppStore((s) =>
     s.years.find((y) => y.year === s.selectedYear)?.goals.find((g) => g.id === id),
@@ -272,7 +273,15 @@ export default function GoalDetailScreen() {
               deleteAccountableStep(stepId, mgId, goal.id);
               void cancelAccountableStepNotification(goal.id, stepId);
             }}
-            onToggleCheckIn={(stepId, mgId) => toggleStepCheckIn(stepId, mgId, goal.id)}
+            onToggleCheckIn={(stepId, mgId) => {
+              toggleStepCheckIn(stepId, mgId, goal.id);
+              // A checked-off ramp week must not still ping a reminder for it.
+              resyncStepNotifications();
+            }}
+            onToggleRampWeek={(stepId, weekId, mgId) => {
+              toggleRampWeek(stepId, weekId, mgId, goal.id);
+              resyncStepNotifications();
+            }}
             onAskCoach={askCoachAbout}
           />
         </View>

@@ -8,7 +8,7 @@ import {
   BoardLayout, BoardViewMode,
   newId, newMeasurable, newMinorGoal, newAccountableStep, buildLadderWeeks,
   resolveMeasurable, resolveMinorGoal, periodKey, minorGoalStep, snapToStep,
-  DEFAULT_SCHEDULE,
+  DEFAULT_SCHEDULE, currentRampWeek, isStepDoneThisPeriod, currentStepPeriodDueDate,
 } from './models';
 import { GOAL_NOTE_COLORS as COLORS } from '../theme/themes';
 
@@ -61,8 +61,12 @@ interface AppState {
   deleteAccountableStep: (stepId: string, mgId: string, goalId: string) => void;
   setStepSchedule: (schedule: StepSchedule, stepId: string, mgId: string, goalId: string) => void;
   // Confirms (or un-confirms) this period's commitment; numeric minor goals
-  // also advance by the step's amount.
+  // also advance by the step's amount. For a ramp step, toggles the current
+  // (earliest not-yet-due) ramp week rather than a period key.
   toggleStepCheckIn: (stepId: string, mgId: string, goalId: string) => void;
+  // Toggles one specific week of a progressive-ramp step — any week, not
+  // just the current one, matching ladder-measurable week toggling.
+  toggleRampWeek: (stepId: string, weekId: string, mgId: string, goalId: string) => void;
 
   // Coach-proposed edits: queued on the goal, applied only on confirmation.
   addPendingActions: (actions: CoachAction[], goalId: string) => void;
@@ -92,14 +96,20 @@ interface AppState {
 
 export interface TaskItem {
   id: string;
-  measurableId: string;
-  ladderWeekId?: string;
   goalId: string;
   goalTitle: string;
   goalColorIndex: number;
   label: string;
   dueDate?: Date;
   done: boolean;
+  // Measurable-based task (check, or one ladder week).
+  measurableId?: string;
+  ladderWeekId?: string;
+  // Accountable Step task (from a Minor Goal) — either a flat step's current
+  // period, or one week of a progressive ramp.
+  minorGoalId?: string;
+  stepId?: string;
+  rampWeekId?: string;
 }
 
 export type TaskGroupKey = 'Overdue' | 'This Week' | 'This Month' | 'Upcoming' | 'Anytime';
@@ -301,6 +311,20 @@ export const useAppStore = create<AppState>()(
         get()._patchGoal(goalId, (g) => patchMinorGoal(g, mgId, (mg) => {
           const step = mg.steps.find((s) => s.id === stepId);
           if (!step) return mg;
+
+          // A ramp tracks completion per week (like a ladder measurable), not
+          // via a period key — toggle whichever week is currently active.
+          if (step.ramp) {
+            const week = currentRampWeek(step);
+            if (!week) return mg;
+            return {
+              ...mg,
+              steps: mg.steps.map((s) => (s.id === stepId
+                ? { ...s, ramp: s.ramp!.map((w) => (w.id === week.id ? { ...w, done: !w.done } : w)) }
+                : s)),
+            };
+          }
+
           const key = periodKey(step);
           const wasDone = step.completions.includes(key);
           const completions = wasDone
@@ -321,6 +345,15 @@ export const useAppStore = create<AppState>()(
             steps: mg.steps.map((s) => (s.id === stepId ? { ...s, completions } : s)),
           };
         }));
+      },
+
+      toggleRampWeek: (stepId, weekId, mgId, goalId) => {
+        get()._patchGoal(goalId, (g) => patchMinorGoal(g, mgId, (mg) => ({
+          ...mg,
+          steps: mg.steps.map((s) => (s.id === stepId && s.ramp
+            ? { ...s, ramp: s.ramp.map((w) => (w.id === weekId ? { ...w, done: !w.done } : w)) }
+            : s)),
+        })));
       },
 
       addPendingActions: (actions, goalId) => {
@@ -414,6 +447,45 @@ export const useAppStore = create<AppState>()(
               }
             }
           }
+
+          // Accountable Steps — same due-date buckets as measurable tasks,
+          // so a "Save $830 per month" or "Run 40 km this week" commitment
+          // shows up right alongside ladder/check tasks instead of only
+          // living on the goal's own screen.
+          for (const mg of goal.minorGoals ?? []) {
+            for (const step of mg.steps) {
+              if (step.ramp) {
+                for (const week of step.ramp) {
+                  if (week.done) continue;
+                  const due = localDate(week.targetDate);
+                  const item: TaskItem = {
+                    id: `task-step-${step.id}-${week.id}`, minorGoalId: mg.id, stepId: step.id, rampWeekId: week.id,
+                    goalId: goal.id, goalTitle: goal.title, goalColorIndex: goal.colorIndex,
+                    label: `${fmtVal(week.value)} ${step.unit ?? ''} – ${step.label}`.trim(),
+                    dueDate: due, done: false,
+                  };
+                  if (due < todayStart) buckets['Overdue'].push(item);
+                  else if (due <= weekEnd) buckets['This Week'].push(item);
+                  else if (due <= monthEnd) buckets['This Month'].push(item);
+                  else buckets['Upcoming'].push(item);
+                }
+              } else if (!isStepDoneThisPeriod(step, now)) {
+                const due = currentStepPeriodDueDate(step, now);
+                const item: TaskItem = {
+                  id: `task-step-${step.id}`, minorGoalId: mg.id, stepId: step.id,
+                  goalId: goal.id, goalTitle: goal.title, goalColorIndex: goal.colorIndex,
+                  label: step.amount != null
+                    ? `${fmtVal(step.amount)} ${step.unit ?? ''} – ${step.label}`.trim()
+                    : step.label,
+                  dueDate: due, done: false,
+                };
+                if (due < todayStart) buckets['Overdue'].push(item);
+                else if (due <= weekEnd) buckets['This Week'].push(item);
+                else if (due <= monthEnd) buckets['This Month'].push(item);
+                else buckets['Upcoming'].push(item);
+              }
+            }
+          }
         }
         return TASK_GROUP_ORDER
           .map((key) => ({ key, items: buckets[key] }))
@@ -421,6 +493,21 @@ export const useAppStore = create<AppState>()(
       },
 
       completeTaskItem: (item) => {
+        // An Accountable Step task — delegate to the same actions the goal
+        // screen uses, so the numeric-minor-goal current-value bump and
+        // ramp/period bookkeeping stay in exactly one place. These toggle
+        // done<->not-done, but the Tasks UI only ever calls completeTaskItem
+        // on an item it knows is not yet done, so a toggle here always lands
+        // on "done" — never flips a genuinely-done item back off.
+        if (item.stepId && item.minorGoalId) {
+          if (item.rampWeekId) {
+            get().toggleRampWeek(item.stepId, item.rampWeekId, item.minorGoalId, item.goalId);
+          } else {
+            get().toggleStepCheckIn(item.stepId, item.minorGoalId, item.goalId);
+          }
+          return;
+        }
+
         const year = get().selectedYear;
         set((s) => ({
           years: s.years.map((y) => {
@@ -532,6 +619,9 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
       step: a.step && a.step > 0 ? a.step : undefined,
       // Fall back to the parent goal's date so a breakdown can still be sized.
       deadline: a.deadline ?? goal.targetDate,
+      // Only an inherited (not coach-specified) deadline should ever be
+      // flagged outdated later — the coach naming its own date is deliberate.
+      sizedForGoalDate: a.deadline == null ? goal.targetDate : undefined,
     });
     return { ...goal, minorGoals: [...(goal.minorGoals ?? []), mg] };
   }

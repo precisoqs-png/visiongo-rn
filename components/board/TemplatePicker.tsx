@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView,
   StyleSheet, Modal, Platform,
@@ -28,13 +28,27 @@ export function TemplatePicker({ visible, onDismiss, palette }: Props) {
     return (yd?.goals.length ?? 0) % GOAL_NOTE_COLORS.length;
   };
 
+  // Guards against a goal being created twice from a single tap — e.g. a
+  // touch+click double-fire on some mobile browsers, or a fast re-tap before
+  // the sheet has visually dismissed. Reset whenever the sheet opens fresh,
+  // and set BEFORE any state mutation so even a synchronous re-entrant call
+  // in the same tick is blocked, not just a later one.
+  const committedRef = useRef(false);
+  useEffect(() => {
+    if (visible) committedRef.current = false;
+  }, [visible]);
+
   const handleScratch = () => {
+    if (committedRef.current) return;
+    committedRef.current = true;
     const id = addGoal();
     onDismiss();
     router.push(`/goal/${id}`);
   };
 
   const handleTemplate = (t: GoalTemplate) => {
+    if (committedRef.current) return;
+    committedRef.current = true;
     const goal = instantiateTemplate(t, nextColorIndex());
     const id = addGoalFull(goal);
     onDismiss();

@@ -14,7 +14,9 @@ import {
   requestNotificationPermission,
   scheduleGoalNotification,
   cancelGoalNotification,
-  cancelAllGoalNotifications,
+  cancelEverythingForGoal,
+  syncWeeklyTargetNotifications,
+  syncAccountableStepNotifications,
   alertNotificationsUnavailable,
 } from '../../services/notificationService';
 
@@ -135,6 +137,12 @@ function NotificationsModal({ visible, onClose, palette: p }: any) {
   const goals = useAppStore((s) => s.currentYearData())?.goals ?? [];
   const updateGoal = useAppStore((s) => s.updateGoal);
 
+  // The master switch must actually be a master switch: every reminder type
+  // — the per-goal check-in, weekly ladder-measurable targets, and per-step
+  // Accountable Step alerts — is gated on it, so flipping it off has to
+  // cancel all three, not just the per-goal one. (It previously only cancelled
+  // the per-goal generic reminder, leaving weekly-target and step
+  // notifications firing after the user just told the app to stop.)
   async function handleMasterToggle(val: boolean) {
     if (val) {
       const granted = await requestNotificationPermission();
@@ -144,12 +152,18 @@ function NotificationsModal({ visible, onClose, palette: p }: any) {
         return;
       }
       setNotificationsMaster(true);
-      await Promise.all(
-        goals.filter((g) => g.reminder.on).map((g) => scheduleGoalNotification(g))
-      );
+      await Promise.all(goals.map(async (g) => {
+        if (g.reminder.on) {
+          await scheduleGoalNotification(g);
+          await syncWeeklyTargetNotifications(g);
+        }
+        // Accountable Step reminders are independent of the per-goal toggle —
+        // only the master switch gates them.
+        await syncAccountableStepNotifications(g);
+      }));
     } else {
       setNotificationsMaster(false);
-      await cancelAllGoalNotifications(goals.map((g) => g.id));
+      await Promise.all(goals.map((g) => cancelEverythingForGoal(g.id)));
     }
   }
 
@@ -185,7 +199,11 @@ function NotificationsModal({ visible, onClose, palette: p }: any) {
           <View style={[styles.masterToggle, { backgroundColor: p.surface }]}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.settingsRowText, { color: p.text }]}>Push Notifications</Text>
-              <Text style={[styles.toggleDesc, { color: p.muted }]}>Receive reminders for your goals</Text>
+              <Text style={[styles.toggleDesc, { color: p.muted }]}>
+                Master switch for every reminder VisionGo sends — goal check-ins below,
+                weekly targets, and each Accountable Step's own alert. Off silences all
+                of them at once.
+              </Text>
             </View>
             <Switch
               value={notificationsMasterOn}
@@ -196,6 +214,12 @@ function NotificationsModal({ visible, onClose, palette: p }: any) {
           </View>
 
           <Text style={[styles.sectionLabel, { color: p.muted, marginTop: 8 }]}>PER GOAL</Text>
+          <Text style={[styles.layerHint, { color: p.muted }]}>
+            Each toggle below sends a periodic "check in on this goal" nudge and also
+            gates that goal's weekly ladder-measurable targets. It does NOT control
+            Accountable Step reminders — those live under the bell on each step, on
+            the goal's own screen, and only need the master switch above to be on.
+          </Text>
 
           {goals.length === 0 && (
             <Text style={[styles.emptyGoalsHint, { color: p.muted }]}>
@@ -248,6 +272,7 @@ const styles = StyleSheet.create({
   eyebrow: { fontSize: 11, fontWeight: '600', letterSpacing: 2 },
   subtitle: { fontSize: 20, fontStyle: 'italic', marginTop: 2 },
   sectionLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 1.5, paddingHorizontal: 22, paddingTop: 16, paddingBottom: 8 },
+  layerHint: { fontSize: 12, lineHeight: 17, paddingHorizontal: 4, marginBottom: 4 },
   themeRow: { flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 14, marginHorizontal: 18, marginBottom: 6 },
   miniSwatch: { width: 20, height: 20, borderRadius: 10 },
   themeName: { fontSize: 15, fontWeight: '600' },

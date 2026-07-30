@@ -44,6 +44,11 @@ export function StepScheduleSheet({
 
   if (!step) return null;
 
+  // A ramp's cadence is fixed at creation (always weekly) and each week's
+  // reminder fires on THAT week's own due date, not on a chosen weekday — so
+  // there is nothing to pick here beyond what time of day to be asked.
+  const isRamp = !!step.ramp;
+
   const patch = (partial: Partial<StepSchedule>) =>
     setSchedule((s) => ({ ...s, ...partial }));
 
@@ -76,24 +81,33 @@ export function StepScheduleSheet({
           </View>
 
           <ScrollView style={{ maxHeight: 400 }} keyboardShouldPersistTaps="handled">
-            <Text style={[styles.eyebrow, { color: p.muted }]}>HOW OFTEN</Text>
-            <View style={[styles.segmented, { backgroundColor: p.line }]}>
-              {CADENCES.map((c) => (
-                <TouchableOpacity
-                  key={c.key}
-                  style={[styles.segBtn, cadence === c.key && { backgroundColor: p.ink }]}
-                  onPress={() => setCadence(c.key)}
-                >
-                  <Text style={[styles.segText, {
-                    color: cadence === c.key ? (p.isDark ? p.bg : '#fff') : p.muted,
-                  }]}>
-                    {c.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            {isRamp ? (
+              <Text style={[styles.preview, { color: p.muted, marginTop: 0 }]}>
+                This step ramps up week by week — each week's reminder fires on that
+                week's own due date. Just pick a time of day below.
+              </Text>
+            ) : (
+              <>
+                <Text style={[styles.eyebrow, { color: p.muted }]}>HOW OFTEN</Text>
+                <View style={[styles.segmented, { backgroundColor: p.line }]}>
+                  {CADENCES.map((c) => (
+                    <TouchableOpacity
+                      key={c.key}
+                      style={[styles.segBtn, cadence === c.key && { backgroundColor: p.ink }]}
+                      onPress={() => setCadence(c.key)}
+                    >
+                      <Text style={[styles.segText, {
+                        color: cadence === c.key ? (p.isDark ? p.bg : '#fff') : p.muted,
+                      }]}>
+                        {c.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
 
-            {cadence === 'weekly' && (
+            {!isRamp && cadence === 'weekly' && (
               <>
                 <Text style={[styles.eyebrow, { color: p.muted }]}>WHICH DAY</Text>
                 <View style={styles.chipWrap}>
@@ -206,10 +220,15 @@ export function StepScheduleSheet({
             </View>
 
             <Text style={[styles.preview, { color: p.muted }]}>
-              I'll ask at {formatTime(schedule.hour, schedule.minute)}
-              {cadence === 'weekly' && ` every ${WEEKDAY_NAMES[schedule.weekday - 1]}`}
-              {cadence === 'monthly' && ` on day ${schedule.dayOfMonth} of each month`}
-              {cadence === 'custom' && ` every ${intervalStr || '7'} days`}.
+              {isRamp
+                ? `I'll ask at ${formatTime(schedule.hour, schedule.minute)} on each week's own due date as the target ramps up.`
+                : <>
+                    I'll ask at {formatTime(schedule.hour, schedule.minute)}
+                    {cadence === 'weekly' && ` every ${WEEKDAY_NAMES[schedule.weekday - 1]}`}
+                    {cadence === 'monthly' && ` on day ${schedule.dayOfMonth} of each month`}
+                    {cadence === 'custom' && ` every ${intervalStr || '7'} days`}.
+                  </>
+              }
             </Text>
 
             {Platform.OS === 'web' && (

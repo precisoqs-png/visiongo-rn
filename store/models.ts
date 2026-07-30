@@ -85,14 +85,22 @@ export interface StepSchedule {
 export interface AccountableStep {
   id: string;
   label: string;          // "Save $1,000 per month"
-  amount?: number;        // per-period target, for numeric minor goals
+  amount?: number;        // per-period target, for flat (non-ramp) steps
   unit?: string;
   cadence: Cadence;
   intervalDays?: number;  // custom cadence only
   schedule: StepSchedule;
-  // Period keys ("2026-W31", "2026-08", "2026-08-14") the user has checked off.
+  // Period keys ("2026-W31", "2026-08", "2026-08-14") the user has checked
+  // off. Unused when `ramp` is set — a ramp tracks completion per week
+  // instead (see LadderWeek.done below), same as ladder measurables.
   completions: string[];
   createdAt: string;
+  // Optional progressive ramp — the target increases week by week (5 -> 10 km
+  // building to week 5) instead of repeating one flat amount. Reuses the same
+  // weekly-target shape as ladder measurables (built with buildLadderWeeks),
+  // so a ramp Accountable Step and a ladder Measurable behave identically
+  // week to week; only the container differs. Always weekly cadence.
+  ramp?: LadderWeek[];
 }
 
 export type MinorGoalKind = 'numeric' | 'effort';
@@ -107,9 +115,24 @@ export interface MinorGoal {
   unit?: string;
   step?: number;
   deadline?: string;      // ISO date string
+  // Set only when `deadline` was inherited from (or explicitly re-synced to)
+  // the parent Goal's own targetDate, so the minor goal's sizing can be
+  // flagged as outdated if that parent date later changes. Left unset when
+  // the user picked a deliberately different date for this minor goal —
+  // that choice is never second-guessed.
+  sizedForGoalDate?: string;
   // effort goals are simply marked done; numeric ones derive from current/target
   done: boolean;
   steps: AccountableStep[];
+}
+
+/**
+ * True when this minor goal's deadline was sized against the parent goal's
+ * PRIOR targetDate and that date has since changed (or been cleared/added).
+ * A minor goal the user gave its own independent deadline is never flagged.
+ */
+export function isMinorGoalDeadlineOutdated(mg: MinorGoal, goalTargetDate?: string): boolean {
+  return mg.sizedForGoalDate != null && mg.sizedForGoalDate !== goalTargetDate;
 }
 
 export const DEFAULT_SCHEDULE: StepSchedule = {
@@ -149,6 +172,12 @@ export function cadenceIntervalDays(step: AccountableStep): number {
 }
 
 export function cadenceLabel(step: AccountableStep): string {
+  if (step.ramp) {
+    const first = step.ramp[0], last = step.ramp[step.ramp.length - 1];
+    return first && last
+      ? `Ramp · ${fmtVal(first.value)}→${fmtVal(last.value)} ${step.unit ?? ''}`.trim()
+      : 'Ramp';
+  }
   switch (step.cadence) {
     case 'weekly': return 'Weekly';
     case 'monthly': return 'Monthly';
@@ -157,6 +186,21 @@ export function cadenceLabel(step: AccountableStep): string {
       return d === 1 ? 'Daily' : `Every ${d} days`;
     }
   }
+}
+
+function fmtVal(v: number): string {
+  return v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
+}
+
+/**
+ * The ramp week that is currently "live" — the earliest not-yet-due week, or
+ * the final week once every due date has passed. Ramp weeks are built in
+ * chronological order (see buildLadderWeeks), so this is just the first week
+ * whose target date has not yet arrived.
+ */
+export function currentRampWeek(step: AccountableStep, when: Date = new Date()): LadderWeek | undefined {
+  if (!step.ramp || step.ramp.length === 0) return undefined;
+  return step.ramp.find((w) => new Date(w.targetDate) >= when) ?? step.ramp[step.ramp.length - 1];
 }
 
 function isoWeekKey(d: Date): string {
@@ -187,7 +231,39 @@ export function periodKey(step: AccountableStep, when: Date = new Date()): strin
 }
 
 export function isStepDoneThisPeriod(step: AccountableStep, when: Date = new Date()): boolean {
+  if (step.ramp) return currentRampWeek(step, when)?.done ?? false;
   return step.completions.includes(periodKey(step, when));
+}
+
+/**
+ * When the CURRENT period's commitment is due, for a flat (non-ramp) step —
+ * the end of this ISO week, this calendar month, or this custom window. Lets
+ * a recurring Accountable Step slot into the same Overdue/This Week/This
+ * Month/Upcoming buckets the Tasks tab already groups measurable tasks by,
+ * even though it has no single fixed due date the way a ladder week does.
+ */
+export function currentStepPeriodDueDate(step: AccountableStep, when: Date = new Date()): Date {
+  switch (step.cadence) {
+    case 'weekly': {
+      // ISO weeks run Monday–Sunday; find this week's Sunday, end of day.
+      const t = new Date(when.getFullYear(), when.getMonth(), when.getDate());
+      const day = t.getDay() || 7; // 1=Mon..7=Sun
+      t.setDate(t.getDate() + (7 - day));
+      t.setHours(23, 59, 59, 999);
+      return t;
+    }
+    case 'monthly':
+      return new Date(when.getFullYear(), when.getMonth() + 1, 0, 23, 59, 59, 999);
+    case 'custom': {
+      const start = new Date(step.createdAt);
+      const days = Math.floor((when.getTime() - start.getTime()) / 86400000);
+      const idx = Math.max(0, Math.floor(days / cadenceIntervalDays(step)));
+      const end = new Date(start);
+      end.setDate(end.getDate() + (idx + 1) * cadenceIntervalDays(step));
+      end.setHours(23, 59, 59, 999);
+      return end;
+    }
+  }
 }
 
 /** How many periods of this cadence fit between now and the deadline. */
@@ -206,6 +282,7 @@ export function periodsUntil(deadline: string, cadence: Cadence, intervalDays = 
 
 export interface BreakdownOption {
   cadence: Cadence;
+  intervalDays?: number; // set alongside cadence 'custom' — daily habit options
   periods: number;
   amountPerPeriod: number;
   label: string;       // "Save $1,000 per month"
@@ -229,15 +306,35 @@ export function formatAmount(v: number, unit?: string): string {
 }
 const fmtAmount = formatAmount;
 
+// Explicit recurrence language in the title — "each morning", "every day",
+// "daily", "each week", "weekly" — marks a minor goal as a repeating HABIT
+// rather than a one-time cumulative sum. For a habit, `target` is already the
+// per-occurrence amount ("30 min each morning" means 30 min EVERY morning,
+// not 30 min total to divide across the weeks remaining).
+const DAILY_HABIT_CUE = /\b(each|every)\s+(day|morning|evening|night)\b|\bdaily\b/i;
+const WEEKLY_HABIT_CUE = /\b(each|every)\s+week\b|\bweekly\b/i;
+
+export function isRecurringHabit(mg: MinorGoal): boolean {
+  return mg.kind === 'numeric' && (DAILY_HABIT_CUE.test(mg.title) || WEEKLY_HABIT_CUE.test(mg.title));
+}
+
 /**
  * Turns "Save $10,000 by <deadline>" into weekly/monthly commitments sized
  * from what is still OUTSTANDING, so a part-funded goal is not over-split.
  * Returns [] when there is no numeric target or no time left to plan over.
+ *
+ * Recurring habits ("No phone 30 min each morning") are a different shape of
+ * problem — the target already IS the per-occurrence amount, so it is routed
+ * to suggestHabitCadence instead of being divided by the weeks remaining.
  */
 export function suggestBreakdowns(mg: MinorGoal, today: Date = new Date()): BreakdownOption[] {
   if (mg.kind !== 'numeric' || !mg.target || !mg.deadline) return [];
   const remaining = Math.max(0, mg.target - (mg.current ?? 0));
   if (remaining <= 0) return [];
+
+  if (isRecurringHabit(mg)) {
+    return suggestHabitCadence(mg, today);
+  }
 
   const verb = /save|fund|budget|invest/i.test(mg.title) ? 'Save' : 'Add';
   const out: BreakdownOption[] = [];
@@ -258,9 +355,35 @@ export function suggestBreakdowns(mg: MinorGoal, today: Date = new Date()): Brea
   return out;
 }
 
+// Case: recurring habits. The stated target repeats as-is on the cadence
+// named in the title — never divided by the weeks remaining, since the
+// "amount" is a per-occurrence dose (30 min of no-phone time every single
+// morning), not a cumulative sum being paid off over time.
+function suggestHabitCadence(mg: MinorGoal, today: Date): BreakdownOption[] {
+  const target = mg.target as number;
+  const daily = DAILY_HABIT_CUE.test(mg.title);
+  const cadence: Cadence = daily ? 'custom' : 'weekly';
+  const intervalDays = daily ? 1 : undefined;
+  const periods = periodsUntil(mg.deadline as string, cadence, intervalDays ?? 7, today);
+  if (periods < 1) return [];
+  const per = daily ? 'each day' : 'each week';
+  return [{
+    cadence,
+    intervalDays,
+    periods,
+    amountPerPeriod: target,
+    label: `${fmtAmount(target, mg.unit)} ${per}`,
+    summary: `Every ${daily ? 'day' : 'week'} until ${new Date(mg.deadline as string).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} (${periods} ${daily ? 'days' : 'weeks'})`,
+  }];
+}
+
 // ── Progress ──────────────────────────────────────────────────
 
 export function accountableStepProgress(step: AccountableStep, deadline?: string): number {
+  if (step.ramp) {
+    if (step.ramp.length === 0) return 0;
+    return step.ramp.filter((w) => w.done).length / step.ramp.length;
+  }
   const expected = deadline
     ? periodsUntil(deadline, step.cadence, cadenceIntervalDays(step), new Date(step.createdAt))
     : 0;
@@ -532,3 +655,8 @@ export function buildLadderWeeks(
   }
   return weeks;
 }
+
+// A progressive ramp for an Accountable Step is exactly a ladder measurable's
+// weekly schedule (same shape, same math) attached to a Minor Goal instead of
+// standing alone as a Measurable — this is that reuse, named for the call site.
+export const buildAccountableRamp = buildLadderWeeks;

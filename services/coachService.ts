@@ -538,6 +538,15 @@ function extractNumber(text: string, fallback: number): number {
   return m ? parseInt(m[0], 10) : fallback;
 }
 
+// Short, single-line quote of what the user actually typed, so replies stay
+// visibly grounded in their literal words even when the plan itself falls
+// back to a generic shape (no number given, message too vague to size from).
+function excerpt(text: string, max = 60): string {
+  const t = text.trim().replace(/\s+/g, ' ');
+  if (!t) return '';
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
+
 // A message we cannot plan from: no number, barely any words, or a single
 // long token with no vowels (keyboard mash).
 function isUnplannable(text: string): boolean {
@@ -564,16 +573,23 @@ const TURN1_QUESTIONS: Record<Domain, string> = {
     `What would you see, feel, or have on the day you’ve fully achieved “${'{goalTitle}'}”?`,
 };
 
-function buildTurn1(ctx: CoachGoalContext): string {
+// Message 1 already gave us something to work with — don't ask a question
+// the user just answered. Only ask the grounding question when the first
+// message genuinely carries no plannable content.
+function buildTurn1(ctx: CoachGoalContext, userMsg: string): string {
+  if (!isUnplannable(userMsg)) {
+    return buildTurn2(ctx, userMsg);
+  }
   const domain = detectDomain(ctx.goalTitle);
   const q = TURN1_QUESTIONS[domain].replace('{goalTitle}', ctx.goalTitle);
   return `Let’s build a real plan for “${ctx.goalTitle}”. ${q}`;
 }
 
-function buildRedirect(ctx: CoachGoalContext): string {
+function buildRedirect(ctx: CoachGoalContext, userMsg: string): string {
   const domain = detectDomain(ctx.goalTitle);
   const q = TURN1_QUESTIONS[domain].replace('{goalTitle}', ctx.goalTitle);
-  return `I can’t plan from that yet — I want to keep us on “${ctx.goalTitle}”. ${q}`;
+  const quoted = userMsg.trim() ? ` from “${excerpt(userMsg)}”` : '';
+  return `I can’t build a plan${quoted} yet — I want to keep us on “${ctx.goalTitle}”. ${q}`;
 }
 
 function buildTurn2(ctx: CoachGoalContext, userReply: string): string {
@@ -581,9 +597,10 @@ function buildTurn2(ctx: CoachGoalContext, userReply: string): string {
   const n = extractNumber(userReply, 0);
   const weeks = ctx.weeksRemaining ?? 12;
 
+  const said = userReply.trim() ? `“${excerpt(userReply)}”` : 'that';
   const intro = n > 0
     ? `Got it — starting from ${n}. Here’s the plan, broken into steps with weekly micro-steps:`
-    : `You didn’t give me a baseline, so I’m assuming a beginner start. Here’s the plan, broken into steps with weekly micro-steps:`;
+    : `Thanks for sharing ${said} — I don’t see an exact number there, so I’m assuming a beginner start. Here’s the plan, broken into steps with weekly micro-steps:`;
   let suggests = '';
 
   switch (domain) {
@@ -656,7 +673,8 @@ function buildTurn3(userReply: string): string {
   if (positive) {
     return 'That’s the plan. Tap the chips above to add each step to your goal, then work the weekly micro-steps one at a time.';
   }
-  return 'Tell me the number you’d change and I’ll re-cut the plan around it — which step is off?';
+  const quoted = userReply.trim() ? ` about “${excerpt(userReply)}”` : '';
+  return `Got it${quoted} — tell me the number you’d change and I’ll re-cut the plan around it.`;
 }
 
 // The goal screen's "Ask your coach" button sends a message naming one effort
@@ -724,11 +742,11 @@ export class StubCoachService implements CoachService {
 
     let rawText: string;
     if (assistantTurns === 0) {
-      rawText = buildTurn1(ctx);
+      rawText = buildTurn1(ctx, lastUserMsg);
     } else if (assistantTurns === 1) {
       // One redirect only — past that, plan from an assumed baseline rather
       // than looping on a question the user is not answering.
-      rawText = isUnplannable(lastUserMsg) ? buildRedirect(ctx) : buildTurn2(ctx, lastUserMsg);
+      rawText = isUnplannable(lastUserMsg) ? buildRedirect(ctx, lastUserMsg) : buildTurn2(ctx, lastUserMsg);
     } else if (assistantTurns === 2 && ctx.measurables.length === 0) {
       rawText = buildTurn2(ctx, lastUserMsg);
     } else {
