@@ -522,13 +522,30 @@ export interface CoachService {
 
 type Domain = 'fitness' | 'weight' | 'learn' | 'finance' | 'read' | 'default';
 
+// Every list below is word-bounded (\b) so a short/ambiguous token only
+// matches a whole word, never a substring buried inside an unrelated one —
+// e.g. unbounded "eat" matched inside "great", "lb" inside "album", "fund"
+// inside "fundamental", "train" inside "restrain", "read" inside "already".
+// "5k"/"10k" get their own gate: they used to match ANY title containing
+// that substring, so a purely financial goal like "Save 10k" or "$10k
+// emergency fund" was misclassified as fitness before finance was even
+// checked (fitness is tested first). They now only count as fitness when a
+// running/race word appears in the same title.
+const FITNESS_WORDS = /\b(run|running|walk|walking|cycle|cycling|swim|swimming|gym|workouts?|exercis\w*|marathons?|steps|cardio|sports?)\b/;
+const FITNESS_RUN_CONTEXT = /\b(run|running|walk|walking|jog|jogging|race|races|racing|marathon|marathons|train|training)\b/;
+const FITNESS_DISTANCE = /\b(5k|10k)\b/;
+const WEIGHT_WORDS = /\b(weight|diet\w*|eat(s|ing|en)?|calori\w*|kilo\w*|pounds?|lbs?|bmi|fat|slim\w*|lean|nutrition)\b/;
+const LEARN_WORDS = /\b(learn\w*|courses?|study|studying|studies|skills?|languages?|codes?|coding|coded|program\w*|certif\w*|degrees?|class(es)?|lessons?|trains?|training)\b/;
+const FINANCE_WORDS = /\b(save|saves|saving|savings|money|invest\w*|budget\w*|debts?|financ\w*|income|salary|salaries|funds?|funding|emergency)\b/;
+const READ_WORDS = /\b(reads?|reading|books?|pages?|novels?|chapters?|library|libraries|literature)\b/;
+
 function detectDomain(title: string): Domain {
   const t = title.toLowerCase();
-  if (/run|walk|cycle|cycling|swim|gym|workout|exercise|marathon|5k|10k|steps|cardio|sport/.test(t)) return 'fitness';
-  if (/weight|diet|eat|calori|kilo|pound|lb|bmi|fat|slim|lean|nutrition/.test(t)) return 'weight';
-  if (/learn|course|study|skill|language|code|program|certif|degree|class|lesson|train/.test(t)) return 'learn';
-  if (/save|saving|money|invest|budget|debt|financ|income|salary|fund|emergency/.test(t)) return 'finance';
-  if (/read|book|pages|novel|chapter|library|literature/.test(t)) return 'read';
+  if (FITNESS_WORDS.test(t) || (FITNESS_DISTANCE.test(t) && FITNESS_RUN_CONTEXT.test(t))) return 'fitness';
+  if (WEIGHT_WORDS.test(t)) return 'weight';
+  if (LEARN_WORDS.test(t)) return 'learn';
+  if (FINANCE_WORDS.test(t)) return 'finance';
+  if (READ_WORDS.test(t)) return 'read';
   return 'default';
 }
 
@@ -656,8 +673,14 @@ function buildTurn2(ctx: CoachGoalContext, userReply: string): string {
     }
     default: {
       const w = Math.min(weeks, 8);
+      // A per-week target ramping 1 -> w just mirrors the week index, not a
+      // real quantity — "8 milestones this week" by week 8 makes no sense,
+      // and it duplicated the unit of the cumulative counter below it. Bound
+      // it to a plausible weekly session count instead, independent of how
+      // many weeks remain.
+      const sessionsEnd = Math.min(w, 4);
       suggests = [
-        `SUGGEST|Weekly milestone build-up|ladder|1|${w}|${w}|milestones`,
+        `SUGGEST|Weekly focus sessions build-up|ladder|1|${sessionsEnd}|${w}|sessions/week`,
         `SUGGEST|Milestones hit|number|${w}|milestones|1`,
         `SUGGEST|Share progress with someone|check`,
       ].join('\n');

@@ -75,7 +75,11 @@ export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
         id: 'mind-language', emoji: '🌍', title: 'Learn a language',
         category: 'Mind & Growth', stepCount: 2,
         buildMeasurables: () => [
-          mkLadder('Weekly study streak', 1, 30, 12, 'wk'),
+          // Days-per-week studied, ramping up — NOT weeks (a ladder that
+          // ramped 1 -> 30 "wk" produced meaningless fractional week values
+          // like "5.8 wk", and a 30-week streak can't be reached within a
+          // 12-week ladder anyway).
+          mkLadder('Weekly study days build-up', 2, 6, 12, 'days/week'),
           mkCheck('Hold a 5-min conversation'),
         ],
       },
