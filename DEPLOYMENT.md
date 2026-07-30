@@ -37,13 +37,10 @@ Click **New repository secret** and add:
 | Secret name | Value |
 |---|---|
 | `EXPO_TOKEN` | The access token from Step 1 |
-| `APPLE_ID` | Your Apple Developer account email |
-| `ASC_APP_ID` | App Store Connect app’s numeric Apple ID (10 digits) |
-| `APPLE_TEAM_ID` | Your Apple Team ID (from developer.apple.com/account) |
 
-> `APPLE_ID`, `ASC_APP_ID`, and `APPLE_TEAM_ID` are only required for
-> production builds that submit to App Store Connect.
-> For development builds, only `EXPO_TOKEN` is needed.
+That's everything development and preview builds need. Production builds
+additionally submit to App Store Connect/TestFlight — see **Step 8** for the
+extra secrets that requires and the two ways to provide them.
 
 ---
 
@@ -136,31 +133,112 @@ npx expo start --dev-client --clear
 
 ## Step 8 — Production build and App Store submission
 
+A production build does two things: EAS **builds** the signed `.ipa`, then
+(because the `production` build profile matches a `production` submit
+profile in `eas.json`) the workflow passes `--auto-submit`, which runs
+`eas submit` immediately after the build finishes and uploads it to App
+Store Connect. No separate manual submit step is needed once this is set
+up — but it does need credentials the workflow does not have by default.
+
+### Two kinds of credentials, two different mechanisms
+
+Getting a production build into TestFlight from CI needs **two separate**
+sets of credentials, resolved completely differently:
+
+1. **iOS code-signing (distribution certificate + provisioning profile)** —
+   needed to *build* the `.ipa` at all. See **Step 8a** below;
+   `credentialsSource` in `eas.json` controls where these come from.
+2. **App Store Connect API key** — needed to *submit* the built `.ipa`.
+   See **Step 8b** below; this is unrelated to code-signing and is resolved
+   independently by `eas submit`.
+
+Getting one right without the other still fails — the build succeeds but
+the submit step errors, or vice versa.
+
+### Step 8a — iOS code-signing credentials
+
+`eas.json` currently sets `production.ios.credentialsSource: "local"`,
+which means EAS expects `credentials.json` plus the certificate/profile
+files it points to (`.p12`, `.mobileprovision`) to exist in the checked-out
+repo. **Those files are intentionally gitignored and are not committed**,
+so a GitHub Actions runner has nothing to sign with today — a production
+build kicked off from CI will fail at the credentials step until this is
+resolved. This document does not change `credentialsSource` or generate
+any certificates.
+
+> **For CI runs specifically**, `credentialsSource: "remote"` is the better
+> fit than `"local"`: it uses signing credentials stored on EAS's servers
+> (set up once via an interactive `eas credentials` run) instead of files
+> that would otherwise have to be decoded from secrets on every run. This
+> is exactly how `development` and `preview` already work — neither sets
+> `credentialsSource`, so both default to `"remote"`, and their only
+> failure so far has been "no credentials uploaded yet," not a wrong
+> source. Switching `production` requires deliberately editing
+> `eas.json` (not done here) and running `eas credentials` once to upload
+> the distribution certificate — do that only when you're ready.
+
+If you run production builds **locally** instead (`eas build --profile
+production --platform ios`, from a machine that has `credentials.json` and
+the referenced files), `credentialsSource: local` works as-is with no
+changes needed.
+
+### Step 8b — App Store Connect API key (for the submit step)
+
+`eas submit` authenticates to App Store Connect with an API key — not with
+your Apple ID password, and not with `APPLE_ID`/`APPLE_TEAM_ID` (those are
+only used for the code-signing side, and only in interactive flows). Pick
+**one** of these two options:
+
+**Option A — store the key on EAS (recommended).** Run this once, from any
+machine, interactively:
+```bash
+eas credentials
+# iOS → (select the project) → App Store Connect API Key → Add a new key
+```
+You'll need to have generated an API key first at
+**appstoreconnect.apple.com → Users and Access → Integrations → App Store
+Connect API** (role: App Manager or above) and downloaded its `.p8` file.
+Once uploaded to EAS, CI needs nothing extra — `eas submit` finds it
+automatically. This is the same mechanism development/preview builds
+already rely on for code-signing credentials, just applied to the ASC key.
+
+**Option B — keep the key in GitHub Secrets instead.** Set these three
+repository secrets (Settings → Secrets and variables → Actions):
+
+| GitHub Secret | Value |
+|---|---|
+| `ASC_API_KEY_BASE64` | Base64 of the downloaded key file — `base64 -i AuthKey_XXXXXXXXXX.p8 | pbcopy` on macOS, or `base64 -w0 AuthKey_XXXXXXXXXX.p8` on Linux |
+| `ASC_KEY_ID` | The Key ID shown next to the key in App Store Connect |
+| `ASC_ISSUER_ID` | The Issuer ID shown at the top of the Integrations → App Store Connect API page |
+
+The workflow decodes this into a temp file and points `eas submit` at it
+via `EXPO_ASC_API_KEY_PATH` / `EXPO_ASC_KEY_ID` / `EXPO_ASC_ISSUER_ID`, then
+deletes it at the end of the job. If `ASC_API_KEY_BASE64` is unset, this
+step is skipped and EAS falls back to Option A automatically — so it's safe
+to set up Option A now and revisit Option B later, or never.
+
+The app's numeric App Store Connect ID is already set in
+`submit.production.ios.ascAppId` in `eas.json` (`1211999645`) — nothing to
+add there.
+
+### Optional: Apple ID secrets (interactive/code-signing flows only)
+
+| GitHub Secret | Env var EAS reads | Where to find it |
+|---|---|---|
+| `APPLE_ID` | `EXPO_APPLE_ID` | Your Apple Developer account email |
+| `APPLE_TEAM_ID` | `EXPO_APPLE_TEAM_ID` | developer.apple.com/account → Membership Details → Team ID |
+
+These are wired into the workflow but are not required for the submit step
+itself (which uses the ASC API key above); EAS CLI only falls back to them
+for interactive Apple-ID/app-specific-password auth, which non-interactive
+CI runs never use.
+
 ### Before running a production build
 
-1. **Apple identifiers come from GitHub Secrets, not `eas.json`.**
-   The `submit.production.ios` profile is intentionally left empty so the
-   Apple ID email is not published in this (public) repository. Set the
-   three secrets from Step 2; CI maps them to the env vars EAS CLI reads:
-
-   | GitHub Secret | Env var EAS reads | Where to find the value |
-   |---|---|---|
-   | `APPLE_ID` | `EXPO_APPLE_ID` | Your Apple Developer account email |
-   | `APPLE_TEAM_ID` | `EXPO_APPLE_TEAM_ID` | developer.apple.com/account → Membership Details → Team ID |
-   | `ASC_APP_ID` | *(none — see note)* | appstoreconnect.apple.com → your app → App Information → Apple ID |
-
-   > EAS CLI has no env var for `ascAppId`. When you run `eas submit`
-   > interactively it resolves the app automatically from the bundle
-   > identifier, so you don't need it locally. Only a fully
-   > non-interactive CI submit step would need to inject
-   > `ASC_APP_ID` into `eas.json` at run time.
-
-2. **Make sure all four GitHub Secrets are set** (Step 2 above)
-
-3. **Complete App Store Connect metadata** — all ready-to-paste text is in
+1. Resolve **Step 8a** (code-signing) and **Step 8b** (ASC API key) above.
+2. **Complete App Store Connect metadata** — all ready-to-paste text is in
    [`STORE_METADATA.md`](./STORE_METADATA.md)
-
-4. **Checklist before review submission:**
+3. **Checklist before review submission:**
    - [ ] Real 1024×1024 app icon (no transparency)
    - [ ] Screenshots at 6.9" and 5.5" sizes (min 3 each)
    - [ ] Privacy Policy URL live: `https://precisoqs-png.github.io/visiongo-rn/privacy-policy.html`
@@ -174,8 +252,17 @@ npx expo start --dev-client --clear
 3. Select profile: **production**
 4. Click **Run workflow**
 
-EAS builds the signed `.ipa` and auto-submits it to App Store Connect.
-The build appears in **TestFlight** within 15 minutes of the build completing.
+If Step 8a and 8b are both resolved, EAS builds the signed `.ipa` and then
+automatically submits it to App Store Connect. The build typically appears
+in **TestFlight** within roughly 15 minutes of the submit step completing
+— that part of the timing is Apple's processing, not something this repo
+controls.
+
+If only 8a is resolved (or you'd rather submit by hand), you can still run
+the `production` build without submitting and upload it yourself afterward:
+```bash
+eas submit --platform ios --latest
+```
 
 ---
 
