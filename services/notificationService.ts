@@ -1,8 +1,8 @@
 import { Alert, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import {
-  Goal, ReminderFrequency, MinorGoal, AccountableStep,
-  cadenceIntervalDays,
+  Goal, ReminderFrequency, Milestone, AccountableStep,
+  cadenceIntervalDays, formatNumber,
 } from '../store/models';
 
 // expo-notifications does not support scheduled local notifications on web —
@@ -130,10 +130,6 @@ export async function cancelWeeklyTargetNotifications(goalId: string): Promise<v
   }
 }
 
-function fmtVal(v: number): string {
-  return v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
-}
-
 /**
  * Re-schedules all weekly-target notifications for a goal from its current
  * ladder measurables. Cancels stale ones first, then schedules one per
@@ -157,7 +153,7 @@ export async function syncWeeklyTargetNotifications(goal: Goal): Promise<void> {
           identifier: weekIdentifier(goal.id, week.id),
           content: {
             title: `${goal.title} — weekly target due`,
-            body: `${fmtVal(week.value)} ${m.unit} · ${m.label}`,
+            body: `${formatNumber(week.value)} ${m.unit} · ${m.label}`,
           },
           trigger: {
             type: Notifications.SchedulableTriggerInputTypes.DATE,
@@ -192,7 +188,7 @@ function stepIdentifier(goalId: string, stepId: string, occurrence = 0): string 
 }
 
 /** Question the reminder asks — phrased as a check-in, not an instruction. */
-export function stepReminderBody(mg: MinorGoal, step: AccountableStep): string {
+export function stepReminderBody(mg: Milestone, step: AccountableStep): string {
   const period = step.cadence === 'monthly'
     ? 'this month'
     : step.cadence === 'weekly'
@@ -261,7 +257,7 @@ export async function cancelAccountableStepNotifications(goalId: string): Promis
 
 /** Schedules (or reschedules) the reminder for one accountable step. */
 export async function scheduleAccountableStep(
-  goal: Goal, mg: MinorGoal, step: AccountableStep,
+  goal: Goal, mg: Milestone, step: AccountableStep,
 ): Promise<void> {
   if (!SUPPORTED) return;
   await cancelAccountableStepNotification(goal.id, step.id);
@@ -290,7 +286,7 @@ export async function scheduleAccountableStep(
 // A ramp's target changes every week, so — unlike a flat step's single
 // repeating trigger — it gets one dated one-shot per not-yet-done week, each
 // naming that week's specific value, at the schedule's chosen day/time.
-async function scheduleRampNotifications(goal: Goal, mg: MinorGoal, step: AccountableStep): Promise<void> {
+async function scheduleRampNotifications(goal: Goal, mg: Milestone, step: AccountableStep): Promise<void> {
   const { hour, minute } = step.schedule;
   const now = Date.now();
   let occurrence = 0;
@@ -303,7 +299,7 @@ async function scheduleRampNotifications(goal: Goal, mg: MinorGoal, step: Accoun
       identifier: stepIdentifier(goal.id, step.id, occurrence),
       content: {
         title: `${goal.title} · ${mg.title}`,
-        body: `Have you hit ${fmtVal(week.value)}${step.unit ? ` ${step.unit}` : ''} this week? (${step.label})`,
+        body: `Have you hit ${formatNumber(week.value)}${step.unit ? ` ${step.unit}` : ''} this week? (${step.label})`,
       },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: due },
     });
@@ -322,7 +318,7 @@ export async function syncAccountableStepNotifications(goal: Goal): Promise<void
   if (!SUPPORTED) return;
   try {
     await cancelAccountableStepNotifications(goal.id);
-    for (const mg of goal.minorGoals ?? []) {
+    for (const mg of goal.milestones ?? []) {
       for (const step of mg.steps) {
         if (!step.schedule.on) continue;
         await scheduleAccountableStep(goal, mg, step);

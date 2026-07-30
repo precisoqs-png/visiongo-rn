@@ -177,6 +177,6 @@ export function instantiateTemplate(t: GoalTemplate, colorIndex: number): Goal {
     chat: [],
     pendingActions: [],
     measurables: t.buildMeasurables(),
-    minorGoals: [],
+    milestones: [],
   };
 }

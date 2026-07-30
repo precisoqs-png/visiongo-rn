@@ -1,28 +1,28 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Modal, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BreakdownOption, MinorGoal, suggestBreakdowns, isRecurringHabit, formatAmount } from '../../store/models';
+import { BreakdownOption, Milestone, suggestBreakdowns, isRecurringHabit, formatAmount } from '../../store/models';
 import { Palette } from '../../theme/themes';
 
 interface Props {
   visible: boolean;
-  minorGoal: MinorGoal | null;
+  milestone: Milestone | null;
   palette: Palette;
   onPick: (option: BreakdownOption) => void;
   onSkip: () => void;
 }
 
 /**
- * Case 1: a numeric minor goal with a target and a deadline. The app does the
+ * Case 1: a numeric milestone with a target and a deadline. The app does the
  * arithmetic itself and offers weekly or monthly commitments — no AI needed.
  * Nothing is created unless the user picks one.
  */
-export function BreakdownPrompt({ visible, minorGoal, palette: p, onPick, onSkip }: Props) {
-  const options = minorGoal ? suggestBreakdowns(minorGoal) : [];
-  if (!minorGoal || options.length === 0) return null;
+export function BreakdownPrompt({ visible, milestone, palette: p, onPick, onSkip }: Props) {
+  const options = milestone ? suggestBreakdowns(milestone) : [];
+  if (!milestone || options.length === 0) return null;
 
-  const habit = isRecurringHabit(minorGoal);
-  const remaining = Math.max(0, (minorGoal.target ?? 0) - (minorGoal.current ?? 0));
+  const habit = isRecurringHabit(milestone);
+  const remaining = Math.max(0, (milestone.target ?? 0) - (milestone.current ?? 0));
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onSkip}>
@@ -39,10 +39,10 @@ export function BreakdownPrompt({ visible, minorGoal, palette: p, onPick, onSkip
               frame it as a one-time debt to pay off, the exact bug being fixed. */}
           <Text style={[styles.body, { color: p.muted }]}>
             {habit ? (
-              <>"{minorGoal.title}" repeats — want a push reminder to keep you honest about it?</>
+              <>"{milestone.title}" repeats — want a push reminder to keep you honest about it?</>
             ) : (
-              <>"{minorGoal.title}" needs {formatAmount(remaining, minorGoal.unit)} by{' '}
-              {new Date(minorGoal.deadline as string).toLocaleDateString('en-US', {
+              <>"{milestone.title}" needs {formatAmount(remaining, milestone.unit)} by{' '}
+              {new Date(milestone.deadline as string).toLocaleDateString('en-US', {
                 month: 'short', day: 'numeric', year: 'numeric',
               })}
               . Want it as a recurring commitment you can be reminded about?</>

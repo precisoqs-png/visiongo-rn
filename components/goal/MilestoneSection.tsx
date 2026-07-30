@@ -4,12 +4,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  Goal, MinorGoal, MinorGoalKind, AccountableStep, BreakdownOption,
+  Goal, Milestone, MilestoneKind, AccountableStep, BreakdownOption,
   Cadence, StepSchedule,
-  newMinorGoal, newAccountableStep, minorGoalPercent, minorGoalFraction,
-  steppedMinorGoalValue, minorGoalStep, isStepDoneThisPeriod, cadenceLabel,
+  newMilestone, newAccountableStep, milestonePercent, milestoneFraction,
+  steppedMilestoneValue, milestoneStep, isStepDoneThisPeriod, cadenceLabel,
   suggestBreakdowns, DEFAULT_SCHEDULE, formatAmount,
-  buildAccountableRamp, currentRampWeek, isMinorGoalDeadlineOutdated,
+  buildAccountableRamp, currentRampWeek, isMilestoneDeadlineOutdated, formatNumber,
 } from '../../store/models';
 import { describeSchedule } from '../../services/notificationService';
 import { Palette } from '../../theme/themes';
@@ -20,17 +20,17 @@ import { StepScheduleSheet } from './StepScheduleSheet';
 interface Props {
   goal: Goal;
   palette: Palette;
-  onAddMinorGoal: (mg: MinorGoal) => void;
-  onUpdateMinorGoal: (mg: MinorGoal) => void;
-  onDeleteMinorGoal: (mgId: string) => void;
+  onAddMilestone: (mg: Milestone) => void;
+  onUpdateMilestone: (mg: Milestone) => void;
+  onDeleteMilestone: (mgId: string) => void;
   onAddStep: (step: AccountableStep, mgId: string) => void;
   onUpdateStep: (step: AccountableStep, mgId: string) => void;
   onDeleteStep: (stepId: string, mgId: string) => void;
   onToggleCheckIn: (stepId: string, mgId: string) => void;
   // Toggles one specific week of a progressive-ramp step (expanded view).
   onToggleRampWeek: (stepId: string, weekId: string, mgId: string) => void;
-  // Hands an effort minor goal to the AI coach for a baseline + weekly target.
-  onAskCoach: (mg: MinorGoal) => void;
+  // Hands an effort milestone to the AI coach for a baseline + weekly target.
+  onAskCoach: (mg: Milestone) => void;
 }
 
 function confirmDelete(what: string, onYes: () => void) {
@@ -45,9 +45,7 @@ function confirmDelete(what: string, onYes: () => void) {
   }
 }
 
-function fmtNum(v: number): string {
-  return v % 1 === 0 ? v.toLocaleString('en-US') : v.toFixed(1);
-}
+const fmtNum = formatNumber;
 
 // Include the year only when it is not the current one — "by Jul 29" is
 // ambiguous for a deadline that is actually next year.
@@ -59,26 +57,26 @@ function fmtDeadline(iso: string): string {
   });
 }
 
-export function MinorGoalSection({
+export function MilestoneSection({
   goal, palette: p,
-  onAddMinorGoal, onUpdateMinorGoal, onDeleteMinorGoal,
+  onAddMilestone, onUpdateMilestone, onDeleteMilestone,
   onAddStep, onUpdateStep, onDeleteStep, onToggleCheckIn, onToggleRampWeek, onAskCoach,
 }: Props) {
   const [showForm, setShowForm] = useState(false);
-  // Minor goal awaiting a breakdown answer, and the step whose reminder is open
-  const [breakdownFor, setBreakdownFor] = useState<MinorGoal | null>(null);
+  // Milestone awaiting a breakdown answer, and the step whose reminder is open
+  const [breakdownFor, setBreakdownFor] = useState<Milestone | null>(null);
   const [scheduleFor, setScheduleFor] = useState<{ step: AccountableStep; mgId: string } | null>(null);
 
-  const minorGoals = goal.minorGoals ?? [];
+  const milestones = goal.milestones ?? [];
 
-  const handleAdd = (mg: MinorGoal) => {
-    onAddMinorGoal(mg);
+  const handleAdd = (mg: Milestone) => {
+    onAddMilestone(mg);
     setShowForm(false);
     // Case 1: enough information to do the arithmetic — offer the split.
     if (suggestBreakdowns(mg).length > 0) setBreakdownFor(mg);
   };
 
-  const applyBreakdown = (mg: MinorGoal, option: BreakdownOption) => {
+  const applyBreakdown = (mg: Milestone, option: BreakdownOption) => {
     const step = newAccountableStep({
       label: option.label,
       cadence: option.cadence,
@@ -103,7 +101,7 @@ export function MinorGoalSection({
   return (
     <View>
       <View style={styles.sectionHead}>
-        <Text style={[styles.eyebrow, { color: p.muted }]}>MINOR GOALS</Text>
+        <Text style={[styles.eyebrow, { color: p.muted }]}>MILESTONES</Text>
         <TouchableOpacity
           onPress={() => setShowForm((s) => !s)}
           style={[styles.addPill, { borderColor: p.line }]}
@@ -115,7 +113,7 @@ export function MinorGoalSection({
         </TouchableOpacity>
       </View>
 
-      {minorGoals.length === 0 && !showForm && (
+      {milestones.length === 0 && !showForm && (
         <Text style={[styles.emptyHint, { color: p.muted }]}>
           Break this goal into milestones — "Save $10,000", "Run a marathon" — then give
           each one a recurring step you can be reminded about.
@@ -125,7 +123,7 @@ export function MinorGoalSection({
       {/* Each step's bell is its own independent reminder — not gated by the
           goal-level reminder toggle up top, only by Settings ▸ Push
           Notifications. Said once here rather than repeated per card. */}
-      {minorGoals.length > 0 && (
+      {milestones.length > 0 && (
         <Text style={[styles.layerHint, { color: p.muted }]}>
           Tap the bell on a step to set its own reminder — separate from this goal's
           check-in toggle above; both need Push Notifications on in Settings.
@@ -133,17 +131,17 @@ export function MinorGoalSection({
       )}
 
       {showForm && (
-        <AddMinorGoalForm goal={goal} palette={p} onAdd={handleAdd} />
+        <AddMilestoneForm goal={goal} palette={p} onAdd={handleAdd} />
       )}
 
-      {minorGoals.map((mg) => (
-        <MinorGoalCard
+      {milestones.map((mg) => (
+        <MilestoneCard
           key={mg.id}
-          minorGoal={mg}
+          milestone={mg}
           goalTargetDate={goal.targetDate}
           palette={p}
-          onUpdate={onUpdateMinorGoal}
-          onDelete={() => confirmDelete(mg.title, () => onDeleteMinorGoal(mg.id))}
+          onUpdate={onUpdateMilestone}
+          onDelete={() => confirmDelete(mg.title, () => onDeleteMilestone(mg.id))}
           onAddStep={(step) => onAddStep(step, mg.id)}
           onDeleteStep={(stepId, label) =>
             confirmDelete(label, () => onDeleteStep(stepId, mg.id))}
@@ -157,7 +155,7 @@ export function MinorGoalSection({
 
       <BreakdownPrompt
         visible={!!breakdownFor}
-        minorGoal={breakdownFor}
+        milestone={breakdownFor}
         palette={p}
         onPick={(option) => breakdownFor && applyBreakdown(breakdownFor, option)}
         onSkip={() => setBreakdownFor(null)}
@@ -189,15 +187,15 @@ export function MinorGoalSection({
   );
 }
 
-// ── One minor goal ────────────────────────────────────────────
+// ── One milestone ────────────────────────────────────────────
 
 interface CardProps {
-  minorGoal: MinorGoal;
+  milestone: Milestone;
   // The parent goal's CURRENT "Achieve by" date — compared against what this
-  // minor goal was sized for, to flag a stale deadline.
+  // milestone was sized for, to flag a stale deadline.
   goalTargetDate?: string;
   palette: Palette;
-  onUpdate: (mg: MinorGoal) => void;
+  onUpdate: (mg: Milestone) => void;
   onDelete: () => void;
   onAddStep: (step: AccountableStep) => void;
   onDeleteStep: (stepId: string, label: string) => void;
@@ -209,16 +207,16 @@ interface CardProps {
 }
 
 // A ramp with no deadline still needs a week count to build from — default to
-// however many whole weeks remain until the minor goal's own deadline, or a
+// however many whole weeks remain until the milestone's own deadline, or a
 // plain 8-week ramp when there is no deadline to size against.
-function defaultRampWeeks(mg: MinorGoal): number {
+function defaultRampWeeks(mg: Milestone): number {
   if (!mg.deadline) return 8;
   const days = Math.ceil((new Date(mg.deadline).getTime() - Date.now()) / 86400000);
   return Math.max(2, Math.min(26, Math.round(days / 7)));
 }
 
-function MinorGoalCard({
-  minorGoal: mg, goalTargetDate, palette: p, onUpdate, onDelete,
+function MilestoneCard({
+  milestone: mg, goalTargetDate, palette: p, onUpdate, onDelete,
   onAddStep, onDeleteStep, onToggleCheckIn, onToggleRampWeek, onOpenSchedule, onBreakdown, onAskCoach,
 }: CardProps) {
   const [addingStep, setAddingStep] = useState(false);
@@ -227,9 +225,9 @@ function MinorGoalCard({
   const [stepLabel, setStepLabel] = useState('');
   const [stepCadence, setStepCadence] = useState<Cadence>('weekly');
 
-  const frac = minorGoalFraction(mg);
-  const deadlineOutdated = isMinorGoalDeadlineOutdated(mg, goalTargetDate);
-  const pct = minorGoalPercent(mg);
+  const frac = milestoneFraction(mg);
+  const deadlineOutdated = isMilestoneDeadlineOutdated(mg, goalTargetDate);
+  const pct = milestonePercent(mg);
   const canBreakDown = suggestBreakdowns(mg).length > 0;
 
   const commitStep = () => {
@@ -290,7 +288,7 @@ function MinorGoalCard({
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                // Dismiss = stop tying this minor goal's deadline to the
+                // Dismiss = stop tying this milestone's deadline to the
                 // parent goal at all (same as if the user had picked a
                 // deliberately different date from the start) — clearing
                 // sizedForGoalDate rather than re-pointing it at the OLD
@@ -308,9 +306,9 @@ function MinorGoalCard({
         <View style={[styles.row, { marginBottom: 10 }]}>
           <TouchableOpacity
             style={[styles.stepper, { backgroundColor: p.line, opacity: (mg.current ?? 0) <= 0 ? 0.4 : 1 }]}
-            onPress={() => onUpdate({ ...mg, current: steppedMinorGoalValue(mg, -1) })}
+            onPress={() => onUpdate({ ...mg, current: steppedMilestoneValue(mg, -1) })}
             disabled={(mg.current ?? 0) <= 0}
-            accessibilityLabel={`Subtract ${fmtNum(minorGoalStep(mg))} ${mg.unit ?? ''}`.trim()}
+            accessibilityLabel={`Subtract ${fmtNum(milestoneStep(mg))} ${mg.unit ?? ''}`.trim()}
           >
             <Ionicons name="remove" size={15} color={p.text} />
           </TouchableOpacity>
@@ -322,9 +320,9 @@ function MinorGoalCard({
               backgroundColor: p.line,
               opacity: (mg.target ?? 0) > 0 && (mg.current ?? 0) >= (mg.target ?? 0) ? 0.4 : 1,
             }]}
-            onPress={() => onUpdate({ ...mg, current: steppedMinorGoalValue(mg, 1) })}
+            onPress={() => onUpdate({ ...mg, current: steppedMilestoneValue(mg, 1) })}
             disabled={(mg.target ?? 0) > 0 && (mg.current ?? 0) >= (mg.target ?? 0)}
-            accessibilityLabel={`Add ${fmtNum(minorGoalStep(mg))} ${mg.unit ?? ''}`.trim()}
+            accessibilityLabel={`Add ${fmtNum(milestoneStep(mg))} ${mg.unit ?? ''}`.trim()}
           >
             <Ionicons name="add" size={15} color={p.text} />
           </TouchableOpacity>
@@ -408,7 +406,7 @@ function MinorGoalCard({
         </View>
       ) : addingRamp ? (
         <RampForm
-          minorGoal={mg}
+          milestone={mg}
           palette={p}
           onAdd={(step) => { onAddStep(step); setAddingRamp(false); }}
           onCancel={() => setAddingRamp(false)}
@@ -529,7 +527,7 @@ function RampStepRow({
   const doneCount = weeks.filter((w) => w.done).length;
   const current = currentRampWeek(step);
   const doneNow = current?.done ?? false;
-  const fmt = (v: number) => v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
+  const fmt = formatNumber;
 
   return (
     <View style={[styles.stepRow, { borderColor: p.line, alignItems: 'flex-start' }]}>
@@ -613,8 +611,8 @@ function RampStepRow({
 // ── Ramp creation form ─────────────────────────────────────────
 
 function RampForm({
-  minorGoal: mg, palette: p, onAdd, onCancel,
-}: { minorGoal: MinorGoal; palette: Palette; onAdd: (step: AccountableStep) => void; onCancel: () => void }) {
+  milestone: mg, palette: p, onAdd, onCancel,
+}: { milestone: Milestone; palette: Palette; onAdd: (step: AccountableStep) => void; onCancel: () => void }) {
   const [label, setLabel] = useState('');
   const [startStr, setStartStr] = useState('');
   const [endStr, setEndStr] = useState('');
@@ -680,7 +678,7 @@ function RampForm({
       <Text style={[styles.formHint, { color: p.muted }]}>
         Builds {weeksStr || '?'} weekly targets from {startStr || '…'} up to {endStr || '…'}
         {unit ? ` ${unit}` : ''} — same week-by-week ramp as a ladder measurable, just
-        attached to this minor goal.
+        attached to this milestone.
       </Text>
       <View style={styles.formActions}>
         <TouchableOpacity
@@ -700,11 +698,11 @@ function RampForm({
 
 // ── Manual add form ───────────────────────────────────────────
 
-function AddMinorGoalForm({
+function AddMilestoneForm({
   goal, palette: p, onAdd,
-}: { goal: Goal; palette: Palette; onAdd: (mg: MinorGoal) => void }) {
+}: { goal: Goal; palette: Palette; onAdd: (mg: Milestone) => void }) {
   const [title, setTitle] = useState('');
-  const [kind, setKind] = useState<MinorGoalKind>('numeric');
+  const [kind, setKind] = useState<MilestoneKind>('numeric');
   const [targetStr, setTargetStr] = useState('');
   const [unit, setUnit] = useState('');
   const [stepStr, setStepStr] = useState('');
@@ -716,7 +714,7 @@ function AddMinorGoalForm({
     const t = title.trim();
     if (!t) return;
     const parsedStep = parseFloat(stepStr);
-    onAdd(newMinorGoal({
+    onAdd(newMilestone({
       title: t,
       kind,
       target: kind === 'numeric' ? (parseFloat(targetStr) || 1) : undefined,
@@ -738,7 +736,7 @@ function AddMinorGoalForm({
     <View style={[styles.formCard, { backgroundColor: `${p.surface}99` }]}>
       <TextInput
         style={[styles.input, { backgroundColor: p.surface, color: p.text, borderColor: p.line }]}
-        placeholder="Minor goal — e.g. Save $10,000"
+        placeholder="Milestone — e.g. Save $10,000"
         placeholderTextColor={p.muted}
         value={title}
         onChangeText={setTitle}
@@ -817,7 +815,7 @@ function AddMinorGoalForm({
         disabled={!title.trim()}
       >
         <Text style={[styles.primaryText, { color: p.isDark ? p.bg : '#fff' }]}>
-          Add minor goal
+          Add milestone
         </Text>
       </TouchableOpacity>
 
