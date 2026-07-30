@@ -7,16 +7,19 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  let body: { messages: unknown; systemPrompt: string };
+  let body: { messages: unknown; systemPrompt: string; tools?: unknown };
   try {
     body = await request.json();
   } catch {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { messages, systemPrompt } = body;
+  const { messages, systemPrompt, tools } = body;
   if (!Array.isArray(messages) || typeof systemPrompt !== 'string') {
     return Response.json({ error: 'messages (array) and systemPrompt (string) are required' }, { status: 400 });
+  }
+  if (tools !== undefined && !Array.isArray(tools)) {
+    return Response.json({ error: 'tools must be an array when provided' }, { status: 400 });
   }
 
   let upstream: globalThis.Response;
@@ -40,6 +43,12 @@ export async function POST(request: Request): Promise<Response> {
         fallbacks: 'default',
         system: systemPrompt,
         messages,
+        // The coach edits the goal through these tools. The app applies each
+        // tool_use block after the user confirms it, so no tool_result is
+        // ever sent back — history is replayed as plain text.
+        ...(tools && tools.length > 0
+          ? { tools, tool_choice: { type: 'auto' } }
+          : {}),
       }),
     });
   } catch {

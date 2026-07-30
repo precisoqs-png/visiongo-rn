@@ -9,9 +9,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../store/useThemeStore';
 import { useAppStore } from '../../store/useAppStore';
 import { GOAL_NOTE_COLORS, hexAlpha, FONTS } from '../../theme/themes';
-import { goalProgress, goalProgressPercent } from '../../store/models';
+import {
+  goalProgress, goalProgressPercent, AccountableStep, MinorGoal,
+} from '../../store/models';
 import { MeasurableCard } from '../../components/goal/MeasurableCard';
 import { AddMeasurableForm } from '../../components/goal/AddMeasurableForm';
+import { MinorGoalSection } from '../../components/goal/MinorGoalSection';
 import { CoachChat } from '../../components/goal/CoachChat';
 import { CalendarPicker } from '../../components/shared/CalendarPicker';
 import {
@@ -20,6 +23,8 @@ import {
   cancelGoalNotification,
   cancelWeeklyTargetNotifications,
   syncWeeklyTargetNotifications,
+  syncAccountableStepNotifications,
+  cancelAccountableStepNotification,
   cancelEverythingForGoal,
   alertNotificationsUnavailable,
 } from '../../services/notificationService';
@@ -40,8 +45,13 @@ export default function GoalDetailScreen() {
   const addMeasurable = useAppStore((s) => s.addMeasurable);
   const updateMeasurable = useAppStore((s) => s.updateMeasurable);
   const deleteMeasurable = useAppStore((s) => s.deleteMeasurable);
-  const addSuggestionAsMeasurable = useAppStore((s) => s.addSuggestionAsMeasurable);
-  const removeSuggestion = useAppStore((s) => s.removeSuggestion);
+  const addMinorGoal = useAppStore((s) => s.addMinorGoal);
+  const updateMinorGoal = useAppStore((s) => s.updateMinorGoal);
+  const deleteMinorGoal = useAppStore((s) => s.deleteMinorGoal);
+  const addAccountableStep = useAppStore((s) => s.addAccountableStep);
+  const updateAccountableStep = useAppStore((s) => s.updateAccountableStep);
+  const deleteAccountableStep = useAppStore((s) => s.deleteAccountableStep);
+  const toggleStepCheckIn = useAppStore((s) => s.toggleStepCheckIn);
 
   const goal = useAppStore((s) =>
     s.years.find((y) => y.year === s.selectedYear)?.goals.find((g) => g.id === id),
@@ -78,6 +88,42 @@ export default function GoalDetailScreen() {
     if (fresh && useAppStore.getState().notificationsMasterOn) {
       void syncWeeklyTargetNotifications(fresh);
     }
+  };
+
+  // Same for accountable-step reminders. Each step owns its own schedule, so
+  // this runs on every minor-goal edit rather than off the goal-level bell.
+  const resyncStepNotifications = () => {
+    const fresh = useAppStore.getState().getGoal(id!);
+    if (fresh && useAppStore.getState().notificationsMasterOn) {
+      void syncAccountableStepNotifications(fresh);
+    }
+  };
+
+  // Turning a step reminder on is the first thing that needs permission, so ask
+  // here rather than at goal level.
+  const saveStep = async (step: AccountableStep, mgId: string) => {
+    if (step.schedule.on) {
+      const granted = await requestNotificationPermission();
+      if (!granted) {
+        alertNotificationsUnavailable();
+        // Keep the schedule the user configured, just not switched on.
+        updateAccountableStep({ ...step, schedule: { ...step.schedule, on: false } }, mgId, id!);
+        return;
+      }
+    }
+    updateAccountableStep(step, mgId, id!);
+    resyncStepNotifications();
+  };
+
+  // Hands an effort minor goal to the coach: seeds a message the coach answers
+  // with a baseline question and one simple weekly target.
+  const [coachSeed, setCoachSeed] = useState<string | null>(null);
+  const askCoachAbout = (mg: MinorGoal) => {
+    setCoachSeed(
+      `Help me with my minor goal "${mg.title}". Ask me what my current baseline is, ` +
+      `then suggest one simple weekly accountable step I can be reminded about — ` +
+      `not a full training plan.`,
+    );
   };
 
   const [titleDraft, setTitleDraft] = useState(goal?.title ?? '');
@@ -207,24 +253,29 @@ export default function GoalDetailScreen() {
           )}
         </View>
 
-        {goal.suggestions.length > 0 && (
-          <View style={styles.section}>
-            <Text style={[styles.eyebrow, { color: p.muted }]}>SUGGESTED BY YOUR COACH</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View style={{ flexDirection: 'row', gap: 8, paddingVertical: 4 }}>
-                {goal.suggestions.map((s) => (
-                  <TouchableOpacity
-                    key={s.id}
-                    style={[styles.suggestionChip, { borderColor: `${p.accent}80` }]}
-                    onPress={() => { addSuggestionAsMeasurable(s, goal.id); resyncWeekNotifications(); }}
-                  >
-                    <Text style={[styles.suggestionText, { color: p.accent }]}>+ {s.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
-          </View>
-        )}
+        <View style={styles.section}>
+          <MinorGoalSection
+            goal={goal}
+            palette={p}
+            onAddMinorGoal={(mg) => addMinorGoal(mg, goal.id)}
+            onUpdateMinorGoal={(mg) => updateMinorGoal(mg, goal.id)}
+            onDeleteMinorGoal={(mgId) => {
+              deleteMinorGoal(mgId, goal.id);
+              resyncStepNotifications();
+            }}
+            onAddStep={(step, mgId) => {
+              addAccountableStep(step, mgId, goal.id);
+              resyncStepNotifications();
+            }}
+            onUpdateStep={(step, mgId) => { void saveStep(step, mgId); }}
+            onDeleteStep={(stepId, mgId) => {
+              deleteAccountableStep(stepId, mgId, goal.id);
+              void cancelAccountableStepNotification(goal.id, stepId);
+            }}
+            onToggleCheckIn={(stepId, mgId) => toggleStepCheckIn(stepId, mgId, goal.id)}
+            onAskCoach={askCoachAbout}
+          />
+        </View>
 
         <View style={styles.section}>
           <AddMeasurableForm
@@ -235,7 +286,13 @@ export default function GoalDetailScreen() {
         </View>
 
         <View style={styles.section}>
-          <CoachChat goal={goal} palette={p} />
+          <CoachChat
+            goal={goal}
+            palette={p}
+            onGoalEdited={() => { resyncWeekNotifications(); resyncStepNotifications(); }}
+            seedMessage={coachSeed}
+            onSeedConsumed={() => setCoachSeed(null)}
+          />
         </View>
 
       </ScrollView>
@@ -292,9 +349,4 @@ const styles = StyleSheet.create({
   daysLeft: { fontSize: 13 },
   section: { padding: 18 },
   emptyHint: { fontSize: 14, lineHeight: 20 },
-  suggestionChip: {
-    paddingHorizontal: 12, paddingVertical: 7,
-    borderRadius: 20, borderWidth: 1, borderStyle: 'dashed',
-  },
-  suggestionText: { fontSize: 13, fontWeight: '500' },
 });

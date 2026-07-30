@@ -70,8 +70,9 @@ export default function OnboardingScreen() {
           colorIndex: goals.length % GOAL_NOTE_COLORS.length,
           reminder: { on: false, frequency: 'Daily' },
           chat: [],
-          suggestions: [],
+          pendingActions: [],
           measurables: [],
+          minorGoals: [],
         });
       }
       const effectiveMotto = motto.trim() || 'Dream it. Plan it. Live it.';

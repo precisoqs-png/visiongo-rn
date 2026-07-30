@@ -1,6 +1,9 @@
 import { Alert, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
-import { Goal, ReminderFrequency } from '../store/models';
+import {
+  Goal, ReminderFrequency, MinorGoal, AccountableStep,
+  cadenceIntervalDays, cadenceLabel,
+} from '../store/models';
 
 // expo-notifications does not support scheduled local notifications on web —
 // every entry point below no-ops there instead of throwing.
@@ -172,8 +175,172 @@ export async function syncWeeklyTargetNotifications(goal: Goal): Promise<void> {
   }
 }
 
-/** Cancels the goal reminder and every weekly-target notification for a goal. */
+// ── Accountable-step reminders ──────────────────────────────────
+//
+// One recurring reminder per accountable step, on the cadence and at the
+// day/time the user picked ("Save $1,000 per month" → 28th at 09:00, payday).
+// Identified by `step-<goalId>-<stepId>` so a single step can be rescheduled
+// or cancelled without touching the rest.
+//
+// Weekly and monthly use native repeating triggers. Custom cadences have no
+// native equivalent that honours a time of day, so they get a run of one-shot
+// notifications; `syncAccountableStepNotifications` tops them back up on every
+// goal change.
+
+const CUSTOM_OCCURRENCES = 12;
+
+function stepIdentifier(goalId: string, stepId: string, occurrence = 0): string {
+  return occurrence === 0
+    ? `step-${goalId}-${stepId}`
+    : `step-${goalId}-${stepId}-${occurrence}`;
+}
+
+/** Question the reminder asks — phrased as a check-in, not an instruction. */
+export function stepReminderBody(mg: MinorGoal, step: AccountableStep): string {
+  const period = step.cadence === 'monthly'
+    ? 'this month'
+    : step.cadence === 'weekly'
+      ? 'this week'
+      : 'yet';
+  return `Have you completed "${step.label}" ${period}?`;
+}
+
+function buildStepTriggers(step: AccountableStep): Notifications.NotificationTriggerInput[] {
+  const { hour, minute, weekday, dayOfMonth } = step.schedule;
+  switch (step.cadence) {
+    case 'weekly':
+      return [{
+        type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+        weekday, hour, minute,
+      }];
+    case 'monthly':
+      return [{
+        type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
+        day: Math.min(Math.max(dayOfMonth, 1), 28),
+        hour, minute, repeats: true,
+      }];
+    case 'custom': {
+      const intervalDays = cadenceIntervalDays(step);
+      const first = new Date();
+      first.setHours(hour, minute, 0, 0);
+      if (first.getTime() <= Date.now()) first.setDate(first.getDate() + intervalDays);
+      return Array.from({ length: CUSTOM_OCCURRENCES }, (_, i) => {
+        const date = new Date(first);
+        date.setDate(date.getDate() + i * intervalDays);
+        return { type: Notifications.SchedulableTriggerInputTypes.DATE, date };
+      });
+    }
+  }
+}
+
+export async function cancelAccountableStepNotification(goalId: string, stepId: string): Promise<void> {
+  if (!SUPPORTED) return;
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    const base = stepIdentifier(goalId, stepId);
+    await Promise.all(
+      scheduled
+        .filter((n) => n.identifier === base || n.identifier.startsWith(`${base}-`))
+        .map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier)),
+    );
+  } catch (e) {
+    console.warn('[VisionGo] Failed to cancel accountable step reminder:', e);
+  }
+}
+
+export async function cancelAccountableStepNotifications(goalId: string): Promise<void> {
+  if (!SUPPORTED) return;
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    const prefix = `step-${goalId}-`;
+    await Promise.all(
+      scheduled
+        .filter((n) => n.identifier.startsWith(prefix))
+        .map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier)),
+    );
+  } catch (e) {
+    console.warn('[VisionGo] Failed to cancel accountable step reminders:', e);
+  }
+}
+
+/** Schedules (or reschedules) the reminder for one accountable step. */
+export async function scheduleAccountableStep(
+  goal: Goal, mg: MinorGoal, step: AccountableStep,
+): Promise<void> {
+  if (!SUPPORTED) return;
+  await cancelAccountableStepNotification(goal.id, step.id);
+  if (!step.schedule.on) return;
+  try {
+    const triggers = buildStepTriggers(step);
+    for (let i = 0; i < triggers.length; i++) {
+      await Notifications.scheduleNotificationAsync({
+        identifier: stepIdentifier(goal.id, step.id, i),
+        content: {
+          title: `${goal.title} · ${mg.title}`,
+          body: stepReminderBody(mg, step),
+        },
+        trigger: triggers[i],
+      });
+    }
+  } catch (e) {
+    console.warn('[VisionGo] Failed to schedule accountable step reminder:', e);
+  }
+}
+
+/**
+ * Rebuilds every accountable-step reminder for a goal from current state, and
+ * tops the custom-cadence one-shots back up. Steps with reminders off are left
+ * unscheduled. Note the repeating weekly/monthly triggers still fire in a
+ * period the user already checked off — a single occurrence of a native
+ * repeating trigger cannot be skipped.
+ */
+export async function syncAccountableStepNotifications(goal: Goal): Promise<void> {
+  if (!SUPPORTED) return;
+  try {
+    await cancelAccountableStepNotifications(goal.id);
+    for (const mg of goal.minorGoals ?? []) {
+      for (const step of mg.steps) {
+        if (!step.schedule.on) continue;
+        await scheduleAccountableStep(goal, mg, step);
+      }
+    }
+  } catch (e) {
+    console.warn('[VisionGo] Failed to sync accountable step reminders:', e);
+  }
+}
+
+/** Human-readable schedule, e.g. "Monthly · 28th at 9:00 AM". */
+export function describeSchedule(step: AccountableStep): string {
+  const { hour, minute, weekday, dayOfMonth, on } = step.schedule;
+  if (!on) return 'Reminder off';
+  const time = formatTime(hour, minute);
+  switch (step.cadence) {
+    case 'weekly':
+      return `Weekly · ${WEEKDAY_NAMES[weekday - 1] ?? 'Mon'} at ${time}`;
+    case 'monthly':
+      return `Monthly · ${ordinal(Math.min(Math.max(dayOfMonth, 1), 28))} at ${time}`;
+    case 'custom':
+      return `${cadenceLabel(step)} · ${time}`;
+  }
+}
+
+export const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+export function formatTime(hour: number, minute: number): string {
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  const ampm = hour < 12 ? 'AM' : 'PM';
+  return `${h12}:${String(minute).padStart(2, '0')} ${ampm}`;
+}
+
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
+}
+
+/** Cancels every notification VisionGo scheduled for a goal. */
 export async function cancelEverythingForGoal(goalId: string): Promise<void> {
   await cancelGoalNotification(goalId);
   await cancelWeeklyTargetNotifications(goalId);
+  await cancelAccountableStepNotifications(goalId);
 }
