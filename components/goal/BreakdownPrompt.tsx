@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Modal, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BreakdownOption, MinorGoal, suggestBreakdowns, formatAmount } from '../../store/models';
+import { BreakdownOption, MinorGoal, suggestBreakdowns, isRecurringHabit, formatAmount } from '../../store/models';
 import { Palette } from '../../theme/themes';
 
 interface Props {
@@ -21,6 +21,7 @@ export function BreakdownPrompt({ visible, minorGoal, palette: p, onPick, onSkip
   const options = minorGoal ? suggestBreakdowns(minorGoal) : [];
   if (!minorGoal || options.length === 0) return null;
 
+  const habit = isRecurringHabit(minorGoal);
   const remaining = Math.max(0, (minorGoal.target ?? 0) - (minorGoal.current ?? 0));
 
   return (
@@ -29,15 +30,23 @@ export function BreakdownPrompt({ visible, minorGoal, palette: p, onPick, onSkip
         <View style={[styles.sheet, { backgroundColor: p.bg }]}>
           <View style={styles.header}>
             <Ionicons name="calculator-outline" size={18} color={p.accent} />
-            <Text style={[styles.title, { color: p.text }]}>Break this down?</Text>
+            <Text style={[styles.title, { color: p.text }]}>
+              {habit ? 'Set a reminder?' : 'Break this down?'}
+            </Text>
           </View>
 
+          {/* A habit repeats indefinitely — "needs X by DATE" would wrongly
+              frame it as a one-time debt to pay off, the exact bug being fixed. */}
           <Text style={[styles.body, { color: p.muted }]}>
-            "{minorGoal.title}" needs {formatAmount(remaining, minorGoal.unit)} by{' '}
-            {new Date(minorGoal.deadline as string).toLocaleDateString('en-US', {
-              month: 'short', day: 'numeric', year: 'numeric',
-            })}
-            . Want it as a recurring commitment you can be reminded about?
+            {habit ? (
+              <>"{minorGoal.title}" repeats — want a push reminder to keep you honest about it?</>
+            ) : (
+              <>"{minorGoal.title}" needs {formatAmount(remaining, minorGoal.unit)} by{' '}
+              {new Date(minorGoal.deadline as string).toLocaleDateString('en-US', {
+                month: 'short', day: 'numeric', year: 'numeric',
+              })}
+              . Want it as a recurring commitment you can be reminded about?</>
+            )}
           </Text>
 
           {options.map((o) => (

@@ -7,7 +7,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../store/useThemeStore';
 import { useAppStore, TaskItem, TaskGroup, TASK_GROUP_ORDER } from '../../store/useAppStore';
 import { GOAL_NOTE_COLORS, FONTS } from '../../theme/themes';
-import { cancelWeeklyTargetNotification } from '../../services/notificationService';
+import {
+  cancelWeeklyTargetNotification, syncAccountableStepNotifications,
+} from '../../services/notificationService';
 
 export default function TasksScreen() {
   const palette = useThemeStore((s) => s.palette);
@@ -36,7 +38,8 @@ export default function TasksScreen() {
           <Ionicons name="checkmark-circle-outline" size={48} color={`${p.muted}66`} />
           <Text style={[styles.emptyTitle, { color: p.muted }]}>All clear!</Text>
           <Text style={[styles.emptyBody, { color: p.muted }]}>
-            No tasks yet. Add measurables to your goals to see them here.
+            No tasks yet. Add measurables or Accountable Steps to your goals to see
+            them here.
           </Text>
         </View>
       ) : (
@@ -65,6 +68,11 @@ export default function TasksScreen() {
                       completeTaskItem(item);
                       if (item.ladderWeekId) {
                         void cancelWeeklyTargetNotification(item.goalId, item.ladderWeekId);
+                      } else if (item.stepId && useAppStore.getState().notificationsMasterOn) {
+                        // A step just checked off from here must not still
+                        // ping a reminder for the period/week it belonged to.
+                        const fresh = useAppStore.getState().getGoal(item.goalId);
+                        if (fresh) void syncAccountableStepNotifications(fresh);
                       }
                     }}
                   />
@@ -80,9 +88,10 @@ export default function TasksScreen() {
 
 function TaskRow({ item, palette: p, onComplete }: { item: TaskItem; palette: any; onComplete: () => void }) {
   const noteColor = GOAL_NOTE_COLORS[item.goalColorIndex % GOAL_NOTE_COLORS.length];
-  // Ladder rows show no date in the task list (the step label already encodes the target);
-  // check-task rows show the goal's due date when present.
-  const dueStr = !item.ladderWeekId && item.dueDate
+  // Ladder and ramp-week rows show no date in the task list (the label
+  // already encodes the target); check-task and flat-step rows show the due
+  // date (a flat step's is the current period's end) when present.
+  const dueStr = !item.ladderWeekId && !item.rampWeekId && item.dueDate
     ? item.dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     : null;
 

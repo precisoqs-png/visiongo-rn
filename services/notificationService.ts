@@ -2,7 +2,7 @@ import { Alert, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import {
   Goal, ReminderFrequency, MinorGoal, AccountableStep,
-  cadenceIntervalDays, cadenceLabel,
+  cadenceIntervalDays,
 } from '../store/models';
 
 // expo-notifications does not support scheduled local notifications on web —
@@ -94,10 +94,6 @@ export async function cancelGoalNotification(goalId: string): Promise<void> {
   } catch (e) {
     console.warn('[VisionGo] Failed to cancel reminder:', e);
   }
-}
-
-export async function cancelAllGoalNotifications(goalIds: string[]): Promise<void> {
-  await Promise.all(goalIds.map(cancelGoalNotification));
 }
 
 // ── Weekly-target notifications ─────────────────────────────────
@@ -271,6 +267,10 @@ export async function scheduleAccountableStep(
   await cancelAccountableStepNotification(goal.id, step.id);
   if (!step.schedule.on) return;
   try {
+    if (step.ramp) {
+      await scheduleRampNotifications(goal, mg, step);
+      return;
+    }
     const triggers = buildStepTriggers(step);
     for (let i = 0; i < triggers.length; i++) {
       await Notifications.scheduleNotificationAsync({
@@ -284,6 +284,30 @@ export async function scheduleAccountableStep(
     }
   } catch (e) {
     console.warn('[VisionGo] Failed to schedule accountable step reminder:', e);
+  }
+}
+
+// A ramp's target changes every week, so — unlike a flat step's single
+// repeating trigger — it gets one dated one-shot per not-yet-done week, each
+// naming that week's specific value, at the schedule's chosen day/time.
+async function scheduleRampNotifications(goal: Goal, mg: MinorGoal, step: AccountableStep): Promise<void> {
+  const { hour, minute } = step.schedule;
+  const now = Date.now();
+  let occurrence = 0;
+  for (const week of step.ramp ?? []) {
+    if (week.done) continue;
+    const due = new Date(week.targetDate);
+    due.setHours(hour, minute, 0, 0);
+    if (due.getTime() <= now) continue;
+    await Notifications.scheduleNotificationAsync({
+      identifier: stepIdentifier(goal.id, step.id, occurrence),
+      content: {
+        title: `${goal.title} · ${mg.title}`,
+        body: `Have you hit ${fmtVal(week.value)}${step.unit ? ` ${step.unit}` : ''} this week? (${step.label})`,
+      },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: due },
+    });
+    occurrence++;
   }
 }
 
@@ -309,18 +333,21 @@ export async function syncAccountableStepNotifications(goal: Goal): Promise<void
   }
 }
 
-/** Human-readable schedule, e.g. "Monthly · 28th at 9:00 AM". */
+// Day/time portion only — every call site already shows cadenceLabel(step)
+// (e.g. "Weekly", "Ramp · 6→10 km") right before this, so repeating the
+// cadence word here would just duplicate it in the UI.
+/** e.g. "Mon at 9:00 AM", pair with cadenceLabel(step) for the full picture. */
 export function describeSchedule(step: AccountableStep): string {
   const { hour, minute, weekday, dayOfMonth, on } = step.schedule;
   if (!on) return 'Reminder off';
   const time = formatTime(hour, minute);
   switch (step.cadence) {
     case 'weekly':
-      return `Weekly · ${WEEKDAY_NAMES[weekday - 1] ?? 'Mon'} at ${time}`;
+      return `${WEEKDAY_NAMES[weekday - 1] ?? 'Mon'} at ${time}`;
     case 'monthly':
-      return `Monthly · ${ordinal(Math.min(Math.max(dayOfMonth, 1), 28))} at ${time}`;
+      return `${ordinal(Math.min(Math.max(dayOfMonth, 1), 28))} at ${time}`;
     case 'custom':
-      return `${cadenceLabel(step)} · ${time}`;
+      return time;
   }
 }
 
