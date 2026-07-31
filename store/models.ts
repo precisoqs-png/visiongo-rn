@@ -24,12 +24,29 @@ export interface Measurable {
   step: number;
   // ladder
   weeks: LadderWeek[];
+  // ladder only — the goal's targetDate the week dates above were actually
+  // built against (buildLadderWeeks paces every week back from it). Set
+  // whenever the ladder is created or resized; left unset for ladders built
+  // before this existed, so old data is never retroactively flagged. See
+  // isMeasurableDeadlineOutdated.
+  sizedForGoalDate?: string;
 }
 
 // Data persisted before per-measurable steps existed has no `step`, and a
 // zero/negative step would freeze the +/- buttons — always read it via this.
 export function measurableStep(m: Measurable): number {
   return typeof m.step === 'number' && m.step > 0 ? m.step : 1;
+}
+
+/**
+ * True when a ladder Measurable's week dates were paced against the goal's
+ * PRIOR targetDate and that date has since changed. Unlike a Milestone (which
+ * can have its own independent deadline), a ladder's weeks are always paced
+ * off the parent goal's date, so there is no "the user chose differently"
+ * case to protect — any mismatch means the weekly dates are stale.
+ */
+export function isMeasurableDeadlineOutdated(m: Measurable, goalTargetDate?: string): boolean {
+  return m.type === 'ladder' && m.sizedForGoalDate != null && m.sizedForGoalDate !== goalTargetDate;
 }
 
 // Snap a value onto the measurable's step grid. Steps may be fractional

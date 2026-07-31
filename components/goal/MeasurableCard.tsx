@@ -3,17 +3,21 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   Measurable, measurableFraction, measurableStep, steppedValue, formatNumber,
+  isMeasurableDeadlineOutdated, buildLadderWeeks,
 } from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
 
 interface Props {
   measurable: Measurable;
+  // The parent goal's CURRENT "Achieve by" date — compared against what a
+  // ladder's weeks were actually paced against, to flag it as outdated.
+  goalTargetDate?: string;
   palette: Palette;
   onUpdate: (m: Measurable) => void;
   onDelete: (id: string) => void;
 }
 
-export function MeasurableCard({ measurable: m, palette, onUpdate, onDelete }: Props) {
+export function MeasurableCard({ measurable: m, goalTargetDate, palette, onUpdate, onDelete }: Props) {
   const p = palette;
   const frac = measurableFraction(m);
 
@@ -21,7 +25,9 @@ export function MeasurableCard({ measurable: m, palette, onUpdate, onDelete }: P
     <View style={[styles.card, { backgroundColor: p.surface }]}>
       {m.type === 'check' && <CheckRow m={m} p={p} onUpdate={onUpdate} onDelete={onDelete} />}
       {m.type === 'number' && <NumberRow m={m} p={p} onUpdate={onUpdate} onDelete={onDelete} frac={frac} />}
-      {m.type === 'ladder' && <LadderRows m={m} p={p} onUpdate={onUpdate} onDelete={onDelete} frac={frac} />}
+      {m.type === 'ladder' && (
+        <LadderRows m={m} goalTargetDate={goalTargetDate} p={p} onUpdate={onUpdate} onDelete={onDelete} frac={frac} />
+      )}
     </View>
   );
 }
@@ -102,9 +108,31 @@ function NumberRow({ m, p, onUpdate, onDelete, frac }: { m: Measurable; p: Palet
   );
 }
 
-function LadderRows({ m, p, onUpdate, onDelete, frac }: { m: Measurable; p: Palette; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number }) {
+// Include the year only when it is not the current one — "by Jul 29" is
+// ambiguous for a deadline that is actually next year.
+function fmtDeadline(iso: string): string {
+  const d = new Date(iso);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }),
+  });
+}
+
+function LadderRows({ m, goalTargetDate, p, onUpdate, onDelete, frac }: {
+  m: Measurable; goalTargetDate?: string; p: Palette;
+  onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number;
+}) {
   const fmt = formatNumber;
   const doneCount = m.weeks.filter((w) => w.done).length;
+  const deadlineOutdated = isMeasurableDeadlineOutdated(m, goalTargetDate);
+
+  // Re-pace the whole ladder against the goal's current date — same start
+  // value and week count, just walked back from the new end date.
+  const rebuildForNewDeadline = () => {
+    const start = m.weeks[0]?.value ?? 0;
+    const weeks = buildLadderWeeks(start, m.target, m.weeks.length || 4, goalTargetDate);
+    onUpdate({ ...m, weeks, sizedForGoalDate: goalTargetDate });
+  };
 
   return (
     <View>
@@ -117,6 +145,34 @@ function LadderRows({ m, p, onUpdate, onDelete, frac }: { m: Measurable; p: Pale
           <Ionicons name="close" size={14} color={p.muted} />
         </TouchableOpacity>
       </View>
+
+      {deadlineOutdated && (
+        <View style={[styles.outdatedBanner, { backgroundColor: '#e8930022', borderColor: '#e89300' }]}>
+          <Ionicons name="alert-circle-outline" size={15} color="#c47700" style={{ marginTop: 1 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.outdatedText, { color: p.text }]}>
+              These weekly steps were paced for {m.sizedForGoalDate ? fmtDeadline(m.sizedForGoalDate) : 'no deadline'} — the
+              goal's deadline is now {goalTargetDate ? fmtDeadline(goalTargetDate) : 'unset'}.
+            </Text>
+            <View style={styles.outdatedActions}>
+              <TouchableOpacity onPress={rebuildForNewDeadline}>
+                <Text style={[styles.outdatedActionText, { color: '#c47700' }]}>
+                  Update to {goalTargetDate ? fmtDeadline(goalTargetDate) : 'no deadline'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                // Dismiss = stop comparing this ladder's pacing to the goal's
+                // date at all — clear the tracking rather than re-pointing it
+                // at the OLD deadline, which would just re-trip the flag.
+                onPress={() => onUpdate({ ...m, sizedForGoalDate: undefined })}
+              >
+                <Text style={[styles.outdatedActionText, { color: p.muted }]}>Keep as-is</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
       {m.weeks.map((week, idx) => {
         const due = new Date(week.targetDate);
         const dueStr = due.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
@@ -163,4 +219,11 @@ const styles = StyleSheet.create({
   ladderVal: { fontSize: 13, fontWeight: '500', flex: 1 },
   ladderDue: { fontSize: 12 },
   ladderStep: { fontSize: 11 },
+  outdatedBanner: {
+    flexDirection: 'row', gap: 8, borderWidth: 1, borderRadius: 12,
+    padding: 10, marginBottom: 10,
+  },
+  outdatedText: { fontSize: 12, lineHeight: 16 },
+  outdatedActions: { flexDirection: 'row', gap: 16, marginTop: 6 },
+  outdatedActionText: { fontSize: 12, fontWeight: '700' },
 });
