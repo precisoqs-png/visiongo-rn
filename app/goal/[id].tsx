@@ -251,12 +251,21 @@ export default function GoalDetailScreen() {
               <MeasurableCard
                 key={m.id}
                 measurable={m}
+                goalTargetDate={goal.targetDate}
                 palette={p}
                 onUpdate={(m) => { updateMeasurable(m, goal.id); resyncWeekNotifications(); }}
                 onDelete={(mid) => { deleteMeasurable(mid, goal.id); resyncWeekNotifications(); }}
               />
             ))
           )}
+        </View>
+
+        <View style={styles.section}>
+          <AddMeasurableForm
+            goal={goal}
+            palette={p}
+            onAdd={(m) => { addMeasurable(m, goal.id); resyncWeekNotifications(); }}
+          />
         </View>
 
         <View style={styles.section}>
@@ -288,14 +297,6 @@ export default function GoalDetailScreen() {
               resyncStepNotifications();
             }}
             onAskCoach={askCoachAbout}
-          />
-        </View>
-
-        <View style={styles.section}>
-          <AddMeasurableForm
-            goal={goal}
-            palette={p}
-            onAdd={(m) => { addMeasurable(m, goal.id); resyncWeekNotifications(); }}
           />
         </View>
 

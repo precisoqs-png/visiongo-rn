@@ -47,6 +47,25 @@ function confirmDelete(what: string, onYes: () => void) {
 
 const fmtNum = formatNumber;
 
+// A numeric milestone's unit gives a genuinely relevant example ("10 km per
+// week", "$50 per week"); an effort milestone usually has none (e.g. a
+// meditation habit), so it falls back to a domain-neutral example instead
+// of a hardcoded finance one that reads oddly under an unrelated milestone.
+function stepPlaceholder(mg: Milestone): string {
+  const unit = mg.unit?.trim();
+  if (mg.kind === 'numeric' && unit) {
+    return /^[$£€¥]$/.test(unit) ? `e.g. "${unit}50 per week"` : `e.g. "10 ${unit} per week"`;
+  }
+  return 'e.g. "One check-in per week"';
+}
+
+// Same idea for a ramp's label — a build-up genuinely needs a unit to make
+// sense of, so use one when the milestone has a non-currency one.
+function rampPlaceholder(mg: Milestone): string {
+  const unit = mg.unit?.trim();
+  return unit && !/^[$£€¥]$/.test(unit) ? `e.g. "Weekly ${unit} build-up"` : 'e.g. "Weekly build-up"';
+}
+
 // Include the year only when it is not the current one — "by Jul 29" is
 // ambiguous for a deadline that is actually next year.
 function fmtDeadline(iso: string): string {
@@ -371,7 +390,7 @@ function MilestoneCard({
         <View style={{ marginTop: 10 }}>
           <TextInput
             style={[styles.input, { backgroundColor: p.bg, color: p.text, borderColor: p.line }]}
-            placeholder='e.g. "Save $1,000 per month"'
+            placeholder={stepPlaceholder(mg)}
             placeholderTextColor={p.muted}
             value={stepLabel}
             onChangeText={setStepLabel}
@@ -636,7 +655,7 @@ function RampForm({
     <View style={{ marginTop: 10 }}>
       <TextInput
         style={[styles.input, { backgroundColor: p.bg, color: p.text, borderColor: p.line }]}
-        placeholder='e.g. "Weekly long-run build-up"'
+        placeholder={rampPlaceholder(mg)}
         placeholderTextColor={p.muted}
         value={label}
         onChangeText={setLabel}

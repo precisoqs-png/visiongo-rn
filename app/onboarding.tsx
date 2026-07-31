@@ -214,7 +214,7 @@ function MottoStep({ p, motto, onMottoChange, year }: any) {
   return (
     <ScrollView contentContainerStyle={styles.stepCenter} keyboardShouldPersistTaps="handled">
       <Text style={[styles.eyebrow, { color: p.muted }]}>STEP 2 OF 4</Text>
-      <Text style={[styles.heading, { color: p.text }]}>{year} motto</Text>
+      <Text style={[styles.heading, { color: p.text }]}>Set your theme for {year}</Text>
       <Text style={[styles.body, { color: p.muted }]}>Pick one or write your own.</Text>
       <View style={styles.chipGrid}>
         {MOTTO_CHIPS.map((chip) => {
@@ -253,7 +253,7 @@ function GoalsStep({ p, selectedTemplates, onToggle, customGoalTitle, onCustomCh
     <View style={{ flex: 1 }}>
       <View style={[styles.stepCenter, { marginBottom: 12 }]}>
         <Text style={[styles.eyebrow, { color: p.muted }]}>STEP 3 OF 4</Text>
-        <Text style={[styles.heading, { color: p.text }]}>Seed your board</Text>
+        <Text style={[styles.heading, { color: p.text }]}>Create your vision</Text>
         <Text style={[styles.body, { color: p.muted }]}>Pick templates to start with. You can customize everything later.</Text>
         {totalSelected > 0 && (
           <View style={[styles.counter, { backgroundColor: `${p.accent}22` }]}>

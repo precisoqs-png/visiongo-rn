@@ -672,6 +672,7 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
       m.target = end;
       m.step = a.step && a.step > 0 ? a.step : 1;
       m.weeks = buildLadderWeeks(a.ladderStart ?? 0, end, a.ladderWeeks ?? 4, goal.targetDate);
+      m.sizedForGoalDate = goal.targetDate;
     }
     return { ...goal, measurables: [...goal.measurables, m] };
   }
@@ -701,6 +702,7 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
     patched.weeks = buildLadderWeeks(
       start, patched.target, existing.weeks.length || 4, goal.targetDate,
     );
+    patched.sizedForGoalDate = goal.targetDate;
   }
   return {
     ...goal,

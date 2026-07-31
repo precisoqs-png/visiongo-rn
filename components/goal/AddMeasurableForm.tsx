@@ -39,6 +39,7 @@ export function AddMeasurableForm({ goal, palette: p, onAdd }: Props) {
       const count = parseInt(weeksStr) || 4;
       m.target = end; m.unit = unit;
       m.weeks = buildLadderWeeks(start, end, count, goal.targetDate);
+      m.sizedForGoalDate = goal.targetDate;
     }
     onAdd(m);
     setLabel(''); setTargetStr(''); setUnit(''); setStartStr(''); setWeeksStr('');
