@@ -1,27 +1,27 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
-import { MeasurableType, Measurable, newMeasurable, buildLadderWeeks, Goal } from '../../store/models';
+import { MeasurableType, Measurable, newMeasurable } from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
 
 interface Props {
-  goal: Goal;
   palette: Palette;
   onAdd: (m: Measurable) => void;
 }
 
+// No "Weekly" (ladder) option here — a progressive weekly build-up is
+// strictly better served by a Milestone's Ramp Accountable Step, which gets
+// its own reminder and shows up in the Tasks tab; a ladder Measurable gets
+// neither. No template creates one anymore either (see goalTemplates.ts).
 const TYPES: { key: MeasurableType; label: string; icon: string }[] = [
   { key: 'check', label: 'Checkbox', icon: '✓' },
   { key: 'number', label: 'Number', icon: '#' },
-  { key: 'ladder', label: 'Weekly', icon: '↗' },
 ];
 
-export function AddMeasurableForm({ goal, palette: p, onAdd }: Props) {
+export function AddMeasurableForm({ palette: p, onAdd }: Props) {
   const [label, setLabel] = useState('');
   const [type, setType] = useState<MeasurableType>('check');
   const [targetStr, setTargetStr] = useState('');
   const [unit, setUnit] = useState('');
-  const [startStr, setStartStr] = useState('');
-  const [weeksStr, setWeeksStr] = useState('');
   const [stepStr, setStepStr] = useState('');
 
   const commit = () => {
@@ -33,16 +33,9 @@ export function AddMeasurableForm({ goal, palette: p, onAdd }: Props) {
       // Blank or nonsense step falls back to 1 rather than a hardcoded jump.
       const parsedStep = parseFloat(stepStr);
       m.step = Number.isFinite(parsedStep) && parsedStep > 0 ? parsedStep : 1;
-    } else if (type === 'ladder') {
-      const start = parseFloat(startStr) || 0;
-      const end = parseFloat(targetStr) || 1;
-      const count = parseInt(weeksStr) || 4;
-      m.target = end; m.unit = unit;
-      m.weeks = buildLadderWeeks(start, end, count, goal.targetDate);
-      m.sizedForGoalDate = goal.targetDate;
     }
     onAdd(m);
-    setLabel(''); setTargetStr(''); setUnit(''); setStartStr(''); setWeeksStr('');
+    setLabel(''); setTargetStr(''); setUnit('');
     setStepStr('');
   };
 
@@ -108,42 +101,9 @@ export function AddMeasurableForm({ goal, palette: p, onAdd }: Props) {
         </>
       )}
 
-      {type === 'ladder' && (
-        <View style={styles.inputRow}>
-          <TextInput
-            style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
-            placeholder="Start"
-            placeholderTextColor={p.muted}
-            keyboardType="numeric"
-            value={startStr}
-            onChangeText={setStartStr}
-          />
-          <Text style={{ color: p.muted }}>→</Text>
-          <TextInput
-            style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
-            placeholder="Goal"
-            placeholderTextColor={p.muted}
-            keyboardType="numeric"
-            value={targetStr}
-            onChangeText={setTargetStr}
-          />
-          <TextInput
-            style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
-            placeholder="Unit"
-            placeholderTextColor={p.muted}
-            value={unit}
-            onChangeText={setUnit}
-          />
-          <TextInput
-            style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
-            placeholder="Weeks"
-            placeholderTextColor={p.muted}
-            keyboardType="numeric"
-            value={weeksStr}
-            onChangeText={setWeeksStr}
-          />
-        </View>
-      )}
+      <Text style={[styles.fieldHint, { color: p.muted }]}>
+        Want a progressive weekly build-up instead? Add a Milestone below and use its Ramp option.
+      </Text>
 
       <TouchableOpacity
         style={[styles.addBtn, { backgroundColor: label.trim() ? p.ink : p.muted }]}

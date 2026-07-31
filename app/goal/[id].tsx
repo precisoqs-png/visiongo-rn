@@ -262,7 +262,6 @@ export default function GoalDetailScreen() {
 
         <View style={styles.section}>
           <AddMeasurableForm
-            goal={goal}
             palette={p}
             onAdd={(m) => { addMeasurable(m, goal.id); resyncWeekNotifications(); }}
           />
