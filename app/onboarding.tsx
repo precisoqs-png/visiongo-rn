@@ -33,7 +33,12 @@ export default function OnboardingScreen() {
   const [selectedYear, setSelectedYear] = useState(NOW);
   const [motto, setMotto] = useState('');
   const [selectedTemplates, setSelectedTemplates] = useState<GoalTemplate[]>([]);
-  const [customGoalTitle, setCustomGoalTitle] = useState('');
+  // Custom goals the user has explicitly added (shown as a running,
+  // checkmarked list, same as template selections) vs. the text currently
+  // being typed but not yet added — kept separate so submitting the draft
+  // never doubles as "advance to the next step".
+  const [customGoals, setCustomGoals] = useState<string[]>([]);
+  const [customGoalDraft, setCustomGoalDraft] = useState('');
 
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
@@ -54,19 +59,39 @@ export default function OnboardingScreen() {
     });
   };
 
+  // Adds the current draft to the running list — this is what Enter/submit
+  // and the "+" button both call. It never advances the step; only the
+  // Continue button does that.
+  const addCustomGoal = () => {
+    const trimmed = customGoalDraft.trim();
+    if (!trimmed) return;
+    setCustomGoals((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+    setCustomGoalDraft('');
+  };
+
+  const removeCustomGoal = (title: string) => {
+    setCustomGoals((prev) => prev.filter((g) => g !== title));
+  };
+
   const advance = () => {
+    // Leaving the goals step with unsubmitted text in the draft field —
+    // treat it the same as if the user had tapped "+"/pressed Enter, so
+    // nothing typed is silently lost just because they tapped Continue
+    // instead.
+    if (step === 3 && customGoalDraft.trim()) {
+      addCustomGoal();
+    }
     if (step < STEPS - 1) {
       animate(() => setStep((s) => s + 1));
     } else {
-      // Build Goal[] from selected templates + optional custom title
+      // Build Goal[] from selected templates + every added custom goal
       const goals: Goal[] = selectedTemplates.map((t, i) =>
         instantiateTemplate(t, i % GOAL_NOTE_COLORS.length)
       );
-      const trimmed = customGoalTitle.trim();
-      if (trimmed) {
+      for (const title of customGoals) {
         goals.push({
           id: require('../store/models').newId(),
-          title: trimmed,
+          title,
           colorIndex: goals.length % GOAL_NOTE_COLORS.length,
           reminder: { on: false, frequency: 'Daily' },
           chat: [],
@@ -94,7 +119,7 @@ export default function OnboardingScreen() {
     );
   };
 
-  const totalSelected = selectedTemplates.length + (customGoalTitle.trim() ? 1 : 0);
+  const totalSelected = selectedTemplates.length + customGoals.length;
 
   return (
     <LinearGradient colors={p.bgGradient as any} style={styles.root}>
@@ -129,8 +154,11 @@ export default function OnboardingScreen() {
             p={p}
             selectedTemplates={selectedTemplates}
             onToggle={toggleTemplate}
-            customGoalTitle={customGoalTitle}
-            onCustomChange={setCustomGoalTitle}
+            customGoals={customGoals}
+            customGoalDraft={customGoalDraft}
+            onDraftChange={setCustomGoalDraft}
+            onAddCustom={addCustomGoal}
+            onRemoveCustom={removeCustomGoal}
             totalSelected={totalSelected}
           />
         )}
@@ -138,7 +166,7 @@ export default function OnboardingScreen() {
           <ReadyStep
             p={p} year={selectedYear} motto={motto || 'Dream it. Plan it. Live it.'}
             selectedTemplates={selectedTemplates}
-            customGoalTitle={customGoalTitle}
+            customGoals={customGoals}
           />
         )}
       </Animated.View>
@@ -247,7 +275,11 @@ function MottoStep({ p, motto, onMottoChange, year }: any) {
   );
 }
 
-function GoalsStep({ p, selectedTemplates, onToggle, customGoalTitle, onCustomChange, totalSelected }: any) {
+function GoalsStep({
+  p, selectedTemplates, onToggle,
+  customGoals, customGoalDraft, onDraftChange, onAddCustom, onRemoveCustom,
+  totalSelected,
+}: any) {
   const isSelected = (t: GoalTemplate) => selectedTemplates.some((x: GoalTemplate) => x.id === t.id);
   return (
     <View style={{ flex: 1 }}>
@@ -265,18 +297,49 @@ function GoalsStep({ p, selectedTemplates, onToggle, customGoalTitle, onCustomCh
       </View>
       <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {/* Write your own — first thing in the list, so it's the first thing
-            the user sees rather than buried after every template category. */}
+            the user sees rather than buried after every template category.
+            Submitting (Enter, or the + button) ADDS to the list below —
+            it never advances the step; only Continue does that. */}
         <Text style={[styles.catHeader, { color: p.muted }]}>OR WRITE YOUR OWN</Text>
-        <TextInput
-          style={[
-            styles.customInput,
-            { backgroundColor: p.surface, color: p.text, borderColor: p.line },
-          ]}
-          placeholder="e.g. Start a podcast…"
-          placeholderTextColor={p.muted}
-          value={customGoalTitle}
-          onChangeText={onCustomChange}
-        />
+        <View style={styles.customInputRow}>
+          <TextInput
+            style={[
+              styles.customInput,
+              { flex: 1, backgroundColor: p.surface, color: p.text, borderColor: p.line },
+            ]}
+            placeholder="e.g. Start a podcast…"
+            placeholderTextColor={p.muted}
+            value={customGoalDraft}
+            onChangeText={onDraftChange}
+            onSubmitEditing={onAddCustom}
+            blurOnSubmit={false}
+            returnKeyType="done"
+          />
+          <TouchableOpacity
+            onPress={onAddCustom}
+            disabled={!customGoalDraft.trim()}
+            style={[
+              styles.customAddBtn,
+              { backgroundColor: customGoalDraft.trim() ? p.accent : p.line },
+            ]}
+          >
+            <Ionicons name="add" size={20} color={customGoalDraft.trim() ? '#fff' : p.muted} />
+          </TouchableOpacity>
+        </View>
+
+        {customGoals.map((title: string) => (
+          <TouchableOpacity
+            key={title}
+            style={[styles.templateRow, { borderColor: p.accent, backgroundColor: `${p.accent}12` }]}
+            onPress={() => onRemoveCustom(title)}
+          >
+            <Text style={styles.templateEmoji}>✏️</Text>
+            <Text style={[styles.templateTitle, { color: p.text, flex: 1 }]}>{title}</Text>
+            <View style={[styles.check, { borderColor: p.accent, backgroundColor: p.accent }]}>
+              <Ionicons name="checkmark" size={13} color={p.isDark ? p.bg : '#fff'} />
+            </View>
+          </TouchableOpacity>
+        ))}
 
         {TEMPLATE_CATEGORIES.map((cat) => (
           <View key={cat.name} style={styles.catSection}>
@@ -312,13 +375,14 @@ function GoalsStep({ p, selectedTemplates, onToggle, customGoalTitle, onCustomCh
   );
 }
 
-function ReadyStep({ p, year, motto, selectedTemplates, customGoalTitle }: any) {
-  const custom = customGoalTitle.trim();
+function ReadyStep({ p, year, motto, selectedTemplates, customGoals }: any) {
   const allTitles: { emoji: string; title: string; colorIndex: number }[] = [
     ...selectedTemplates.map((t: GoalTemplate, i: number) => ({
       emoji: t.emoji, title: t.title, colorIndex: i,
     })),
-    ...(custom ? [{ emoji: '✏️', title: custom, colorIndex: selectedTemplates.length }] : []),
+    ...customGoals.map((title: string, i: number) => ({
+      emoji: '✏️', title, colorIndex: selectedTemplates.length + i,
+    })),
   ];
   return (
     <ScrollView contentContainerStyle={styles.stepCenter}>
@@ -393,8 +457,14 @@ const styles = StyleSheet.create({
   templateEmoji: { fontSize: 20, width: 28 },
   templateTitle: { fontSize: 14, fontWeight: '500' },
   check: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  customInputRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2, marginBottom: 10,
+  },
   customInput: {
-    borderWidth: 1, borderRadius: 12, padding: 12, fontSize: 15, marginTop: 2,
+    borderWidth: 1, borderRadius: 12, padding: 12, fontSize: 15,
+  },
+  customAddBtn: {
+    width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
   },
   // Ready step
   readyRing: {
