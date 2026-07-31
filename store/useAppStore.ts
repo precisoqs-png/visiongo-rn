@@ -13,7 +13,7 @@ import {
 } from './models';
 import { GOAL_NOTE_COLORS as COLORS } from '../theme/themes';
 
-const COACH_DAILY_LIMIT = 20;
+export const COACH_DAILY_LIMIT = 20;
 
 // Bumped whenever the persisted shape changes — see migrateState below.
 // v3: Goal.minorGoals -> Goal.milestones, and the matching CoachAction kind/
