@@ -263,7 +263,21 @@ function GoalsStep({ p, selectedTemplates, onToggle, customGoalTitle, onCustomCh
           </View>
         )}
       </View>
-      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        {/* Write your own — first thing in the list, so it's the first thing
+            the user sees rather than buried after every template category. */}
+        <Text style={[styles.catHeader, { color: p.muted }]}>OR WRITE YOUR OWN</Text>
+        <TextInput
+          style={[
+            styles.customInput,
+            { backgroundColor: p.surface, color: p.text, borderColor: p.line },
+          ]}
+          placeholder="e.g. Start a podcast…"
+          placeholderTextColor={p.muted}
+          value={customGoalTitle}
+          onChangeText={onCustomChange}
+        />
+
         {TEMPLATE_CATEGORIES.map((cat) => (
           <View key={cat.name} style={styles.catSection}>
             <Text style={[styles.catHeader, { color: p.muted }]}>{cat.name.toUpperCase()}</Text>
@@ -292,18 +306,6 @@ function GoalsStep({ p, selectedTemplates, onToggle, customGoalTitle, onCustomCh
           </View>
         ))}
 
-        {/* Write your own */}
-        <Text style={[styles.catHeader, { color: p.muted, marginTop: 8 }]}>OR WRITE YOUR OWN</Text>
-        <TextInput
-          style={[
-            styles.customInput,
-            { backgroundColor: p.surface, color: p.text, borderColor: p.line },
-          ]}
-          placeholder="e.g. Start a podcast…"
-          placeholderTextColor={p.muted}
-          value={customGoalTitle}
-          onChangeText={onCustomChange}
-        />
         <View style={{ height: 24 }} />
       </ScrollView>
     </View>
