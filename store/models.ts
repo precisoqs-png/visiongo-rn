@@ -81,15 +81,15 @@ export function measurableFraction(m: Measurable): number {
   }
 }
 
-// ── Milestones and accountable steps ─────────────────────────
+// ── Milestones and commitments ────────────────────────────────
 //
 // A goal breaks down into Milestones ("Save $10,000", "Run a marathon"), and
-// each Milestone carries Accountable Steps — one concrete recurring
-// commitment ("Save $1,000 per month") that can drive a push reminder.
+// each Milestone carries Commitments — one concrete recurring commitment
+// ("Save $1,000 per month") that can drive a push reminder.
 
 export type Cadence = 'weekly' | 'monthly' | 'custom';
 
-// Notification config for one accountable step. The user picks the day and
+// Notification config for one commitment. The user picks the day and
 // time; nothing is scheduled while `on` is false.
 export interface StepSchedule {
   on: boolean;
@@ -99,7 +99,7 @@ export interface StepSchedule {
   minute: number;
 }
 
-export interface AccountableStep {
+export interface Commitment {
   id: string;
   label: string;          // "Save $1,000 per month"
   amount?: number;        // per-period target, for flat (non-ramp) steps
@@ -112,11 +112,12 @@ export interface AccountableStep {
   // instead (see LadderWeek.done below), same as ladder measurables.
   completions: string[];
   createdAt: string;
-  // Optional progressive ramp — the target increases week by week (5 -> 10 km
-  // building to week 5) instead of repeating one flat amount. Reuses the same
-  // weekly-target shape as ladder measurables (built with buildLadderWeeks),
-  // so a ramp Accountable Step and a ladder Measurable behave identically
-  // week to week; only the container differs. Always weekly cadence.
+  // Optional progressive build-up — the target increases week by week (5 -> 10
+  // km building to week 5) instead of repeating one flat amount. Reuses the
+  // same weekly-target shape as ladder measurables (built with
+  // buildLadderWeeks), so a build-up Commitment and a ladder Measurable
+  // behave identically week to week; only the container differs. Always
+  // weekly cadence.
   ramp?: LadderWeek[];
 }
 
@@ -140,7 +141,7 @@ export interface Milestone {
   sizedForGoalDate?: string;
   // effort goals are simply marked done; numeric ones derive from current/target
   done: boolean;
-  steps: AccountableStep[];
+  steps: Commitment[];
 }
 
 /**
@@ -156,9 +157,9 @@ export const DEFAULT_SCHEDULE: StepSchedule = {
   on: false, weekday: 2, dayOfMonth: 1, hour: 9, minute: 0,
 };
 
-export function newAccountableStep(
-  init: Partial<AccountableStep> & { label: string; cadence: Cadence },
-): AccountableStep {
+export function newCommitment(
+  init: Partial<Commitment> & { label: string; cadence: Cadence },
+): Commitment {
   return {
     id: newId(),
     completions: [],
@@ -180,7 +181,7 @@ export function milestoneStep(mg: Milestone): number {
 
 // ── Cadence periods ───────────────────────────────────────────
 
-export function cadenceIntervalDays(step: AccountableStep): number {
+export function cadenceIntervalDays(step: Commitment): number {
   switch (step.cadence) {
     case 'weekly': return 7;
     case 'monthly': return 30;
@@ -188,12 +189,12 @@ export function cadenceIntervalDays(step: AccountableStep): number {
   }
 }
 
-export function cadenceLabel(step: AccountableStep): string {
+export function cadenceLabel(step: Commitment): string {
   if (step.ramp) {
     const first = step.ramp[0], last = step.ramp[step.ramp.length - 1];
     return first && last
-      ? `Ramp · ${formatNumber(first.value)}→${formatNumber(last.value)} ${step.unit ?? ''}`.trim()
-      : 'Ramp';
+      ? `Build-up · ${formatNumber(first.value)}→${formatNumber(last.value)} ${step.unit ?? ''}`.trim()
+      : 'Build-up';
   }
   switch (step.cadence) {
     case 'weekly': return 'Weekly';
@@ -206,7 +207,7 @@ export function cadenceLabel(step: AccountableStep): string {
 }
 
 // The single source of truth for displaying a Measurable/Milestone/
-// Accountable Step value — "1,000" for whole numbers, "3.4" for anything
+// Commitment value — "1,000" for whole numbers, "3.4" for anything
 // with a fractional part. Every call site (cadence labels, breakdown
 // suggestions, coach confirmation chips, measurable/milestone cards) used to
 // carry its own slightly different copy of this; formatAmount below adds
@@ -216,12 +217,12 @@ export function formatNumber(v: number): string {
 }
 
 /**
- * The ramp week that is currently "live" — the earliest not-yet-due week, or
- * the final week once every due date has passed. Ramp weeks are built in
- * chronological order (see buildLadderWeeks), so this is just the first week
- * whose target date has not yet arrived.
+ * The build-up week that is currently "live" — the earliest not-yet-due week,
+ * or the final week once every due date has passed. Build-up weeks are built
+ * in chronological order (see buildLadderWeeks), so this is just the first
+ * week whose target date has not yet arrived.
  */
-export function currentRampWeek(step: AccountableStep, when: Date = new Date()): LadderWeek | undefined {
+export function currentBuildUpWeek(step: Commitment, when: Date = new Date()): LadderWeek | undefined {
   if (!step.ramp || step.ramp.length === 0) return undefined;
   return step.ramp.find((w) => new Date(w.targetDate) >= when) ?? step.ramp[step.ramp.length - 1];
 }
@@ -237,7 +238,7 @@ function isoWeekKey(d: Date): string {
 }
 
 /** Key identifying the period `when` falls in, for this step's cadence. */
-export function periodKey(step: AccountableStep, when: Date = new Date()): string {
+export function periodKey(step: Commitment, when: Date = new Date()): string {
   switch (step.cadence) {
     case 'weekly':
       return isoWeekKey(when);
@@ -253,19 +254,19 @@ export function periodKey(step: AccountableStep, when: Date = new Date()): strin
   }
 }
 
-export function isStepDoneThisPeriod(step: AccountableStep, when: Date = new Date()): boolean {
-  if (step.ramp) return currentRampWeek(step, when)?.done ?? false;
+export function isStepDoneThisPeriod(step: Commitment, when: Date = new Date()): boolean {
+  if (step.ramp) return currentBuildUpWeek(step, when)?.done ?? false;
   return step.completions.includes(periodKey(step, when));
 }
 
 /**
- * When the CURRENT period's commitment is due, for a flat (non-ramp) step —
- * the end of this ISO week, this calendar month, or this custom window. Lets
- * a recurring Accountable Step slot into the same Overdue/This Week/This
+ * When the CURRENT period's commitment is due, for a flat (non-build-up) step
+ * — the end of this ISO week, this calendar month, or this custom window.
+ * Lets a recurring Commitment slot into the same Overdue/This Week/This
  * Month/Upcoming buckets the Tasks tab already groups measurable tasks by,
  * even though it has no single fixed due date the way a ladder week does.
  */
-export function currentStepPeriodDueDate(step: AccountableStep, when: Date = new Date()): Date {
+export function currentStepPeriodDueDate(step: Commitment, when: Date = new Date()): Date {
   switch (step.cadence) {
     case 'weekly': {
       // ISO weeks run Monday–Sunday; find this week's Sunday, end of day.
@@ -402,7 +403,7 @@ function suggestHabitCadence(mg: Milestone, today: Date): BreakdownOption[] {
 
 // ── Progress ──────────────────────────────────────────────────
 
-export function accountableStepProgress(step: AccountableStep, deadline?: string): number {
+export function commitmentProgress(step: Commitment, deadline?: string): number {
   if (step.ramp) {
     if (step.ramp.length === 0) return 0;
     return step.ramp.filter((w) => w.done).length / step.ramp.length;
@@ -421,7 +422,7 @@ export function milestoneFraction(mg: Milestone): number {
   }
   // Effort goals move as their recurring commitments get checked off.
   if (mg.steps.length === 0) return 0;
-  const sum = mg.steps.reduce((acc, s) => acc + accountableStepProgress(s, mg.deadline), 0);
+  const sum = mg.steps.reduce((acc, s) => acc + commitmentProgress(s, mg.deadline), 0);
   return Math.min(1, sum / mg.steps.length);
 }
 
@@ -461,7 +462,7 @@ export interface ChatMessage {
 
 export type CoachActionKind =
   | 'addTask' | 'editTask' | 'removeTask' | 'setTarget'
-  | 'addMilestone' | 'addAccountableStep' | 'removeMilestone';
+  | 'addMilestone' | 'addCommitment' | 'removeMilestone';
 
 export interface CoachAction {
   kind: CoachActionKind;
@@ -482,11 +483,11 @@ export interface CoachAction {
   // addMilestone
   milestoneKind?: MilestoneKind;
   deadline?: string;
-  // addAccountableStep — attaches to a milestone, recurring at `cadence`
+  // addCommitment — attaches to a milestone, recurring at `cadence`
   cadence?: Cadence;
   intervalDays?: number;
   amount?: number;
-  // addAccountableStep / removeMilestone — which milestone it hits
+  // addCommitment / removeMilestone — which milestone it hits
   milestoneId?: string;
   milestoneLabel?: string;
 }
@@ -528,7 +529,7 @@ export function describeAction(a: CoachAction, goal: Goal): string {
       if (a.deadline) bits.push(`by ${new Date(a.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`);
       return `Add milestone "${a.label}"${bits.length ? ` — ${bits.join(' ')}` : ''}`;
     }
-    case 'addAccountableStep': {
+    case 'addCommitment': {
       const every = a.cadence === 'monthly'
         ? 'monthly'
         : a.cadence === 'custom'
@@ -675,7 +676,7 @@ export function buildLadderWeeks(
   return weeks;
 }
 
-// A progressive ramp for an Accountable Step is exactly a ladder measurable's
+// A progressive build-up for a Commitment is exactly a ladder measurable's
 // weekly schedule (same shape, same math) attached to a Milestone instead of
 // standing alone as a Measurable — this is that reuse, named for the call site.
-export const buildAccountableRamp = buildLadderWeeks;
+export const buildCommitmentRamp = buildLadderWeeks;

@@ -115,7 +115,7 @@ export const COACH_TOOLS = [
       'Add a Milestone — a milestone under this goal that the user works ' +
       'towards, e.g. "Save $10,000" or "Run a marathon". Use kind "numeric" ' +
       'when there is a number to accumulate, "effort" when the work is not ' +
-      'arithmetic. Follow it with add_accountable_step to give it a recurring ' +
+      'arithmetic. Follow it with add_commitment to give it a recurring ' +
       'commitment.',
     input_schema: {
       type: 'object',
@@ -131,7 +131,7 @@ export const COACH_TOOLS = [
     },
   },
   {
-    name: 'add_accountable_step',
+    name: 'add_commitment',
     description:
       'Add ONE recurring commitment under a Milestone — the thing the user ' +
       'repeats and gets reminded about, e.g. "Save $1,000 per month" or ' +
@@ -153,7 +153,7 @@ export const COACH_TOOLS = [
   },
   {
     name: 'remove_milestone',
-    description: 'Delete a Milestone and its accountable steps.',
+    description: 'Delete a Milestone and its commitments.',
     input_schema: {
       type: 'object',
       properties: {
@@ -188,10 +188,10 @@ function describeMilestone(mg: Milestone): string {
     : '';
   const steps = mg.steps.length
     ? mg.steps.map((s) =>
-        `    · step "${s.label}" — ${cadenceLabel(s)}, ${s.completions.length} check-ins` +
+        `    · commitment "${s.label}" — ${cadenceLabel(s)}, ${s.completions.length} check-ins` +
         `${isStepDoneThisPeriod(s) ? ', done this period' : ''}` +
         `${s.schedule.on ? ', reminder on' : ''}`).join('\n')
-    : '    · (no accountable steps yet)';
+    : '    · (no commitments yet)';
   return `${head}${due}\n${steps}`;
 }
 
@@ -220,6 +220,14 @@ give financial, investment, tax, legal or medical/mental-health advice.`;
     ? ctx.milestones.map(describeMilestone).join('\n')
     : '(none yet)';
   const replyNo = ctx.exchangeCount + 1;
+  const deadlineInstruction = ctx.achieveByDate
+    ? ''
+    : `\n\nNO DEADLINE SET\nThis goal has no target date yet, and you cannot size a \
+weekly or monthly pace without one. Before proposing steps or milestones, ask the user \
+when they want to achieve "${ctx.goalTitle}" by — make this your one question for reply \
+1 if the plan otherwise has enough to go on. If they decline to give one after you ask, \
+assume a sensible default (e.g. 12 weeks out) and say which one you assumed, then \
+proceed with the plan.`;
 
   return `You are the AI coach inside VisionGo, a goal-planning app. VisionGo is NOT a \
 to-do or habit app: users bring short-, medium- and long-term GOALS and rely on you — \
@@ -239,17 +247,17 @@ This is reply #${replyNo} of the conversation.
 
 HOW THIS GOAL IS STRUCTURED
 A goal holds steps (measurables) and MILESTONES — sub-goals like \
-"Save $10,000" or "Run a marathon" that carry ACCOUNTABLE STEPS — one simple \
+"Save $10,000" or "Run a marathon" that carry COMMITMENTS — one simple \
 recurring commitment each ("Save $1,000 per month", "Run 40 km this week") that the \
 user can turn into a push reminder.
 - Numeric milestone (a number to accumulate by a date): the app can already do the \
 arithmetic. Add the milestone with its target and deadline and let the user pick the \
-weekly/monthly split, or propose one accountable step yourself if they asked you to.
+weekly/monthly split, or propose one commitment yourself if they asked you to.
 - Effort milestone (not arithmetic): establish their baseline with ONE question, then \
 propose ONE recurring target sized from that baseline.
 
 NEVER PRESCRIBE A PROGRAMME
-Propose at most one accountable step per milestone. Do NOT lay out a multi-week \
+Propose at most one commitment per milestone. Do NOT lay out a multi-week \
 training plan, an escalating weekly schedule, or a periodised programme, even if asked \
 — VisionGo prompts and tracks a simple recurring commitment, it does not coach \
 technique. Keep it supportive and general. Never give medical, injury, nutrition, \
@@ -257,13 +265,13 @@ financial or investment advice; redirect to a planning action instead.
 
 YOU CAN ACTUALLY EDIT THIS GOAL
 You have tools — add_step, edit_step, remove_step, set_target, add_milestone, \
-add_accountable_step, remove_milestone — that change the user's real goal. Never describe a step you could create instead of creating it: if you say a \
+add_commitment, remove_milestone — that change the user's real goal. Never describe a step you could create instead of creating it: if you say a \
 step belongs in the plan, call add_step for it in the same reply. Every tool call is \
 shown to the user as a chip they confirm before it is applied, so proposing is safe — \
 but do not ask "shall I add this?" and then wait. Propose the calls, and say in your \
 text that they can tap to confirm.
 When editing or removing, pass the step's exact label from the list above. When adding \
-an accountable step, pass the exact milestone title it belongs under — add the \
+a commitment, pass the exact milestone title it belongs under — add the \
 milestone first in the same reply if it does not exist yet.
 Reminders are never switched on by you: say the user can tap the bell on the step to \
 pick the day and time (e.g. payday).
@@ -369,11 +377,11 @@ function toolUseToAction(
         deadline: parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : undefined,
       };
     }
-    case 'add_accountable_step': {
+    case 'add_commitment': {
       const label = str(input.label);
       if (!label || !mgTitle) return null;
       return {
-        kind: 'addAccountableStep',
+        kind: 'addCommitment',
         label,
         milestoneId: mgMatch?.id,
         milestoneLabel: mgTitle,
@@ -468,7 +476,7 @@ export function parseSuggestions(text: string): {
         const cadence: Cadence =
           cadenceRaw === 'monthly' || cadenceRaw === 'custom' ? cadenceRaw : 'weekly';
         actions.push({
-          kind: 'addAccountableStep', milestoneLabel: mgTitle, label, cadence,
+          kind: 'addCommitment', milestoneLabel: mgTitle, label, cadence,
           amount: p[4] ? Number(p[4]) : undefined,
           unit: p[5] || undefined,
           intervalDays: p[6] ? Number(p[6]) : undefined,

@@ -1,6 +1,6 @@
 import {
   Goal, Measurable, Milestone, newId, newMeasurable,
-  newMilestone, newAccountableStep, buildAccountableRamp,
+  newMilestone, newCommitment, buildCommitmentRamp,
 } from './models';
 
 export interface GoalTemplate {
@@ -11,8 +11,8 @@ export interface GoalTemplate {
   stepCount: number;
   buildMeasurables: () => Measurable[];
   // Templates whose primary breakdown is a progressive build-up (was a
-  // Measurables ladder) use this instead — see mkRampMilestone. Absent for
-  // every other template, which stays Measurables-only for now.
+  // Measurables ladder) use this instead — see mkBuildUpMilestone. Absent
+  // for every other template, which stays Measurables-only for now.
   buildMilestones?: () => Milestone[];
 }
 
@@ -29,16 +29,16 @@ function mkCheck(label: string): Measurable {
 function mkNumber(label: string, target: number, unit: string, step = 1): Measurable {
   return newMeasurable({ type: 'number', label, target, unit, step });
 }
-// A progressive build-up as a Milestone + ramp Accountable Step, instead of
-// a standalone Measurables ladder — gives it accountable-step machinery
+// A progressive build-up as a Milestone + build-up Commitment, instead of
+// a standalone Measurables ladder — gives it commitment machinery
 // (reminders, the Tasks tab) a bare ladder Measurable doesn't have. `kind`
-// is 'effort' rather than 'numeric': the ramp already tracks weekly
+// is 'effort' rather than 'numeric': the build-up already tracks weekly
 // progress, so there's no separate cumulative total to also track.
-function mkRampMilestone(title: string, start: number, end: number, weekCount: number, unit: string): Milestone {
-  const ramp = buildAccountableRamp(start, end, weekCount);
+function mkBuildUpMilestone(title: string, start: number, end: number, weekCount: number, unit: string): Milestone {
+  const ramp = buildCommitmentRamp(start, end, weekCount);
   return newMilestone({
     title, kind: 'effort',
-    steps: [newAccountableStep({ label: title, unit, cadence: 'weekly', ramp })],
+    steps: [newCommitment({ label: title, unit, cadence: 'weekly', ramp })],
   });
 }
 
@@ -54,7 +54,7 @@ export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
           mkCheck('Get fitted running shoes'),
         ],
         buildMilestones: () => [
-          mkRampMilestone('Weekly long-run build-up', 5, 21, 10, 'km'),
+          mkBuildUpMilestone('Weekly long-run build-up', 5, 21, 10, 'km'),
         ],
       },
       {
@@ -97,7 +97,7 @@ export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
           // ramped 1 -> 30 "wk" produced meaningless fractional week values
           // like "5.8 wk", and a 30-week streak can't be reached within a
           // 12-week ladder anyway).
-          mkRampMilestone('Weekly study days build-up', 2, 6, 12, 'days/week'),
+          mkBuildUpMilestone('Weekly study days build-up', 2, 6, 12, 'days/week'),
         ],
       },
       {
@@ -159,7 +159,7 @@ export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
         category: 'Creativity', stepCount: 1,
         buildMeasurables: () => [],
         buildMilestones: () => [
-          mkRampMilestone('Weekly word-count build-up', 200, 2000, 12, 'words'),
+          mkBuildUpMilestone('Weekly word-count build-up', 200, 2000, 12, 'words'),
         ],
       },
     ],
