@@ -4,11 +4,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   YearData, Goal, Measurable, ChatMessage,
   CoachAction, PendingAction,
-  Milestone, AccountableStep, StepSchedule,
+  Milestone, Commitment, StepSchedule,
   BoardLayout, BoardViewMode,
-  newId, newMeasurable, newMilestone, newAccountableStep, buildLadderWeeks,
+  newId, newMeasurable, newMilestone, newCommitment, buildLadderWeeks,
   resolveMeasurable, resolveMilestone, periodKey, milestoneStep, snapToStep,
-  DEFAULT_SCHEDULE, currentRampWeek, isStepDoneThisPeriod, currentStepPeriodDueDate,
+  DEFAULT_SCHEDULE, currentBuildUpWeek, isStepDoneThisPeriod, currentStepPeriodDueDate,
   formatNumber,
 } from './models';
 import { GOAL_NOTE_COLORS as COLORS } from '../theme/themes';
@@ -19,7 +19,9 @@ const COACH_DAILY_LIMIT = 20;
 // v3: Goal.minorGoals -> Goal.milestones, and the matching CoachAction kind/
 // field renames (addMinorGoal -> addMilestone, minorGoalId -> milestoneId,
 // etc.) from the "Minor Goal" -> "Milestone" rename.
-const STORE_VERSION = 3;
+// v4: CoachAction kind addAccountableStep -> addCommitment, from the
+// "Accountable Step" -> "Commitment" rename.
+const STORE_VERSION = 4;
 
 function todayKey(): string {
   const d = new Date();
@@ -54,21 +56,21 @@ interface AppState {
   updateMeasurable: (m: Measurable, goalId: string) => void;
   deleteMeasurable: (mid: string, goalId: string) => void;
 
-  // Milestones — the layer between a goal and its accountable steps.
+  // Milestones — the layer between a goal and its commitments.
   addMilestone: (mg: Milestone, goalId: string) => void;
   updateMilestone: (mg: Milestone, goalId: string) => void;
   deleteMilestone: (mgId: string, goalId: string) => void;
 
-  // Accountable steps — recurring commitments under a milestone.
-  addAccountableStep: (step: AccountableStep, mgId: string, goalId: string) => void;
-  updateAccountableStep: (step: AccountableStep, mgId: string, goalId: string) => void;
-  deleteAccountableStep: (stepId: string, mgId: string, goalId: string) => void;
+  // Commitments — one recurring commitment each, under a milestone.
+  addCommitment: (step: Commitment, mgId: string, goalId: string) => void;
+  updateCommitment: (step: Commitment, mgId: string, goalId: string) => void;
+  deleteCommitment: (stepId: string, mgId: string, goalId: string) => void;
   setStepSchedule: (schedule: StepSchedule, stepId: string, mgId: string, goalId: string) => void;
   // Confirms (or un-confirms) this period's commitment; numeric milestones
-  // also advance by the step's amount. For a ramp step, toggles the current
-  // (earliest not-yet-due) ramp week rather than a period key.
+  // also advance by the step's amount. For a build-up step, toggles the
+  // current (earliest not-yet-due) build-up week rather than a period key.
   toggleStepCheckIn: (stepId: string, mgId: string, goalId: string) => void;
-  // Toggles one specific week of a progressive-ramp step — any week, not
+  // Toggles one specific week of a progressive-build-up step — any week, not
   // just the current one, matching ladder-measurable week toggling.
   toggleRampWeek: (stepId: string, weekId: string, mgId: string, goalId: string) => void;
 
@@ -109,8 +111,8 @@ export interface TaskItem {
   // Measurable-based task (check, or one ladder week).
   measurableId?: string;
   ladderWeekId?: string;
-  // Accountable Step task (from a Milestone) — either a flat step's current
-  // period, or one week of a progressive ramp.
+  // Commitment task (from a Milestone) — either a flat step's current
+  // period, or one week of a progressive build-up.
   milestoneId?: string;
   stepId?: string;
   rampWeekId?: string;
@@ -286,19 +288,19 @@ export const useAppStore = create<AppState>()(
         }));
       },
 
-      addAccountableStep: (step, mgId, goalId) => {
+      addCommitment: (step, mgId, goalId) => {
         get()._patchGoal(goalId, (g) => patchMilestone(g, mgId, (mg) => ({
           ...mg, steps: [...mg.steps, step],
         })));
       },
 
-      updateAccountableStep: (step, mgId, goalId) => {
+      updateCommitment: (step, mgId, goalId) => {
         get()._patchGoal(goalId, (g) => patchMilestone(g, mgId, (mg) => ({
           ...mg, steps: mg.steps.map((s) => (s.id === step.id ? step : s)),
         })));
       },
 
-      deleteAccountableStep: (stepId, mgId, goalId) => {
+      deleteCommitment: (stepId, mgId, goalId) => {
         get()._patchGoal(goalId, (g) => patchMilestone(g, mgId, (mg) => ({
           ...mg, steps: mg.steps.filter((s) => s.id !== stepId),
         })));
@@ -316,10 +318,10 @@ export const useAppStore = create<AppState>()(
           const step = mg.steps.find((s) => s.id === stepId);
           if (!step) return mg;
 
-          // A ramp tracks completion per week (like a ladder measurable), not
-          // via a period key — toggle whichever week is currently active.
+          // A build-up tracks completion per week (like a ladder measurable),
+          // not via a period key — toggle whichever week is currently active.
           if (step.ramp) {
-            const week = currentRampWeek(step);
+            const week = currentBuildUpWeek(step);
             if (!week) return mg;
             return {
               ...mg,
@@ -452,7 +454,7 @@ export const useAppStore = create<AppState>()(
             }
           }
 
-          // Accountable Steps — same due-date buckets as measurable tasks,
+          // Commitments — same due-date buckets as measurable tasks,
           // so a "Save $830 per month" or "Run 40 km this week" commitment
           // shows up right alongside ladder/check tasks instead of only
           // living on the goal's own screen.
@@ -497,9 +499,9 @@ export const useAppStore = create<AppState>()(
       },
 
       completeTaskItem: (item) => {
-        // An Accountable Step task — delegate to the same actions the goal
+        // A Commitment task — delegate to the same actions the goal
         // screen uses, so the numeric-milestone current-value bump and
-        // ramp/period bookkeeping stay in exactly one place. These toggle
+        // build-up/period bookkeeping stay in exactly one place. These toggle
         // done<->not-done, but the Tasks UI only ever calls completeTaskItem
         // on an item it knows is not yet done, so a toggle here always lands
         // on "done" — never flips a genuinely-done item back off.
@@ -630,14 +632,14 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
     return { ...goal, milestones: [...(goal.milestones ?? []), mg] };
   }
 
-  if (a.kind === 'addAccountableStep') {
+  if (a.kind === 'addCommitment') {
     const label = (a.label ?? '').trim();
     if (!label) return goal;
     // Attach to the named milestone, or the only one if the coach did not say.
     const list = goal.milestones ?? [];
     const target = resolveMilestone(a, goal) ?? (list.length === 1 ? list[0] : undefined);
     if (!target) return goal;
-    const step = newAccountableStep({
+    const step = newCommitment({
       label,
       cadence: a.cadence ?? 'weekly',
       intervalDays: a.intervalDays,
@@ -731,16 +733,17 @@ interface LegacySuggestion {
 type LegacyMeasurable = Omit<Measurable, 'step'> & { step?: number };
 type LegacyMilestone = Omit<Milestone, 'steps' | 'done'> & {
   done?: boolean;
-  steps?: (Omit<AccountableStep, 'completions' | 'schedule' | 'createdAt'> & {
+  steps?: (Omit<Commitment, 'completions' | 'schedule' | 'createdAt'> & {
     completions?: string[];
     schedule?: Partial<StepSchedule>;
     createdAt?: string;
   })[];
 };
 // v2-and-earlier field/action names, from before the "Minor Goal" ->
-// "Milestone" rename — still readable so nobody's existing saved goals
-// silently lose their data on this upgrade.
-type LegacyCoachActionKind = 'addMinorGoal' | 'removeMinorGoal';
+// "Milestone" rename, and v3-and-earlier action names from before
+// "Accountable Step" -> "Commitment" — still readable so nobody's existing
+// saved goals silently lose their data on these upgrades.
+type LegacyCoachActionKind = 'addMinorGoal' | 'removeMinorGoal' | 'addAccountableStep';
 type LegacyCoachAction = Omit<CoachAction, 'kind'> & {
   kind: CoachAction['kind'] | LegacyCoachActionKind;
   minorGoalKind?: Milestone['kind'];
@@ -760,6 +763,7 @@ type LegacyState = Omit<AppState, 'years'> & { years?: (Omit<YearData, 'goals'> 
 const LEGACY_ACTION_KIND: Record<LegacyCoachActionKind, CoachAction['kind']> = {
   addMinorGoal: 'addMilestone',
   removeMinorGoal: 'removeMilestone',
+  addAccountableStep: 'addCommitment',
 };
 
 function migratePendingAction(p: LegacyPendingAction): PendingAction {

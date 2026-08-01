@@ -9,7 +9,7 @@ interface Props {
 }
 
 // No "Weekly" (ladder) option here — a progressive weekly build-up is
-// strictly better served by a Milestone's Ramp Accountable Step, which gets
+// strictly better served by a Milestone's build-up Commitment, which gets
 // its own reminder and shows up in the Tasks tab; a ladder Measurable gets
 // neither. No template creates one anymore either (see goalTemplates.ts).
 const TYPES: { key: MeasurableType; label: string; icon: string }[] = [
@@ -102,7 +102,7 @@ export function AddMeasurableForm({ palette: p, onAdd }: Props) {
       )}
 
       <Text style={[styles.fieldHint, { color: p.muted }]}>
-        Want a progressive weekly build-up instead? Add a Milestone below and use its Ramp option.
+        Want a progressive weekly build-up instead? Add a Milestone below and use its "Build up gradually" option.
       </Text>
 
       <TouchableOpacity

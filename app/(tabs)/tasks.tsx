@@ -8,7 +8,7 @@ import { useThemeStore } from '../../store/useThemeStore';
 import { useAppStore, TaskItem, TaskGroup, TASK_GROUP_ORDER } from '../../store/useAppStore';
 import { GOAL_NOTE_COLORS, FONTS } from '../../theme/themes';
 import {
-  cancelWeeklyTargetNotification, syncAccountableStepNotifications,
+  cancelWeeklyTargetNotification, syncCommitmentNotifications,
 } from '../../services/notificationService';
 
 export default function TasksScreen() {
@@ -38,7 +38,7 @@ export default function TasksScreen() {
           <Ionicons name="checkmark-circle-outline" size={48} color={`${p.muted}66`} />
           <Text style={[styles.emptyTitle, { color: p.muted }]}>All clear!</Text>
           <Text style={[styles.emptyBody, { color: p.muted }]}>
-            No tasks yet. Add measurables or Accountable Steps to your goals to see
+            No tasks yet. Add measurables or Commitments to your goals to see
             them here.
           </Text>
         </View>
@@ -72,7 +72,7 @@ export default function TasksScreen() {
                         // A step just checked off from here must not still
                         // ping a reminder for the period/week it belonged to.
                         const fresh = useAppStore.getState().getGoal(item.goalId);
-                        if (fresh) void syncAccountableStepNotifications(fresh);
+                        if (fresh) void syncCommitmentNotifications(fresh);
                       }
                     }}
                   />

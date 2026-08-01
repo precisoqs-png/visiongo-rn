@@ -16,7 +16,7 @@ import {
   cancelGoalNotification,
   cancelEverythingForGoal,
   syncWeeklyTargetNotifications,
-  syncAccountableStepNotifications,
+  syncCommitmentNotifications,
   alertNotificationsUnavailable,
 } from '../../services/notificationService';
 
@@ -139,7 +139,7 @@ function NotificationsModal({ visible, onClose, palette: p }: any) {
 
   // The master switch must actually be a master switch: every reminder type
   // — the per-goal check-in, weekly ladder-measurable targets, and per-step
-  // Accountable Step alerts — is gated on it, so flipping it off has to
+  // Commitment alerts — is gated on it, so flipping it off has to
   // cancel all three, not just the per-goal one. (It previously only cancelled
   // the per-goal generic reminder, leaving weekly-target and step
   // notifications firing after the user just told the app to stop.)
@@ -157,9 +157,9 @@ function NotificationsModal({ visible, onClose, palette: p }: any) {
           await scheduleGoalNotification(g);
           await syncWeeklyTargetNotifications(g);
         }
-        // Accountable Step reminders are independent of the per-goal toggle —
+        // Commitment reminders are independent of the per-goal toggle —
         // only the master switch gates them.
-        await syncAccountableStepNotifications(g);
+        await syncCommitmentNotifications(g);
       }));
     } else {
       setNotificationsMaster(false);
@@ -201,7 +201,7 @@ function NotificationsModal({ visible, onClose, palette: p }: any) {
               <Text style={[styles.settingsRowText, { color: p.text }]}>Push Notifications</Text>
               <Text style={[styles.toggleDesc, { color: p.muted }]}>
                 Master switch for every reminder VisionGo sends — goal check-ins below,
-                weekly targets, and each Accountable Step's own alert. Off silences all
+                weekly targets, and each Commitment's own alert. Off silences all
                 of them at once.
               </Text>
             </View>
@@ -217,7 +217,7 @@ function NotificationsModal({ visible, onClose, palette: p }: any) {
           <Text style={[styles.layerHint, { color: p.muted }]}>
             Each toggle below sends a periodic "check in on this goal" nudge and also
             gates that goal's weekly ladder-measurable targets. It does NOT control
-            Accountable Step reminders — those live under the bell on each step, on
+            Commitment reminders — those live under the bell on each step, on
             the goal's own screen, and only need the master switch above to be on.
           </Text>
 

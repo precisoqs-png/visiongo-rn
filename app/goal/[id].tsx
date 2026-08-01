@@ -10,7 +10,7 @@ import { useThemeStore } from '../../store/useThemeStore';
 import { useAppStore } from '../../store/useAppStore';
 import { GOAL_NOTE_COLORS, hexAlpha, FONTS } from '../../theme/themes';
 import {
-  goalProgress, goalProgressPercent, AccountableStep, Milestone,
+  goalProgress, goalProgressPercent, Commitment, Milestone,
 } from '../../store/models';
 import { MeasurableCard } from '../../components/goal/MeasurableCard';
 import { AddMeasurableForm } from '../../components/goal/AddMeasurableForm';
@@ -23,8 +23,8 @@ import {
   cancelGoalNotification,
   cancelWeeklyTargetNotifications,
   syncWeeklyTargetNotifications,
-  syncAccountableStepNotifications,
-  cancelAccountableStepNotification,
+  syncCommitmentNotifications,
+  cancelCommitmentNotification,
   cancelEverythingForGoal,
   alertNotificationsUnavailable,
 } from '../../services/notificationService';
@@ -48,9 +48,9 @@ export default function GoalDetailScreen() {
   const addMilestone = useAppStore((s) => s.addMilestone);
   const updateMilestone = useAppStore((s) => s.updateMilestone);
   const deleteMilestone = useAppStore((s) => s.deleteMilestone);
-  const addAccountableStep = useAppStore((s) => s.addAccountableStep);
-  const updateAccountableStep = useAppStore((s) => s.updateAccountableStep);
-  const deleteAccountableStep = useAppStore((s) => s.deleteAccountableStep);
+  const addCommitment = useAppStore((s) => s.addCommitment);
+  const updateCommitment = useAppStore((s) => s.updateCommitment);
+  const deleteCommitment = useAppStore((s) => s.deleteCommitment);
   const toggleStepCheckIn = useAppStore((s) => s.toggleStepCheckIn);
   const toggleRampWeek = useAppStore((s) => s.toggleRampWeek);
 
@@ -96,23 +96,23 @@ export default function GoalDetailScreen() {
   const resyncStepNotifications = () => {
     const fresh = useAppStore.getState().getGoal(id!);
     if (fresh && useAppStore.getState().notificationsMasterOn) {
-      void syncAccountableStepNotifications(fresh);
+      void syncCommitmentNotifications(fresh);
     }
   };
 
   // Turning a step reminder on is the first thing that needs permission, so ask
   // here rather than at goal level.
-  const saveStep = async (step: AccountableStep, mgId: string) => {
+  const saveStep = async (step: Commitment, mgId: string) => {
     if (step.schedule.on) {
       const granted = await requestNotificationPermission();
       if (!granted) {
         alertNotificationsUnavailable();
         // Keep the schedule the user configured, just not switched on.
-        updateAccountableStep({ ...step, schedule: { ...step.schedule, on: false } }, mgId, id!);
+        updateCommitment({ ...step, schedule: { ...step.schedule, on: false } }, mgId, id!);
         return;
       }
     }
-    updateAccountableStep(step, mgId, id!);
+    updateCommitment(step, mgId, id!);
     resyncStepNotifications();
   };
 
@@ -122,7 +122,7 @@ export default function GoalDetailScreen() {
   const askCoachAbout = (mg: Milestone) => {
     setCoachSeed(
       `Help me with my milestone "${mg.title}". Ask me what my current baseline is, ` +
-      `then suggest one simple weekly accountable step I can be reminded about — ` +
+      `then suggest one simple weekly commitment I can be reminded about — ` +
       `not a full training plan.`,
     );
   };
@@ -166,6 +166,10 @@ export default function GoalDetailScreen() {
   const noteColor = GOAL_NOTE_COLORS[goal.colorIndex % GOAL_NOTE_COLORS.length];
   const progress = goalProgress(goal);
   const pct = goalProgressPercent(goal);
+  // A goal with nothing on it yet defaults to AI-driven decomposition rather
+  // than leaving the user to work out Measurables vs Milestones cold — the
+  // manual forms below still work, this is just the offered fast path.
+  const isEmptyGoal = goal.measurables.length === 0 && (goal.milestones ?? []).length === 0;
 
   const daysLeft = goal.targetDate
     ? Math.max(0, Math.round((localDate(goal.targetDate).getTime() - Date.now()) / 86400000))
@@ -236,6 +240,30 @@ export default function GoalDetailScreen() {
           <Ionicons name="calendar-outline" size={14} color={p.muted} style={{ marginLeft: 'auto' as any }} />
         </TouchableOpacity>
 
+        {isEmptyGoal && (
+          <View style={[styles.section, { paddingTop: 0, paddingBottom: 4 }]}>
+            <View style={[styles.decompCard, { backgroundColor: p.surface }]}>
+              <Ionicons name="sparkles" size={18} color={p.accent} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.decompTitle, { color: p.text }]}>Nothing here yet</Text>
+                <Text style={[styles.decompBody, { color: p.muted }]}>
+                  Let the coach break "{goal.title}" into concrete steps and a recurring
+                  commitment — or add things yourself below.
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.decompBtn, { backgroundColor: p.ink }]}
+                onPress={() => setCoachSeed(
+                  `This goal has nothing on it yet. Break "${goal.title}" down into a few ` +
+                  `concrete steps and, if it fits, a milestone with a recurring commitment.`,
+                )}
+              >
+                <Text style={[styles.decompBtnText, { color: p.isDark ? p.bg : '#fff' }]}>Ask coach</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         <View style={styles.section}>
           <Text style={[styles.eyebrow, { color: p.muted }]}>MEASURABLES</Text>
           <Text style={[styles.layerHint, { color: p.muted }]}>
@@ -278,13 +306,13 @@ export default function GoalDetailScreen() {
               resyncStepNotifications();
             }}
             onAddStep={(step, mgId) => {
-              addAccountableStep(step, mgId, goal.id);
+              addCommitment(step, mgId, goal.id);
               resyncStepNotifications();
             }}
             onUpdateStep={(step, mgId) => { void saveStep(step, mgId); }}
             onDeleteStep={(stepId, mgId) => {
-              deleteAccountableStep(stepId, mgId, goal.id);
-              void cancelAccountableStepNotification(goal.id, stepId);
+              deleteCommitment(stepId, mgId, goal.id);
+              void cancelCommitmentNotification(goal.id, stepId);
             }}
             onToggleCheckIn={(stepId, mgId) => {
               toggleStepCheckIn(stepId, mgId, goal.id);
@@ -364,4 +392,12 @@ const styles = StyleSheet.create({
   layerHint: { fontSize: 11, lineHeight: 15, marginTop: 4, marginBottom: 10 },
   section: { padding: 18 },
   emptyHint: { fontSize: 14, lineHeight: 20 },
+  decompCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderRadius: 14, padding: 14,
+  },
+  decompTitle: { fontSize: 14, fontWeight: '700', marginBottom: 2 },
+  decompBody: { fontSize: 12, lineHeight: 17 },
+  decompBtn: { borderRadius: 12, paddingVertical: 9, paddingHorizontal: 14 },
+  decompBtnText: { fontSize: 13, fontWeight: '700' },
 });

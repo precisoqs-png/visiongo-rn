@@ -4,12 +4,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  Goal, Milestone, MilestoneKind, AccountableStep, BreakdownOption,
+  Goal, Milestone, MilestoneKind, Commitment, BreakdownOption,
   Cadence, StepSchedule,
-  newMilestone, newAccountableStep, milestonePercent, milestoneFraction,
+  newMilestone, newCommitment, milestonePercent, milestoneFraction,
   steppedMilestoneValue, milestoneStep, isStepDoneThisPeriod, cadenceLabel,
   suggestBreakdowns, DEFAULT_SCHEDULE, formatAmount,
-  buildAccountableRamp, currentRampWeek, isMilestoneDeadlineOutdated, formatNumber,
+  buildCommitmentRamp, currentBuildUpWeek, isMilestoneDeadlineOutdated, formatNumber,
 } from '../../store/models';
 import { describeSchedule } from '../../services/notificationService';
 import { Palette } from '../../theme/themes';
@@ -23,8 +23,8 @@ interface Props {
   onAddMilestone: (mg: Milestone) => void;
   onUpdateMilestone: (mg: Milestone) => void;
   onDeleteMilestone: (mgId: string) => void;
-  onAddStep: (step: AccountableStep, mgId: string) => void;
-  onUpdateStep: (step: AccountableStep, mgId: string) => void;
+  onAddStep: (step: Commitment, mgId: string) => void;
+  onUpdateStep: (step: Commitment, mgId: string) => void;
   onDeleteStep: (stepId: string, mgId: string) => void;
   onToggleCheckIn: (stepId: string, mgId: string) => void;
   // Toggles one specific week of a progressive-ramp step (expanded view).
@@ -84,7 +84,7 @@ export function MilestoneSection({
   const [showForm, setShowForm] = useState(false);
   // Milestone awaiting a breakdown answer, and the step whose reminder is open
   const [breakdownFor, setBreakdownFor] = useState<Milestone | null>(null);
-  const [scheduleFor, setScheduleFor] = useState<{ step: AccountableStep; mgId: string } | null>(null);
+  const [scheduleFor, setScheduleFor] = useState<{ step: Commitment; mgId: string } | null>(null);
 
   const milestones = goal.milestones ?? [];
 
@@ -96,7 +96,7 @@ export function MilestoneSection({
   };
 
   const applyBreakdown = (mg: Milestone, option: BreakdownOption) => {
-    const step = newAccountableStep({
+    const step = newCommitment({
       label: option.label,
       cadence: option.cadence,
       // Daily habit options carry cadence 'custom' + intervalDays: 1 — without
@@ -216,19 +216,20 @@ interface CardProps {
   palette: Palette;
   onUpdate: (mg: Milestone) => void;
   onDelete: () => void;
-  onAddStep: (step: AccountableStep) => void;
+  onAddStep: (step: Commitment) => void;
   onDeleteStep: (stepId: string, label: string) => void;
   onToggleCheckIn: (stepId: string) => void;
   onToggleRampWeek: (stepId: string, weekId: string) => void;
-  onOpenSchedule: (step: AccountableStep) => void;
+  onOpenSchedule: (step: Commitment) => void;
   onBreakdown: () => void;
   onAskCoach: () => void;
 }
 
-// A ramp with no deadline still needs a week count to build from — default to
-// however many whole weeks remain until the milestone's own deadline, or a
-// plain 8-week ramp when there is no deadline to size against.
-function defaultRampWeeks(mg: Milestone): number {
+// A build-up with no deadline still needs a week count to build from —
+// default to however many whole weeks remain until the milestone's own
+// deadline, or a plain 8-week build-up when there is no deadline to size
+// against.
+function defaultBuildUpWeeks(mg: Milestone): number {
   if (!mg.deadline) return 8;
   const days = Math.ceil((new Date(mg.deadline).getTime() - Date.now()) / 86400000);
   return Math.max(2, Math.min(26, Math.round(days / 7)));
@@ -238,24 +239,13 @@ function MilestoneCard({
   milestone: mg, goalTargetDate, palette: p, onUpdate, onDelete,
   onAddStep, onDeleteStep, onToggleCheckIn, onToggleRampWeek, onOpenSchedule, onBreakdown, onAskCoach,
 }: CardProps) {
-  const [addingStep, setAddingStep] = useState(false);
-  const [addingRamp, setAddingRamp] = useState(false);
+  const [addingCommitment, setAddingCommitment] = useState(false);
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
-  const [stepLabel, setStepLabel] = useState('');
-  const [stepCadence, setStepCadence] = useState<Cadence>('weekly');
 
   const frac = milestoneFraction(mg);
   const deadlineOutdated = isMilestoneDeadlineOutdated(mg, goalTargetDate);
   const pct = milestonePercent(mg);
   const canBreakDown = suggestBreakdowns(mg).length > 0;
-
-  const commitStep = () => {
-    const label = stepLabel.trim();
-    if (!label) return;
-    onAddStep(newAccountableStep({ label, cadence: stepCadence, unit: mg.unit }));
-    setStepLabel('');
-    setAddingStep(false);
-  };
 
   return (
     <View style={[styles.card, { backgroundColor: p.surface }]}>
@@ -352,14 +342,14 @@ function MilestoneCard({
         <View style={[styles.progressFill, { backgroundColor: p.accent, width: `${frac * 100}%` }]} />
       </View>
 
-      {/* Accountable steps */}
+      {/* Commitments */}
       {mg.steps.length > 0 && (
         <View style={{ marginTop: 12 }}>
-          <Text style={[styles.stepsEyebrow, { color: p.muted }]}>ACCOUNTABLE STEPS</Text>
+          <Text style={[styles.stepsEyebrow, { color: p.muted }]}>COMMITMENTS</Text>
           {mg.steps.map((step) => (
             step.ramp
               ? (
-                <RampStepRow
+                <BuildUpStepRow
                   key={step.id}
                   step={step}
                   palette={p}
@@ -385,67 +375,22 @@ function MilestoneCard({
         </View>
       )}
 
-      {/* Ways to get a step: manual, progressive ramp, arithmetic, or the coach */}
-      {addingStep ? (
-        <View style={{ marginTop: 10 }}>
-          <TextInput
-            style={[styles.input, { backgroundColor: p.bg, color: p.text, borderColor: p.line }]}
-            placeholder={stepPlaceholder(mg)}
-            placeholderTextColor={p.muted}
-            value={stepLabel}
-            onChangeText={setStepLabel}
-          />
-          <View style={[styles.segmented, { backgroundColor: p.line, marginTop: 8 }]}>
-            {(['weekly', 'monthly', 'custom'] as const).map((c) => (
-              <TouchableOpacity
-                key={c}
-                style={[styles.segBtn, stepCadence === c && { backgroundColor: p.ink }]}
-                onPress={() => setStepCadence(c)}
-              >
-                <Text style={[styles.segText, {
-                  color: stepCadence === c ? (p.isDark ? p.bg : '#fff') : p.muted,
-                }]}>
-                  {c === 'weekly' ? 'Weekly' : c === 'monthly' ? 'Monthly' : 'Custom'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <View style={styles.formActions}>
-            <TouchableOpacity
-              style={[styles.primaryBtn, { backgroundColor: stepLabel.trim() ? p.ink : p.muted }]}
-              onPress={commitStep}
-              disabled={!stepLabel.trim()}
-            >
-              <Text style={[styles.primaryText, { color: p.isDark ? p.bg : '#fff' }]}>Add step</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => { setAddingStep(false); setStepLabel(''); }}>
-              <Text style={[styles.linkText, { color: p.muted }]}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      ) : addingRamp ? (
-        <RampForm
+      {/* Ways to get a commitment: manual (flat or build-up), arithmetic, or the coach */}
+      {addingCommitment ? (
+        <CommitmentForm
           milestone={mg}
           palette={p}
-          onAdd={(step) => { onAddStep(step); setAddingRamp(false); }}
-          onCancel={() => setAddingRamp(false)}
+          onAdd={(step) => { onAddStep(step); setAddingCommitment(false); }}
+          onCancel={() => setAddingCommitment(false)}
         />
       ) : (
         <View style={styles.actionRow}>
           <TouchableOpacity
             style={[styles.ghostBtn, { borderColor: p.line }]}
-            onPress={() => setAddingStep(true)}
+            onPress={() => setAddingCommitment(true)}
           >
             <Ionicons name="add" size={13} color={p.text} />
-            <Text style={[styles.ghostText, { color: p.text }]}>Step</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.ghostBtn, { borderColor: `${p.accent}66` }]}
-            onPress={() => setAddingRamp(true)}
-          >
-            <Ionicons name="trending-up-outline" size={13} color={p.accent} />
-            <Text style={[styles.ghostText, { color: p.accent }]}>Ramp</Text>
+            <Text style={[styles.ghostText, { color: p.text }]}>Commitment</Text>
           </TouchableOpacity>
 
           {canBreakDown && (
@@ -473,12 +418,12 @@ function MilestoneCard({
   );
 }
 
-// ── One flat (non-ramp) accountable step row ──────────────────
+// ── One flat (non-build-up) commitment row ─────────────────────
 
 function FlatStepRow({
   step, palette: p, onToggleCheckIn, onOpenSchedule, onDelete,
 }: {
-  step: AccountableStep; palette: Palette;
+  step: Commitment; palette: Palette;
   onToggleCheckIn: () => void; onOpenSchedule: () => void; onDelete: () => void;
 }) {
   const doneNow = isStepDoneThisPeriod(step);
@@ -529,22 +474,22 @@ function FlatStepRow({
   );
 }
 
-// ── One progressive-ramp accountable step row ─────────────────
+// ── One progressive build-up commitment row ────────────────────
 //
 // Collapsed: a single row like a flat step, but the checkbox/label track the
-// CURRENT ramp week. Expanded: every week, mirroring ladder measurables
+// CURRENT build-up week. Expanded: every week, mirroring ladder measurables
 // exactly (value + due date + individually-toggleable checkbox).
 
-function RampStepRow({
+function BuildUpStepRow({
   step, palette: p, expanded, onToggleExpand, onToggleCheckIn, onToggleWeek, onOpenSchedule, onDelete,
 }: {
-  step: AccountableStep; palette: Palette; expanded: boolean;
+  step: Commitment; palette: Palette; expanded: boolean;
   onToggleExpand: () => void; onToggleCheckIn: () => void;
   onToggleWeek: (weekId: string) => void; onOpenSchedule: () => void; onDelete: () => void;
 }) {
   const weeks = step.ramp ?? [];
   const doneCount = weeks.filter((w) => w.done).length;
-  const current = currentRampWeek(step);
+  const current = currentBuildUpWeek(step);
   const doneNow = current?.done ?? false;
   const fmt = formatNumber;
 
@@ -627,85 +572,133 @@ function RampStepRow({
   );
 }
 
-// ── Ramp creation form ─────────────────────────────────────────
+// ── Commitment creation form ────────────────────────────────────
+//
+// One form for both shapes a commitment can take, switched by a single
+// toggle instead of two separate buttons/forms: "same amount each time"
+// (a flat recurring target on a cadence) or "build up gradually" (a
+// progressive week-by-week target, same math as a ladder measurable).
 
-function RampForm({
+function CommitmentForm({
   milestone: mg, palette: p, onAdd, onCancel,
-}: { milestone: Milestone; palette: Palette; onAdd: (step: AccountableStep) => void; onCancel: () => void }) {
+}: { milestone: Milestone; palette: Palette; onAdd: (step: Commitment) => void; onCancel: () => void }) {
+  const [buildUp, setBuildUp] = useState(false);
   const [label, setLabel] = useState('');
+  const [cadence, setCadence] = useState<Cadence>('weekly');
   const [startStr, setStartStr] = useState('');
   const [endStr, setEndStr] = useState('');
   const [unit, setUnit] = useState(mg.unit ?? '');
-  const [weeksStr, setWeeksStr] = useState(String(defaultRampWeeks(mg)));
+  const [weeksStr, setWeeksStr] = useState(String(defaultBuildUpWeeks(mg)));
 
   const start = parseFloat(startStr);
   const end = parseFloat(endStr);
   const weeksCount = Math.max(1, parseInt(weeksStr, 10) || 1);
-  const valid = label.trim() && Number.isFinite(start) && Number.isFinite(end) && end !== start;
+  const valid = buildUp
+    ? !!label.trim() && Number.isFinite(start) && Number.isFinite(end) && end !== start
+    : !!label.trim();
 
   const commit = () => {
     if (!valid) return;
-    const ramp = buildAccountableRamp(start, end, weeksCount, mg.deadline);
-    onAdd(newAccountableStep({
-      label: label.trim(), cadence: 'weekly', unit: unit || undefined, amount: end, ramp,
-    }));
+    if (buildUp) {
+      const ramp = buildCommitmentRamp(start, end, weeksCount, mg.deadline);
+      onAdd(newCommitment({
+        label: label.trim(), cadence: 'weekly', unit: unit || undefined, amount: end, ramp,
+      }));
+    } else {
+      onAdd(newCommitment({ label: label.trim(), cadence, unit: mg.unit }));
+    }
   };
 
   return (
     <View style={{ marginTop: 10 }}>
+      <View style={[styles.segmented, { backgroundColor: p.line }]}>
+        {([[false, 'Same each time'], [true, 'Build up gradually']] as const).map(([v, text]) => (
+          <TouchableOpacity
+            key={String(v)}
+            style={[styles.segBtn, buildUp === v && { backgroundColor: p.ink }]}
+            onPress={() => setBuildUp(v)}
+          >
+            <Text style={[styles.segText, {
+              color: buildUp === v ? (p.isDark ? p.bg : '#fff') : p.muted,
+            }]}>
+              {text}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
       <TextInput
-        style={[styles.input, { backgroundColor: p.bg, color: p.text, borderColor: p.line }]}
-        placeholder={rampPlaceholder(mg)}
+        style={[styles.input, { backgroundColor: p.bg, color: p.text, borderColor: p.line, marginTop: 8 }]}
+        placeholder={buildUp ? rampPlaceholder(mg) : stepPlaceholder(mg)}
         placeholderTextColor={p.muted}
         value={label}
         onChangeText={setLabel}
       />
-      <View style={styles.inputRow}>
-        <TextInput
-          style={[styles.inputSmall, { backgroundColor: p.bg, color: p.text, flex: 1 }]}
-          placeholder="Start"
-          placeholderTextColor={p.muted}
-          keyboardType="numeric"
-          value={startStr}
-          onChangeText={setStartStr}
-        />
-        <Text style={{ color: p.muted }}>→</Text>
-        <TextInput
-          style={[styles.inputSmall, { backgroundColor: p.bg, color: p.text, flex: 1 }]}
-          placeholder="End"
-          placeholderTextColor={p.muted}
-          keyboardType="numeric"
-          value={endStr}
-          onChangeText={setEndStr}
-        />
-        <TextInput
-          style={[styles.inputSmall, { backgroundColor: p.bg, color: p.text, flex: 1 }]}
-          placeholder="Unit"
-          placeholderTextColor={p.muted}
-          value={unit}
-          onChangeText={setUnit}
-        />
-        <TextInput
-          style={[styles.inputSmall, { backgroundColor: p.bg, color: p.text, flex: 1 }]}
-          placeholder="Weeks"
-          placeholderTextColor={p.muted}
-          keyboardType="numeric"
-          value={weeksStr}
-          onChangeText={setWeeksStr}
-        />
-      </View>
-      <Text style={[styles.formHint, { color: p.muted }]}>
-        Builds {weeksStr || '?'} weekly targets from {startStr || '…'} up to {endStr || '…'}
-        {unit ? ` ${unit}` : ''} — same week-by-week ramp as a ladder measurable, just
-        attached to this milestone.
-      </Text>
+      {buildUp ? (
+        <>
+          <View style={styles.inputRow}>
+            <TextInput
+              style={[styles.inputSmall, { backgroundColor: p.bg, color: p.text, flex: 1 }]}
+              placeholder="Start"
+              placeholderTextColor={p.muted}
+              keyboardType="numeric"
+              value={startStr}
+              onChangeText={setStartStr}
+            />
+            <Text style={{ color: p.muted }}>→</Text>
+            <TextInput
+              style={[styles.inputSmall, { backgroundColor: p.bg, color: p.text, flex: 1 }]}
+              placeholder="End"
+              placeholderTextColor={p.muted}
+              keyboardType="numeric"
+              value={endStr}
+              onChangeText={setEndStr}
+            />
+            <TextInput
+              style={[styles.inputSmall, { backgroundColor: p.bg, color: p.text, flex: 1 }]}
+              placeholder="Unit"
+              placeholderTextColor={p.muted}
+              value={unit}
+              onChangeText={setUnit}
+            />
+            <TextInput
+              style={[styles.inputSmall, { backgroundColor: p.bg, color: p.text, flex: 1 }]}
+              placeholder="Weeks"
+              placeholderTextColor={p.muted}
+              keyboardType="numeric"
+              value={weeksStr}
+              onChangeText={setWeeksStr}
+            />
+          </View>
+          <Text style={[styles.formHint, { color: p.muted }]}>
+            Builds {weeksStr || '?'} weekly targets from {startStr || '…'} up to {endStr || '…'}
+            {unit ? ` ${unit}` : ''} — same week-by-week build-up as a ladder measurable, just
+            attached to this milestone.
+          </Text>
+        </>
+      ) : (
+        <View style={[styles.segmented, { backgroundColor: p.line, marginTop: 8 }]}>
+          {(['weekly', 'monthly', 'custom'] as const).map((c) => (
+            <TouchableOpacity
+              key={c}
+              style={[styles.segBtn, cadence === c && { backgroundColor: p.ink }]}
+              onPress={() => setCadence(c)}
+            >
+              <Text style={[styles.segText, {
+                color: cadence === c ? (p.isDark ? p.bg : '#fff') : p.muted,
+              }]}>
+                {c === 'weekly' ? 'Weekly' : c === 'monthly' ? 'Monthly' : 'Custom'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
       <View style={styles.formActions}>
         <TouchableOpacity
           style={[styles.primaryBtn, { backgroundColor: valid ? p.ink : p.muted }]}
           onPress={commit}
           disabled={!valid}
         >
-          <Text style={[styles.primaryText, { color: p.isDark ? p.bg : '#fff' }]}>Add ramp</Text>
+          <Text style={[styles.primaryText, { color: p.isDark ? p.bg : '#fff' }]}>Add commitment</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={onCancel}>
           <Text style={[styles.linkText, { color: p.muted }]}>Cancel</Text>
@@ -721,13 +714,18 @@ function AddMilestoneForm({
   goal, palette: p, onAdd,
 }: { goal: Goal; palette: Palette; onAdd: (mg: Milestone) => void }) {
   const [title, setTitle] = useState('');
-  const [kind, setKind] = useState<MilestoneKind>('numeric');
   const [targetStr, setTargetStr] = useState('');
   const [unit, setUnit] = useState('');
   const [stepStr, setStepStr] = useState('');
   // Defaults to the parent goal's date, which is usually what the user means.
   const [deadline, setDeadline] = useState<string | undefined>(goal.targetDate);
   const [showPicker, setShowPicker] = useState(false);
+
+  // No upfront numeric/effort choice — a filled-in Target means this is a
+  // number to accumulate; leaving it blank means it's tracked by its
+  // commitments instead, exactly like ticking off a habit.
+  const hasTarget = targetStr.trim().length > 0;
+  const kind: MilestoneKind = hasTarget ? 'numeric' : 'effort';
 
   const commit = () => {
     const t = title.trim();
@@ -736,10 +734,10 @@ function AddMilestoneForm({
     onAdd(newMilestone({
       title: t,
       kind,
-      target: kind === 'numeric' ? (parseFloat(targetStr) || 1) : undefined,
-      current: kind === 'numeric' ? 0 : undefined,
-      unit: kind === 'numeric' ? unit : undefined,
-      step: kind === 'numeric' && Number.isFinite(parsedStep) && parsedStep > 0
+      target: hasTarget ? (parseFloat(targetStr) || 1) : undefined,
+      current: hasTarget ? 0 : undefined,
+      unit: hasTarget ? unit : undefined,
+      step: hasTarget && Number.isFinite(parsedStep) && parsedStep > 0
         ? parsedStep
         : undefined,
       deadline,
@@ -761,60 +759,38 @@ function AddMilestoneForm({
         onChangeText={setTitle}
       />
 
-      <View style={[styles.segmented, { backgroundColor: p.line, marginTop: 10 }]}>
-        {([['numeric', '# Numeric'], ['effort', '◎ Effort']] as const).map(([k, label]) => (
-          <TouchableOpacity
-            key={k}
-            style={[styles.segBtn, kind === k && { backgroundColor: p.ink }]}
-            onPress={() => setKind(k)}
-          >
-            <Text style={[styles.segText, {
-              color: kind === k ? (p.isDark ? p.bg : '#fff') : p.muted,
-            }]}>
-              {label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      <View style={styles.inputRow}>
+        <TextInput
+          style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
+          placeholder="Target (optional)"
+          placeholderTextColor={p.muted}
+          keyboardType="numeric"
+          value={targetStr}
+          onChangeText={setTargetStr}
+        />
+        <TextInput
+          style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1.4 }]}
+          placeholder="Unit ($, km)"
+          placeholderTextColor={p.muted}
+          value={unit}
+          onChangeText={setUnit}
+          editable={hasTarget}
+        />
+        <TextInput
+          style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
+          placeholder="Step"
+          placeholderTextColor={p.muted}
+          keyboardType="numeric"
+          value={stepStr}
+          onChangeText={setStepStr}
+          editable={hasTarget}
+        />
       </View>
-
-      {kind === 'numeric' ? (
-        <>
-          <View style={styles.inputRow}>
-            <TextInput
-              style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
-              placeholder="Target"
-              placeholderTextColor={p.muted}
-              keyboardType="numeric"
-              value={targetStr}
-              onChangeText={setTargetStr}
-            />
-            <TextInput
-              style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1.4 }]}
-              placeholder="Unit ($, km)"
-              placeholderTextColor={p.muted}
-              value={unit}
-              onChangeText={setUnit}
-            />
-            <TextInput
-              style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
-              placeholder="Step"
-              placeholderTextColor={p.muted}
-              keyboardType="numeric"
-              value={stepStr}
-              onChangeText={setStepStr}
-            />
-          </View>
-          <Text style={[styles.formHint, { color: p.muted }]}>
-            Give it a target and a date and I'll offer to split it into weekly or
-            monthly amounts.
-          </Text>
-        </>
-      ) : (
-        <Text style={[styles.formHint, { color: p.muted }]}>
-          Effort goals aren't arithmetic — add your own recurring step, or ask the
-          coach for one simple weekly target.
-        </Text>
-      )}
+      <Text style={[styles.formHint, { color: p.muted }]}>
+        {hasTarget
+          ? "Give it a date too and I'll offer to split it into weekly or monthly amounts."
+          : "No number to hit? Leave Target blank — add your own recurring commitment below, or ask the coach for one simple weekly target."}
+      </Text>
 
       <TouchableOpacity
         style={[styles.dateRow, { borderColor: p.line }]}

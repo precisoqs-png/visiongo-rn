@@ -3,13 +3,13 @@ import {
   View, Text, TextInput, TouchableOpacity, Modal, ScrollView, StyleSheet, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { AccountableStep, Cadence, StepSchedule, DEFAULT_SCHEDULE } from '../../store/models';
+import { Commitment, Cadence, StepSchedule, DEFAULT_SCHEDULE } from '../../store/models';
 import { WEEKDAY_NAMES, formatTime } from '../../services/notificationService';
 import { Palette } from '../../theme/themes';
 
 interface Props {
   visible: boolean;
-  step: AccountableStep | null;
+  step: Commitment | null;
   palette: Palette;
   // Saves cadence + schedule together — changing "every 10 days" is a cadence
   // change and a reminder change at once.
@@ -44,10 +44,11 @@ export function StepScheduleSheet({
 
   if (!step) return null;
 
-  // A ramp's cadence is fixed at creation (always weekly) and each week's
-  // reminder fires on THAT week's own due date, not on a chosen weekday — so
-  // there is nothing to pick here beyond what time of day to be asked.
-  const isRamp = !!step.ramp;
+  // A build-up's cadence is fixed at creation (always weekly) and each
+  // week's reminder fires on THAT week's own due date, not on a chosen
+  // weekday — so there is nothing to pick here beyond what time of day to
+  // be asked.
+  const isBuildUp = !!step.ramp;
 
   const patch = (partial: Partial<StepSchedule>) =>
     setSchedule((s) => ({ ...s, ...partial }));
@@ -81,9 +82,9 @@ export function StepScheduleSheet({
           </View>
 
           <ScrollView style={{ maxHeight: 400 }} keyboardShouldPersistTaps="handled">
-            {isRamp ? (
+            {isBuildUp ? (
               <Text style={[styles.preview, { color: p.muted, marginTop: 0 }]}>
-                This step ramps up week by week — each week's reminder fires on that
+                This step builds up week by week — each week's reminder fires on that
                 week's own due date. Just pick a time of day below.
               </Text>
             ) : (
@@ -107,7 +108,7 @@ export function StepScheduleSheet({
               </>
             )}
 
-            {!isRamp && cadence === 'weekly' && (
+            {!isBuildUp && cadence === 'weekly' && (
               <>
                 <Text style={[styles.eyebrow, { color: p.muted }]}>WHICH DAY</Text>
                 <View style={styles.chipWrap}>
@@ -220,8 +221,8 @@ export function StepScheduleSheet({
             </View>
 
             <Text style={[styles.preview, { color: p.muted }]}>
-              {isRamp
-                ? `I'll ask at ${formatTime(schedule.hour, schedule.minute)} on each week's own due date as the target ramps up.`
+              {isBuildUp
+                ? `I'll ask at ${formatTime(schedule.hour, schedule.minute)} on each week's own due date as the target builds up.`
                 : <>
                     I'll ask at {formatTime(schedule.hour, schedule.minute)}
                     {cadence === 'weekly' && ` every ${WEEKDAY_NAMES[schedule.weekday - 1]}`}
