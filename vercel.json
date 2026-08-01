@@ -1,0 +1,12 @@
+{
+  "buildCommand": "npm run build:vercel",
+  "outputDirectory": "dist/client",
+  "functions": {
+    "api/expo.js": {
+      "includeFiles": "dist/server/**"
+    }
+  },
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/expo" }
+  ]
+}
