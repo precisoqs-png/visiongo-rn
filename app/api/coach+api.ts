@@ -35,9 +35,11 @@ export async function POST(request: Request): Promise<Response> {
       body: JSON.stringify({
         // claude-3-5-haiku-20241022 was retired Feb 2026 (the route 404'd and the
         // app silently fell back to the offline stub — a major cause of vague
-        // plans). Opus 5 with low effort keeps coach replies fast; the server-side
-        // fallback re-runs any safety-classifier decline on another model.
-        model: 'claude-opus-5',
+        // plans). Sonnet 5 with low effort is plenty for this tool-use chat —
+        // it doesn't need Opus-tier reasoning — at a third of the cost; the
+        // server-side fallback re-runs any safety-classifier decline on
+        // another model.
+        model: 'claude-sonnet-5',
         max_tokens: 4096,
         output_config: { effort: 'low' },
         fallbacks: 'default',
