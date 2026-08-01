@@ -6,10 +6,12 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "build:vercel": "EXPO_WEB_OUTPUT=server expo export -p web"
   },
   "dependencies": {
     "@expo/metro-runtime": "~4.0.1",
+    "@expo/server": "^0.5.3",
     "@expo/vector-icons": "^14.0.4",
     "@react-native-async-storage/async-storage": "2.1.2",
     "@react-navigation/bottom-tabs": "^7.18.5",
