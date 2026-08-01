@@ -7,9 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Goal, ChatMessage, describeAction, newId } from '../../store/models';
 import { Palette } from '../../theme/themes';
 import { coachService, CoachGoalContext, CoachMessageRaw } from '../../services/coachService';
-import { useAppStore } from '../../store/useAppStore';
-
-const DAILY_LIMIT = 20;
+import { useAppStore, COACH_DAILY_LIMIT } from '../../store/useAppStore';
 
 interface Props {
   goal: Goal;
@@ -134,7 +132,7 @@ export function CoachChat({
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   })();
   const usedToday = coachUsage.date === todayKey ? coachUsage.count : 0;
-  const limitReached = usedToday >= DAILY_LIMIT;
+  const limitReached = usedToday >= COACH_DAILY_LIMIT;
 
   const sendText = async (raw: string) => {
     const text = raw.trim();
@@ -371,7 +369,7 @@ export function CoachChat({
 
       {!limitReached && usedToday > 0 && (
         <Text style={[styles.usageHint, { color: p.muted }]}>
-          {DAILY_LIMIT - usedToday} of {DAILY_LIMIT} coaching messages remaining today
+          {COACH_DAILY_LIMIT - usedToday} of {COACH_DAILY_LIMIT} coaching messages remaining today
         </Text>
       )}
     </View>
