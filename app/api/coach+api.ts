@@ -4,6 +4,35 @@
 // devices, or a client that's been tampered with).
 const SERVER_DAILY_LIMIT = 500;
 
+const UPSTASH_TIMEOUT_MS = 15_000;
+const ANTHROPIC_TIMEOUT_MS = 20_000;
+
+// Bounds a fetch with an AbortController so a slow/hanging upstream can never
+// stall the whole function up to Vercel's own hard timeout. `step` names the
+// call in the thrown/logged error so Upstash vs Anthropic are distinguishable
+// in the logs.
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  step: string
+): Promise<globalThis.Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      console.error(`[coach+api] ${step} timed out after ${timeoutMs}ms`);
+    } else {
+      console.error(`[coach+api] ${step} fetch failed:`, err);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Optional: only active when both Upstash env vars are set. Uses the Upstash
 // Redis REST API directly (no SDK dependency) to INCR a per-day counter and
 // EXPIRE it after 24h. Fails open — returns true (allow) — whenever the
@@ -18,9 +47,12 @@ async function checkAndIncrementServerLimit(): Promise<boolean> {
 
   try {
     const key = `coach-usage:${new Date().toISOString().slice(0, 10)}`;
-    const incrRes = await fetch(`${url}/incr/${key}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const incrRes = await fetchWithTimeout(
+      `${url}/incr/${key}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+      UPSTASH_TIMEOUT_MS,
+      'Upstash INCR'
+    );
     if (!incrRes.ok) {
       return true;
     }
@@ -32,9 +64,12 @@ async function checkAndIncrementServerLimit(): Promise<boolean> {
     if (count === 1) {
       // First increment of the day for this key — set it to expire in 24h
       // so the counter resets without needing a scheduled job.
-      await fetch(`${url}/expire/${key}/86400`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      await fetchWithTimeout(
+        `${url}/expire/${key}/86400`,
+        { headers: { Authorization: `Bearer ${token}` } },
+        UPSTASH_TIMEOUT_MS,
+        'Upstash EXPIRE'
+      );
     }
     return count <= SERVER_DAILY_LIMIT;
   } catch {
@@ -76,38 +111,43 @@ export async function POST(request: Request): Promise<Response> {
 
   let upstream: globalThis.Response;
   try {
-    upstream = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'server-side-fallback-2026-07-01',
+    upstream = await fetchWithTimeout(
+      'https://api.anthropic.com/v1/messages',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-beta': 'server-side-fallback-2026-07-01',
+        },
+        body: JSON.stringify({
+          // claude-3-5-haiku-20241022 was retired Feb 2026 (the route 404'd and the
+          // app silently fell back to the offline stub — a major cause of vague
+          // plans). Sonnet 5 with low effort is plenty for this tool-use chat —
+          // it doesn't need Opus-tier reasoning — at a third of the cost; the
+          // server-side fallback re-runs any safety-classifier decline on
+          // another model.
+          model: 'claude-sonnet-5',
+          max_tokens: 4096,
+          output_config: { effort: 'low' },
+          fallbacks: 'default',
+          system: systemPrompt,
+          messages,
+          // The coach edits the goal through these tools. The app applies each
+          // tool_use block after the user confirms it, so no tool_result is
+          // ever sent back — history is replayed as plain text.
+          ...(tools && tools.length > 0
+            ? { tools, tool_choice: { type: 'auto' } }
+            : {}),
+        }),
       },
-      body: JSON.stringify({
-        // claude-3-5-haiku-20241022 was retired Feb 2026 (the route 404'd and the
-        // app silently fell back to the offline stub — a major cause of vague
-        // plans). Sonnet 5 with low effort is plenty for this tool-use chat —
-        // it doesn't need Opus-tier reasoning — at a third of the cost; the
-        // server-side fallback re-runs any safety-classifier decline on
-        // another model.
-        model: 'claude-sonnet-5',
-        max_tokens: 4096,
-        output_config: { effort: 'low' },
-        fallbacks: 'default',
-        system: systemPrompt,
-        messages,
-        // The coach edits the goal through these tools. The app applies each
-        // tool_use block after the user confirms it, so no tool_result is
-        // ever sent back — history is replayed as plain text.
-        ...(tools && tools.length > 0
-          ? { tools, tool_choice: { type: 'auto' } }
-          : {}),
-      }),
-    });
+      ANTHROPIC_TIMEOUT_MS,
+      'Anthropic Messages API'
+    );
   } catch {
-    // Network failure reaching the model API — report a gateway error instead
-    // of crashing the route with an unhandled rejection.
+    // Network failure or timeout reaching the model API — report a gateway
+    // error instead of crashing the route with an unhandled rejection.
     return Response.json({ error: 'Could not reach the AI service.' }, { status: 502 });
   }
 
