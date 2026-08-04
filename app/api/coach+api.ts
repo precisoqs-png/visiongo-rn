@@ -11,6 +11,12 @@ const ANTHROPIC_TIMEOUT_MS = 20_000;
 // stall the whole function up to Vercel's own hard timeout. `step` names the
 // call in the thrown/logged error so Upstash vs Anthropic are distinguishable
 // in the logs.
+//
+// Resolving the fetch() promise only means headers arrived — the body can
+// still stall indefinitely, and by then the abort timer has already been
+// cleared. So the body is drained here, under the same timer, and handed
+// back as an already-buffered Response; callers' later .json() calls then
+// just parse in-memory text instead of touching the network again.
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
@@ -20,7 +26,9 @@ async function fetchWithTimeout(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const res = await fetch(url, { ...init, signal: controller.signal });
+    const text = await res.text();
+    return new Response(text, { status: res.status, statusText: res.statusText, headers: res.headers });
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       console.error(`[coach+api] ${step} timed out after ${timeoutMs}ms`);
