@@ -173,19 +173,16 @@ export async function POST(request: Request): Promise<Response> {
           'Content-Type': 'application/json',
           'x-api-key': apiKey,
           'anthropic-version': '2023-06-01',
-          'anthropic-beta': 'server-side-fallback-2026-07-01',
         },
         body: JSON.stringify({
           // claude-3-5-haiku-20241022 was retired Feb 2026 (the route 404'd and the
           // app silently fell back to the offline stub — a major cause of vague
           // plans). Sonnet 5 with low effort is plenty for this tool-use chat —
-          // it doesn't need Opus-tier reasoning — at a third of the cost; the
-          // server-side fallback re-runs any safety-classifier decline on
-          // another model.
+          // it doesn't need Opus-tier reasoning — at a third of the cost.
+          // No `fallbacks` param: claude-sonnet-5 doesn't support it (400s).
           model: 'claude-sonnet-5',
           max_tokens: 4096,
           output_config: { effort: 'low' },
-          fallbacks: 'default',
           system: systemPrompt,
           messages,
           // The coach edits the goal through these tools. The app applies each
