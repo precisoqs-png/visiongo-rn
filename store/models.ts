@@ -259,6 +259,38 @@ export function isStepDoneThisPeriod(step: Commitment, when: Date = new Date()):
   return step.completions.includes(periodKey(step, when));
 }
 
+// One period back from `when`, on this step's cadence — the walking-backward
+// primitive commitmentStreak uses to count consecutive completed periods.
+function priorPeriodDate(step: Commitment, when: Date): Date {
+  const d = new Date(when);
+  switch (step.cadence) {
+    case 'weekly': d.setDate(d.getDate() - 7); return d;
+    case 'monthly': d.setMonth(d.getMonth() - 1); return d;
+    case 'custom': d.setDate(d.getDate() - cadenceIntervalDays(step)); return d;
+  }
+}
+
+/**
+ * Consecutive completed periods, walking back from `when`. A not-yet-done
+ * current period doesn't break the streak (it just hasn't been checked in
+ * yet) — counting starts from the most recent period that IS complete.
+ * Ramp (build-up) steps track completion per week already surfaced as
+ * "N/M weeks" elsewhere, so this only applies to flat commitments.
+ */
+export function commitmentStreak(step: Commitment, when: Date = new Date()): number {
+  if (step.ramp || step.completions.length === 0) return 0;
+  let cursor = when;
+  if (!step.completions.includes(periodKey(step, cursor))) {
+    cursor = priorPeriodDate(step, cursor);
+  }
+  let streak = 0;
+  while (step.completions.includes(periodKey(step, cursor))) {
+    streak++;
+    cursor = priorPeriodDate(step, cursor);
+  }
+  return streak;
+}
+
 /**
  * When the CURRENT period's commitment is due, for a flat (non-build-up) step
  * — the end of this ISO week, this calendar month, or this custom window.
@@ -593,6 +625,10 @@ export interface Goal {
   measurables: Measurable[];
   milestones: Milestone[];
   boardPosition?: BoardPosition;
+  // Optional freeform "why this matters" note — surfaced under the title on
+  // the goal detail screen and passed to the coach for context. Absent on
+  // every goal created before this existed; never backfilled.
+  motivation?: string;
 }
 
 // Measurables and milestones each count as one unit of the goal, so adding a

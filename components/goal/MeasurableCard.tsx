@@ -1,11 +1,12 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   Measurable, measurableFraction, measurableStep, steppedValue, formatNumber,
   isMeasurableDeadlineOutdated, buildLadderWeeks,
 } from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
+import { useCompletionPulse } from '../shared/useCompletionPulse';
 
 interface Props {
   measurable: Measurable;
@@ -33,18 +34,25 @@ export function MeasurableCard({ measurable: m, goalTargetDate, palette, onUpdat
 }
 
 function CheckRow({ m, p, onUpdate, onDelete }: { m: Measurable; p: Palette; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void }) {
+  const { scale, pulse } = useCompletionPulse();
   return (
     <View style={styles.row}>
-      <TouchableOpacity
-        style={[
-          styles.checkbox,
-          { borderColor: m.done ? p.accent : p.line },
-          m.done && { backgroundColor: p.accent },
-        ]}
-        onPress={() => onUpdate({ ...m, done: !m.done })}
-      >
-        {m.done && <Ionicons name="checkmark" size={13} color={p.surface} />}
-      </TouchableOpacity>
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <TouchableOpacity
+          style={[
+            styles.checkbox,
+            { borderColor: m.done ? p.accent : p.line },
+            m.done && { backgroundColor: p.accent },
+          ]}
+          onPress={() => {
+            const next = !m.done;
+            onUpdate({ ...m, done: next });
+            pulse(next);
+          }}
+        >
+          {m.done && <Ionicons name="checkmark" size={13} color={p.surface} />}
+        </TouchableOpacity>
+      </Animated.View>
       <Text
         style={[
           styles.checkLabel,
@@ -173,32 +181,54 @@ function LadderRows({ m, goalTargetDate, p, onUpdate, onDelete, frac }: {
         </View>
       )}
 
-      {m.weeks.map((week, idx) => {
-        const due = new Date(week.targetDate);
-        const dueStr = due.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-        return (
-          <View key={week.id} style={[styles.row, { marginBottom: 6 }]}>
-            <TouchableOpacity
-              style={[
-                styles.ladderBox,
-                { borderColor: week.done ? p.accent : p.line },
-                week.done && { backgroundColor: p.accent },
-              ]}
-              onPress={() => {
-                const weeks = m.weeks.map((w) => w.id === week.id ? { ...w, done: !w.done } : w);
-                onUpdate({ ...m, weeks });
-              }}
-            >
-              {week.done && <Ionicons name="checkmark" size={10} color={p.surface} />}
-            </TouchableOpacity>
-            <Text style={[styles.ladderVal, { color: week.done ? p.muted : p.text }]}>
-              {fmt(week.value)} {m.unit}
-            </Text>
-            <Text style={[styles.ladderDue, { color: p.muted }]}>by {dueStr}</Text>
-            <Text style={[styles.ladderStep, { color: p.muted }]}>Step {idx + 1}</Text>
-          </View>
-        );
-      })}
+      {m.weeks.map((week, idx) => (
+        <LadderWeekRow
+          key={week.id}
+          week={week}
+          idx={idx}
+          unit={m.unit}
+          p={p}
+          onToggle={() => {
+            const weeks = m.weeks.map((w) => w.id === week.id ? { ...w, done: !w.done } : w);
+            onUpdate({ ...m, weeks });
+          }}
+        />
+      ))}
+    </View>
+  );
+}
+
+function LadderWeekRow({ week, idx, unit, p, onToggle }: {
+  week: { id: string; value: number; targetDate: string; done: boolean };
+  idx: number; unit: string; p: Palette; onToggle: () => void;
+}) {
+  const { scale, pulse } = useCompletionPulse();
+  const fmt = formatNumber;
+  const due = new Date(week.targetDate);
+  const dueStr = due.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  return (
+    <View style={[styles.row, { marginBottom: 6 }]}>
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <TouchableOpacity
+          style={[
+            styles.ladderBox,
+            { borderColor: week.done ? p.accent : p.line },
+            week.done && { backgroundColor: p.accent },
+          ]}
+          onPress={() => {
+            const next = !week.done;
+            onToggle();
+            pulse(next);
+          }}
+        >
+          {week.done && <Ionicons name="checkmark" size={10} color={p.surface} />}
+        </TouchableOpacity>
+      </Animated.View>
+      <Text style={[styles.ladderVal, { color: week.done ? p.muted : p.text }]}>
+        {fmt(week.value)} {unit}
+      </Text>
+      <Text style={[styles.ladderDue, { color: p.muted }]}>by {dueStr}</Text>
+      <Text style={[styles.ladderStep, { color: p.muted }]}>Step {idx + 1}</Text>
     </View>
   );
 }

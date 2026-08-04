@@ -19,6 +19,9 @@ export interface CoachGoalContext {
   milestones: Milestone[];
   // Coach replies so far — drives the "plan within ~5 messages" budget.
   exchangeCount: number;
+  // The user's own "why this matters" note, if they wrote one — lets the
+  // coach anchor suggestions to their actual motivation instead of guessing.
+  motivation?: string;
   // 'pairing' is the one-shot reading on the Pair tab: no goal to edit, so no
   // tools and a much shorter prompt. Defaults to the goal coach.
   kind?: 'coach' | 'pairing';
@@ -237,7 +240,7 @@ micro-steps, and to keep the plan honest as things change.
 THE GOAL YOU ARE COACHING
 - Goal: "${ctx.goalTitle}"
 - Today: ${todayStr}
-- Achieve by: ${achieveStr}${weeksStr}
+- Achieve by: ${achieveStr}${weeksStr}${ctx.motivation ? `\n- Why this matters to the user: "${ctx.motivation}"` : ''}
 - Steps currently on this goal:
 ${stepsStr}
 - Milestones on this goal:

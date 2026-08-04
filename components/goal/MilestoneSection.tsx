@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, Alert,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, Alert, Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -10,12 +10,14 @@ import {
   steppedMilestoneValue, milestoneStep, isStepDoneThisPeriod, cadenceLabel,
   suggestBreakdowns, DEFAULT_SCHEDULE, formatAmount,
   buildCommitmentRamp, currentBuildUpWeek, isMilestoneDeadlineOutdated, formatNumber,
+  commitmentStreak,
 } from '../../store/models';
 import { describeSchedule } from '../../services/notificationService';
 import { Palette } from '../../theme/themes';
 import { CalendarPicker } from '../shared/CalendarPicker';
 import { BreakdownPrompt } from './BreakdownPrompt';
 import { StepScheduleSheet } from './StepScheduleSheet';
+import { useCompletionPulse } from '../shared/useCompletionPulse';
 
 interface Props {
   goal: Goal;
@@ -241,6 +243,7 @@ function MilestoneCard({
 }: CardProps) {
   const [addingCommitment, setAddingCommitment] = useState(false);
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
+  const { scale: doneScale, pulse: pulseDone } = useCompletionPulse();
 
   const frac = milestoneFraction(mg);
   const deadlineOutdated = isMilestoneDeadlineOutdated(mg, goalTargetDate);
@@ -260,15 +263,21 @@ function MilestoneCard({
         </View>
         {mg.kind === 'effort' && (
           <TouchableOpacity
-            onPress={() => onUpdate({ ...mg, done: !mg.done })}
+            onPress={() => {
+              const next = !mg.done;
+              onUpdate({ ...mg, done: next });
+              pulseDone(next);
+            }}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityLabel={mg.done ? 'Mark not done' : 'Mark done'}
           >
-            <Ionicons
-              name={mg.done ? 'checkmark-circle' : 'ellipse-outline'}
-              size={20}
-              color={mg.done ? p.accent : p.muted}
-            />
+            <Animated.View style={{ transform: [{ scale: doneScale }] }}>
+              <Ionicons
+                name={mg.done ? 'checkmark-circle' : 'ellipse-outline'}
+                size={20}
+                color={mg.done ? p.accent : p.muted}
+              />
+            </Animated.View>
           </TouchableOpacity>
         )}
         <TouchableOpacity
@@ -427,19 +436,27 @@ function FlatStepRow({
   onToggleCheckIn: () => void; onOpenSchedule: () => void; onDelete: () => void;
 }) {
   const doneNow = isStepDoneThisPeriod(step);
+  const streak = commitmentStreak(step);
+  const { scale, pulse } = useCompletionPulse();
   return (
     <View style={[styles.stepRow, { borderColor: p.line }]}>
-      <TouchableOpacity
-        onPress={onToggleCheckIn}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        accessibilityLabel={doneNow ? `Undo ${step.label}` : `Check in: ${step.label}`}
-      >
-        <Ionicons
-          name={doneNow ? 'checkbox' : 'square-outline'}
-          size={19}
-          color={doneNow ? p.accent : p.muted}
-        />
-      </TouchableOpacity>
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <TouchableOpacity
+          onPress={() => {
+            const next = !doneNow;
+            onToggleCheckIn();
+            pulse(next);
+          }}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityLabel={doneNow ? `Undo ${step.label}` : `Check in: ${step.label}`}
+        >
+          <Ionicons
+            name={doneNow ? 'checkbox' : 'square-outline'}
+            size={19}
+            color={doneNow ? p.accent : p.muted}
+          />
+        </TouchableOpacity>
+      </Animated.View>
       <View style={{ flex: 1 }}>
         <Text
           style={[
@@ -453,6 +470,7 @@ function FlatStepRow({
         <Text style={[styles.stepMeta, { color: p.muted }]}>
           {cadenceLabel(step)} · {describeSchedule(step)}
           {step.completions.length > 0 && ` · ${step.completions.length} done`}
+          {streak >= 2 && ` · 🔥 ${streak}-streak`}
         </Text>
       </View>
       <TouchableOpacity
@@ -492,21 +510,27 @@ function BuildUpStepRow({
   const current = currentBuildUpWeek(step);
   const doneNow = current?.done ?? false;
   const fmt = formatNumber;
+  const { scale, pulse } = useCompletionPulse();
 
   return (
     <View style={[styles.stepRow, { borderColor: p.line, alignItems: 'flex-start' }]}>
-      <TouchableOpacity
-        onPress={onToggleCheckIn}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        style={{ marginTop: 1 }}
-        accessibilityLabel={doneNow ? `Undo this week's target` : `Check in: ${step.label}`}
-      >
-        <Ionicons
-          name={doneNow ? 'checkbox' : 'square-outline'}
-          size={19}
-          color={doneNow ? p.accent : p.muted}
-        />
-      </TouchableOpacity>
+      <Animated.View style={{ transform: [{ scale }], marginTop: 1 }}>
+        <TouchableOpacity
+          onPress={() => {
+            const next = !doneNow;
+            onToggleCheckIn();
+            pulse(next);
+          }}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityLabel={doneNow ? `Undo this week's target` : `Check in: ${step.label}`}
+        >
+          <Ionicons
+            name={doneNow ? 'checkbox' : 'square-outline'}
+            size={19}
+            color={doneNow ? p.accent : p.muted}
+          />
+        </TouchableOpacity>
+      </Animated.View>
       <TouchableOpacity style={{ flex: 1 }} onPress={onToggleExpand} activeOpacity={0.7}>
         <Text style={[styles.stepLabel, { color: p.text }]}>{step.label}</Text>
         <Text style={[styles.stepMeta, { color: p.muted }]}>
@@ -515,33 +539,17 @@ function BuildUpStepRow({
         </Text>
         {expanded && (
           <View style={{ marginTop: 8 }}>
-            {weeks.map((week, idx) => {
-              const due = new Date(week.targetDate);
-              const dueStr = due.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-              const isCurrent = current?.id === week.id;
-              return (
-                <View key={week.id} style={[styles.rampWeekRow, isCurrent && { opacity: 1 }]}>
-                  <TouchableOpacity
-                    style={[
-                      styles.ladderBox,
-                      { borderColor: week.done ? p.accent : p.line },
-                      week.done && { backgroundColor: p.accent },
-                    ]}
-                    onPress={() => onToggleWeek(week.id)}
-                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                  >
-                    {week.done && <Ionicons name="checkmark" size={10} color={p.surface} />}
-                  </TouchableOpacity>
-                  <Text style={[styles.rampWeekVal, { color: week.done ? p.muted : p.text }]}>
-                    {fmt(week.value)} {step.unit ?? ''}
-                  </Text>
-                  <Text style={[styles.rampWeekDue, { color: p.muted }]}>by {dueStr}</Text>
-                  <Text style={[styles.rampWeekIdx, { color: isCurrent ? p.accent : p.muted }]}>
-                    Wk {idx + 1}{isCurrent ? ' · now' : ''}
-                  </Text>
-                </View>
-              );
-            })}
+            {weeks.map((week, idx) => (
+              <RampWeekRow
+                key={week.id}
+                week={week}
+                idx={idx}
+                unit={step.unit}
+                isCurrent={current?.id === week.id}
+                p={p}
+                onToggle={() => onToggleWeek(week.id)}
+              />
+            ))}
           </View>
         )}
       </TouchableOpacity>
@@ -568,6 +576,44 @@ function BuildUpStepRow({
       <TouchableOpacity onPress={onDelete} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={{ marginTop: 1 }}>
         <Ionicons name="close" size={14} color={p.muted} />
       </TouchableOpacity>
+    </View>
+  );
+}
+
+function RampWeekRow({ week, idx, unit, isCurrent, p, onToggle }: {
+  week: { id: string; value: number; targetDate: string; done: boolean };
+  idx: number; unit?: string; isCurrent: boolean; p: Palette; onToggle: () => void;
+}) {
+  const { scale, pulse } = useCompletionPulse();
+  const fmt = formatNumber;
+  const due = new Date(week.targetDate);
+  const dueStr = due.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  return (
+    <View style={[styles.rampWeekRow, isCurrent && { opacity: 1 }]}>
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <TouchableOpacity
+          style={[
+            styles.ladderBox,
+            { borderColor: week.done ? p.accent : p.line },
+            week.done && { backgroundColor: p.accent },
+          ]}
+          onPress={() => {
+            const next = !week.done;
+            onToggle();
+            pulse(next);
+          }}
+          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+        >
+          {week.done && <Ionicons name="checkmark" size={10} color={p.surface} />}
+        </TouchableOpacity>
+      </Animated.View>
+      <Text style={[styles.rampWeekVal, { color: week.done ? p.muted : p.text }]}>
+        {fmt(week.value)} {unit ?? ''}
+      </Text>
+      <Text style={[styles.rampWeekDue, { color: p.muted }]}>by {dueStr}</Text>
+      <Text style={[styles.rampWeekIdx, { color: isCurrent ? p.accent : p.muted }]}>
+        Wk {idx + 1}{isCurrent ? ' · now' : ''}
+      </Text>
     </View>
   );
 }

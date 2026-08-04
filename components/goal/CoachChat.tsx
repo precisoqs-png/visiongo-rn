@@ -165,6 +165,7 @@ export function CoachChat({
       measurables: goal.measurables,
       milestones: goal.milestones ?? [],
       exchangeCount: goal.chat.filter((m) => m.sender === 'coach').length,
+      motivation: goal.motivation,
     };
 
     const history: CoachMessageRaw[] = [
