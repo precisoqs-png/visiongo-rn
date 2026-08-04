@@ -1,16 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, Platform, Alert,
+  StyleSheet, Platform, Alert, Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useThemeStore } from '../../store/useThemeStore';
 import { useAppStore } from '../../store/useAppStore';
 import { GOAL_NOTE_COLORS, hexAlpha, FONTS } from '../../theme/themes';
 import {
-  goalProgress, goalProgressPercent, Commitment, Milestone,
+  goalProgress, goalProgressPercent, isCompleted, Commitment, Milestone,
 } from '../../store/models';
 import { MeasurableCard } from '../../components/goal/MeasurableCard';
 import { AddMeasurableForm } from '../../components/goal/AddMeasurableForm';
@@ -132,7 +133,42 @@ export default function GoalDetailScreen() {
     if (goal?.id) setTitleDraft(goal.title);
   }, [goal?.id]);
 
+  // "Why this matters" is collapsed by default unless the goal already has
+  // one written, so an empty goal doesn't show an empty-looking input box.
+  const [motivationOpen, setMotivationOpen] = useState(!!goal?.motivation);
+  const [motivationDraft, setMotivationDraft] = useState(goal?.motivation ?? '');
+  useEffect(() => {
+    if (goal?.id) {
+      setMotivationDraft(goal.motivation ?? '');
+      setMotivationOpen(!!goal.motivation);
+    }
+  }, [goal?.id]);
+
   const [showDatePicker, setShowDatePicker] = useState(false);
+
+  // One-time celebration when the goal crosses 100% during this session —
+  // baselines on first render (so opening an already-complete goal doesn't
+  // re-celebrate) and only fires on the false -> true transition.
+  const completedNow = goal ? isCompleted(goal) : false;
+  const prevCompletedRef = useRef<boolean | null>(null);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const celebrationScale = useRef(new Animated.Value(0.8)).current;
+  useEffect(() => {
+    if (prevCompletedRef.current === null) {
+      prevCompletedRef.current = completedNow;
+      return;
+    }
+    if (completedNow && !prevCompletedRef.current) {
+      prevCompletedRef.current = completedNow;
+      setShowCelebration(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      celebrationScale.setValue(0.8);
+      Animated.spring(celebrationScale, { toValue: 1, useNativeDriver: true, friction: 5, tension: 90 }).start();
+      const t = setTimeout(() => setShowCelebration(false), 4000);
+      return () => clearTimeout(t);
+    }
+    prevCompletedRef.current = completedNow;
+  }, [completedNow]);
 
   const handleDelete = () => {
     const title = goal?.title ?? 'this goal';
@@ -166,6 +202,9 @@ export default function GoalDetailScreen() {
   const noteColor = GOAL_NOTE_COLORS[goal.colorIndex % GOAL_NOTE_COLORS.length];
   const progress = goalProgress(goal);
   const pct = goalProgressPercent(goal);
+  // Goal-gradient framing: call out the final stretch instead of treating
+  // 81% and 20% the same flat accent color.
+  const almostThere = pct >= 80 && pct < 100;
   // A goal with nothing on it yet defaults to AI-driven decomposition rather
   // than leaving the user to work out Measurables vs Milestones cold — the
   // manual forms below still work, this is just the offered fast path.
@@ -217,15 +256,73 @@ export default function GoalDetailScreen() {
             placeholderTextColor={p.muted}
           />
 
+          <TouchableOpacity
+            style={styles.motivationToggle}
+            onPress={() => setMotivationOpen((o) => !o)}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={motivationOpen ? 'chevron-down' : 'chevron-forward'}
+              size={12}
+              color={p.muted}
+            />
+            <Text style={[styles.motivationToggleText, { color: p.muted }]}>
+              {goal.motivation ? 'Why this matters' : 'Add why this matters'}
+            </Text>
+          </TouchableOpacity>
+
+          {motivationOpen && (
+            <TextInput
+              style={[styles.motivationInput, { color: p.text }]}
+              value={motivationDraft}
+              onChangeText={setMotivationDraft}
+              onBlur={() => {
+                if (motivationDraft.trim() !== (goal.motivation ?? '')) {
+                  updateGoal({ ...goal, motivation: motivationDraft.trim() || undefined });
+                }
+              }}
+              multiline
+              placeholder="What makes this goal matter to you?"
+              placeholderTextColor={p.muted}
+            />
+          )}
+
           <View style={styles.progRow}>
             <View style={{ flex: 1 }}>
               <View style={[styles.progTrack, { backgroundColor: p.line }]}>
-                <View style={[styles.progFill, { backgroundColor: p.accent, width: `${progress * 100}%` }]} />
+                <View
+                  style={[
+                    styles.progFill,
+                    { backgroundColor: almostThere ? '#e89300' : p.accent, width: `${progress * 100}%` },
+                  ]}
+                />
               </View>
             </View>
-            <Text style={[styles.progPct, { color: p.accent }]}>{pct}%</Text>
+            <Text style={[styles.progPct, { color: almostThere ? '#e89300' : p.accent }]}>
+              {almostThere ? 'Almost there · ' : ''}{pct}%
+            </Text>
           </View>
         </LinearGradient>
+
+        {showCelebration && (
+          <Animated.View
+            style={[
+              styles.celebrationCard,
+              { backgroundColor: p.surface, borderColor: `${p.accent}55`, transform: [{ scale: celebrationScale }] },
+            ]}
+          >
+            <Ionicons name="trophy" size={20} color={p.accent} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.celebrationTitle, { color: p.text }]}>Goal complete!</Text>
+              <Text style={[styles.celebrationBody, { color: p.muted }]}>
+                Every measurable and milestone on "{goal.title}" is done. Nice work.
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setShowCelebration(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close" size={16} color={p.muted} />
+            </TouchableOpacity>
+          </Animated.View>
+        )}
 
         <TouchableOpacity
           style={[styles.achieveRow, { backgroundColor: p.surface }]}
@@ -381,7 +478,23 @@ const styles = StyleSheet.create({
   },
   progTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
   progFill: { height: 6, borderRadius: 3 },
-  progPct: { fontSize: 13, fontWeight: '700', width: 36, textAlign: 'right' },
+  progPct: { fontSize: 13, fontWeight: '700', textAlign: 'right' },
+  motivationToggle: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 20, paddingBottom: 6,
+  },
+  motivationToggleText: { fontSize: 12, fontWeight: '600' },
+  motivationInput: {
+    fontSize: 14, lineHeight: 19, fontStyle: 'italic',
+    paddingHorizontal: 20, paddingBottom: 12, minHeight: 36,
+  },
+  celebrationCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1, borderRadius: 14, padding: 14,
+    marginHorizontal: 18, marginTop: 14,
+  },
+  celebrationTitle: { fontSize: 14, fontWeight: '700', marginBottom: 2 },
+  celebrationBody: { fontSize: 12, lineHeight: 17 },
   achieveRow: {
     flexDirection: 'row', alignItems: 'center',
     padding: 14, paddingHorizontal: 20, gap: 8,
