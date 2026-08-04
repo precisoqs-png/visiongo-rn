@@ -47,24 +47,30 @@ async function fetchWithTimeout(
 // vars are unset or anything about the request goes wrong, so a
 // misconfigured or unreachable rate limiter never blocks the coach feature.
 async function checkAndIncrementServerLimit(): Promise<boolean> {
+  console.log('[DIAG] checkAndIncrementServerLimit entered'); // TEMPORARY — remove after diagnosing the hang
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) {
+    console.log('[DIAG] checkAndIncrementServerLimit: Upstash env vars unset, skipping'); // TEMPORARY — remove after diagnosing the hang
     return true;
   }
 
   try {
     const key = `coach-usage:${new Date().toISOString().slice(0, 10)}`;
+    console.log('[DIAG] before fetchWithTimeout (Upstash INCR)'); // TEMPORARY — remove after diagnosing the hang
     const incrRes = await fetchWithTimeout(
       `${url}/incr/${key}`,
       { headers: { Authorization: `Bearer ${token}` } },
       UPSTASH_TIMEOUT_MS,
       'Upstash INCR'
     );
+    console.log('[DIAG] after fetchWithTimeout (Upstash INCR) resolved, status =', incrRes.status); // TEMPORARY — remove after diagnosing the hang
     if (!incrRes.ok) {
       return true;
     }
+    console.log('[DIAG] before incrRes.json()'); // TEMPORARY — remove after diagnosing the hang
     const incrData = await incrRes.json();
+    console.log('[DIAG] after incrRes.json()'); // TEMPORARY — remove after diagnosing the hang
     const count = typeof incrData?.result === 'number' ? incrData.result : Number(incrData?.result);
     if (!Number.isFinite(count)) {
       return true;
@@ -72,20 +78,24 @@ async function checkAndIncrementServerLimit(): Promise<boolean> {
     if (count === 1) {
       // First increment of the day for this key — set it to expire in 24h
       // so the counter resets without needing a scheduled job.
+      console.log('[DIAG] before fetchWithTimeout (Upstash EXPIRE)'); // TEMPORARY — remove after diagnosing the hang
       await fetchWithTimeout(
         `${url}/expire/${key}/86400`,
         { headers: { Authorization: `Bearer ${token}` } },
         UPSTASH_TIMEOUT_MS,
         'Upstash EXPIRE'
       );
+      console.log('[DIAG] after fetchWithTimeout (Upstash EXPIRE) resolved'); // TEMPORARY — remove after diagnosing the hang
     }
     return count <= SERVER_DAILY_LIMIT;
-  } catch {
+  } catch (err) {
+    console.log('[DIAG] checkAndIncrementServerLimit caught error:', err); // TEMPORARY — remove after diagnosing the hang
     return true;
   }
 }
 
 export async function POST(request: Request): Promise<Response> {
+  console.log('[DIAG] POST handler entered'); // TEMPORARY — remove after diagnosing the hang
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return Response.json(
@@ -94,7 +104,9 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
+  console.log('[DIAG] before checkAndIncrementServerLimit'); // TEMPORARY — remove after diagnosing the hang
   const allowed = await checkAndIncrementServerLimit();
+  console.log('[DIAG] after checkAndIncrementServerLimit, allowed =', allowed); // TEMPORARY — remove after diagnosing the hang
   if (!allowed) {
     return Response.json(
       { error: 'The coach has reached its daily usage limit for all users. Please try again tomorrow.' },
@@ -119,6 +131,7 @@ export async function POST(request: Request): Promise<Response> {
 
   let upstream: globalThis.Response;
   try {
+    console.log('[DIAG] before fetchWithTimeout (Anthropic)'); // TEMPORARY — remove after diagnosing the hang
     upstream = await fetchWithTimeout(
       'https://api.anthropic.com/v1/messages',
       {
@@ -153,7 +166,9 @@ export async function POST(request: Request): Promise<Response> {
       ANTHROPIC_TIMEOUT_MS,
       'Anthropic Messages API'
     );
-  } catch {
+    console.log('[DIAG] after fetchWithTimeout (Anthropic) resolved, status =', upstream.status); // TEMPORARY — remove after diagnosing the hang
+  } catch (err) {
+    console.log('[DIAG] fetchWithTimeout (Anthropic) threw:', err); // TEMPORARY — remove after diagnosing the hang
     // Network failure or timeout reaching the model API — report a gateway
     // error instead of crashing the route with an unhandled rejection.
     return Response.json({ error: 'Could not reach the AI service.' }, { status: 502 });
@@ -161,7 +176,9 @@ export async function POST(request: Request): Promise<Response> {
 
   let data: unknown;
   try {
+    console.log('[DIAG] before upstream.json()'); // TEMPORARY — remove after diagnosing the hang
     data = await upstream.json();
+    console.log('[DIAG] after upstream.json()'); // TEMPORARY — remove after diagnosing the hang
   } catch {
     return Response.json({ error: 'Invalid response from the AI service.' }, { status: 502 });
   }
