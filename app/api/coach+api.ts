@@ -116,11 +116,15 @@ export async function POST(request: Request): Promise<Response> {
 
   let body: { messages: unknown; systemPrompt: string; tools?: unknown };
   try {
+    console.log('[DIAG] before request.json()'); // TEMPORARY — remove after diagnosing the hang
     body = await request.json();
-  } catch {
+    console.log('[DIAG] after request.json()'); // TEMPORARY — remove after diagnosing the hang
+  } catch (err) {
+    console.log('[DIAG] request.json() threw:', err); // TEMPORARY — remove after diagnosing the hang
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
+  console.log('[DIAG] before request-shape validation'); // TEMPORARY — remove after diagnosing the hang
   const { messages, systemPrompt, tools } = body;
   if (!Array.isArray(messages) || typeof systemPrompt !== 'string') {
     return Response.json({ error: 'messages (array) and systemPrompt (string) are required' }, { status: 400 });
@@ -128,6 +132,7 @@ export async function POST(request: Request): Promise<Response> {
   if (tools !== undefined && !Array.isArray(tools)) {
     return Response.json({ error: 'tools must be an array when provided' }, { status: 400 });
   }
+  console.log('[DIAG] after request-shape validation, passed'); // TEMPORARY — remove after diagnosing the hang
 
   let upstream: globalThis.Response;
   try {
