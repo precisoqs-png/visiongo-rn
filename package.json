@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@expo/metro-runtime": "~4.0.1",
-    "@expo/server": "^0.5.3",
+    "@expo/server": "0.7.4",
     "@expo/vector-icons": "^14.0.4",
     "@react-native-async-storage/async-storage": "2.1.2",
     "@react-navigation/bottom-tabs": "^7.18.5",
@@ -47,5 +47,8 @@
     "@babel/core": "^7.25.2",
     "@types/react": "~18.3.12",
     "typescript": "^5.3.3"
+  },
+  "overrides": {
+    "@expo/server": "0.7.4"
   }
 }
