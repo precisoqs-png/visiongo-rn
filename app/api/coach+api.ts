@@ -6,6 +6,30 @@ const SERVER_DAILY_LIMIT = 500;
 
 const UPSTASH_TIMEOUT_MS = 15_000;
 const ANTHROPIC_TIMEOUT_MS = 20_000;
+const REQUEST_BODY_TIMEOUT_MS = 15_000;
+
+// Races a promise against a timer so a stalled inbound request.json() read
+// (confirmed via [DIAG] logging to be where the hang actually happens, not
+// Upstash or Anthropic) fails fast instead of hanging to Vercel's hard
+// 300s cap. Unlike fetchWithTimeout, this can't abort the underlying read —
+// the Request's own AbortController belongs to the Vercel adapter, not this
+// handler — so the read may keep dangling in the background, but the
+// function itself returns an error response instead of hanging.
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, step: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error(`${step} timed out after ${timeoutMs}ms`);
+      err.name = 'TimeoutError';
+      reject(err);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
 
 // Bounds a fetch with an AbortController so a slow/hanging upstream can never
 // stall the whole function up to Vercel's own hard timeout. `step` names the
@@ -117,10 +141,14 @@ export async function POST(request: Request): Promise<Response> {
   let body: { messages: unknown; systemPrompt: string; tools?: unknown };
   try {
     console.log('[DIAG] before request.json()'); // TEMPORARY — remove after diagnosing the hang
-    body = await request.json();
+    body = await withTimeout(request.json(), REQUEST_BODY_TIMEOUT_MS, 'Inbound request body read');
     console.log('[DIAG] after request.json()'); // TEMPORARY — remove after diagnosing the hang
   } catch (err) {
     console.log('[DIAG] request.json() threw:', err); // TEMPORARY — remove after diagnosing the hang
+    if (err instanceof Error && err.name === 'TimeoutError') {
+      console.error(`[coach+api] Inbound request body read timed out after ${REQUEST_BODY_TIMEOUT_MS}ms`);
+      return Response.json({ error: 'Timed out reading the request body.' }, { status: 408 });
+    }
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
