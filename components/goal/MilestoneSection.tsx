@@ -706,14 +706,21 @@ function CommitmentForm({
               value={unit}
               onChangeText={setUnit}
             />
-            <TextInput
-              style={[styles.inputSmall, { backgroundColor: p.bg, color: p.text, flex: 1 }]}
-              placeholder="Weeks"
-              placeholderTextColor={p.muted}
-              keyboardType="numeric"
-              value={weeksStr}
-              onChangeText={setWeeksStr}
-            />
+            <View style={[styles.weeksInputWrap, { backgroundColor: p.bg, flex: 1 }]}>
+              <TextInput
+                style={[styles.weeksInput, { color: p.text }]}
+                placeholder="8"
+                placeholderTextColor={p.muted}
+                keyboardType="numeric"
+                value={weeksStr}
+                onChangeText={setWeeksStr}
+              />
+              {/* Persistent "wks" suffix so a typed value (e.g. "8") still
+                  reads as a week count, not an ambiguous bare number, once
+                  the placeholder is gone — Start/End/Unit stay clear from
+                  context alone, but this field doesn't. */}
+              <Text style={[styles.weeksSuffix, { color: p.muted }]}>wks</Text>
+            </View>
           </View>
           <Text style={[styles.formHint, { color: p.muted }]}>
             Builds {weeksStr || '?'} weekly targets from {startStr || '…'} up to {endStr || '…'}
@@ -929,6 +936,12 @@ const styles = StyleSheet.create({
   input: { borderRadius: 10, padding: 11, fontSize: 14, borderWidth: 1, minWidth: 0 },
   inputRow: { flexDirection: 'row', gap: 6, marginTop: 10, alignItems: 'center' },
   inputSmall: { borderRadius: 8, padding: 8, fontSize: 13, minWidth: 0 },
+  weeksInputWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    borderRadius: 8, paddingHorizontal: 8, paddingVertical: 8, minWidth: 0,
+  },
+  weeksInput: { flex: 1, fontSize: 13, padding: 0, minWidth: 0 },
+  weeksSuffix: { fontSize: 11, fontWeight: '700' },
   formHint: { fontSize: 11, lineHeight: 16, marginTop: 8 },
   dateRow: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
