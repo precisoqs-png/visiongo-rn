@@ -1,7 +1,7 @@
 import { Alert, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import {
-  Goal, ReminderFrequency, Milestone, Commitment,
+  Goal, ReminderFrequency, Milestone, Commitment, Measurable, Cadence, StepSchedule,
   cadenceIntervalDays, formatNumber,
 } from '../store/models';
 
@@ -197,7 +197,16 @@ export function stepReminderBody(mg: Milestone, step: Commitment): string {
   return `Have you completed "${step.label}" ${period}?`;
 }
 
-function buildStepTriggers(step: Commitment): Notifications.NotificationTriggerInput[] {
+// Only the fields the trigger math actually needs — Commitment and
+// Measurable (which carries the same optional cadence/schedule shape)
+// both satisfy this, so the same builder schedules reminders for either.
+interface ReminderSpec {
+  cadence: Cadence;
+  intervalDays?: number;
+  schedule: StepSchedule;
+}
+
+function buildStepTriggers(step: ReminderSpec): Notifications.NotificationTriggerInput[] {
   const { hour, minute, weekday, dayOfMonth } = step.schedule;
   switch (step.cadence) {
     case 'weekly':
@@ -329,11 +338,88 @@ export async function syncCommitmentNotifications(goal: Goal): Promise<void> {
   }
 }
 
+// ── Measurable reminders ─────────────────────────────────────────
+//
+// Same cadence + schedule shape and the same trigger-building logic as a
+// Commitment's reminder above (buildStepTriggers), just identified with a
+// `measurable-` prefix instead of `step-` so the two never collide.
+
+function measurableIdentifier(goalId: string, measurableId: string, occurrence = 0): string {
+  return occurrence === 0
+    ? `measurable-${goalId}-${measurableId}`
+    : `measurable-${goalId}-${measurableId}-${occurrence}`;
+}
+
+export async function cancelMeasurableReminder(goalId: string, measurableId: string): Promise<void> {
+  if (!SUPPORTED) return;
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    const base = measurableIdentifier(goalId, measurableId);
+    await Promise.all(
+      scheduled
+        .filter((n) => n.identifier === base || n.identifier.startsWith(`${base}-`))
+        .map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier)),
+    );
+  } catch (e) {
+    console.warn('[VisionGo] Failed to cancel measurable reminder:', e);
+  }
+}
+
+export async function cancelMeasurableReminders(goalId: string): Promise<void> {
+  if (!SUPPORTED) return;
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    const prefix = `measurable-${goalId}-`;
+    await Promise.all(
+      scheduled
+        .filter((n) => n.identifier.startsWith(prefix))
+        .map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier)),
+    );
+  } catch (e) {
+    console.warn('[VisionGo] Failed to cancel measurable reminders:', e);
+  }
+}
+
+/** Schedules (or reschedules) the reminder for one measurable. */
+export async function scheduleMeasurableReminder(goal: Goal, m: Measurable): Promise<void> {
+  if (!SUPPORTED) return;
+  await cancelMeasurableReminder(goal.id, m.id);
+  if (!m.schedule?.on || !m.cadence) return;
+  try {
+    const triggers = buildStepTriggers({ cadence: m.cadence, intervalDays: m.intervalDays, schedule: m.schedule });
+    for (let i = 0; i < triggers.length; i++) {
+      await Notifications.scheduleNotificationAsync({
+        identifier: measurableIdentifier(goal.id, m.id, i),
+        content: {
+          title: goal.title,
+          body: `Have you made progress on "${m.label}"?`,
+        },
+        trigger: triggers[i],
+      });
+    }
+  } catch (e) {
+    console.warn('[VisionGo] Failed to schedule measurable reminder:', e);
+  }
+}
+
+/** Rebuilds every measurable reminder for a goal from current state. */
+export async function syncMeasurableReminders(goal: Goal): Promise<void> {
+  if (!SUPPORTED) return;
+  try {
+    await cancelMeasurableReminders(goal.id);
+    for (const m of goal.measurables) {
+      if (m.schedule?.on) await scheduleMeasurableReminder(goal, m);
+    }
+  } catch (e) {
+    console.warn('[VisionGo] Failed to sync measurable reminders:', e);
+  }
+}
+
 // Day/time portion only — every call site already shows cadenceLabel(step)
 // (e.g. "Weekly", "Build-up · 6→10 km") right before this, so repeating the
 // cadence word here would just duplicate it in the UI.
 /** e.g. "Mon at 9:00 AM", pair with cadenceLabel(step) for the full picture. */
-export function describeSchedule(step: Commitment): string {
+export function describeSchedule(step: { cadence: Cadence; schedule: StepSchedule }): string {
   const { hour, minute, weekday, dayOfMonth, on } = step.schedule;
   if (!on) return 'Reminder off';
   const time = formatTime(hour, minute);
@@ -366,4 +452,5 @@ export async function cancelEverythingForGoal(goalId: string): Promise<void> {
   await cancelGoalNotification(goalId);
   await cancelWeeklyTargetNotifications(goalId);
   await cancelCommitmentNotifications(goalId);
+  await cancelMeasurableReminders(goalId);
 }
