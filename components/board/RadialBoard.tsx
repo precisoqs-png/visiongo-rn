@@ -39,7 +39,7 @@ const MAX_RINGS = 3;
 // title and percentage stop being readable.
 const MIN_SCALE = 0.25;
 
-interface Point { x: number; y: number }
+export interface Point { x: number; y: number }
 
 // ── Radial layout ────────────────────────────────────────────────
 //
@@ -75,7 +75,7 @@ function splitAcrossRings(count: number, caps: number[]): number[] {
   return counts;
 }
 
-function ringPoints(n: number, r: number, cx: number, cy: number, offsetDeg: number): Point[] {
+export function ringPoints(n: number, r: number, cx: number, cy: number, offsetDeg: number): Point[] {
   return Array.from({ length: n }, (_, i) => {
     const angle = ((-90 + offsetDeg + i * (360 / n)) * Math.PI) / 180;
     return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
@@ -147,7 +147,7 @@ function computeRadialLayout(
   };
 }
 
-function clampCenter(p: Point, r: number, w: number, h: number): Point {
+export function clampCenter(p: Point, r: number, w: number, h: number): Point {
   return {
     x: Math.min(Math.max(p.x, r), w - r),
     y: Math.min(Math.max(p.y, TOP_SAFE + r), h - BOTTOM_SAFE - r + 24),

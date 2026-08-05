@@ -629,6 +629,11 @@ export interface Goal {
   // the goal detail screen and passed to the coach for context. Absent on
   // every goal created before this existed; never backfilled.
   motivation?: string;
+  // Per-measurable bubble position on the goal's own bubble canvas, keyed by
+  // Measurable.id — same normalized (0..1) shape as a goal's own
+  // boardPosition on the main board. Absent entries auto-place on a ring
+  // around the central goal bubble.
+  measurableBubblePositions?: Record<string, BoardPosition>;
 }
 
 // Measurables and milestones each count as one unit of the goal, so adding a
