@@ -177,28 +177,24 @@ export function StepScheduleSheet({
             )}
 
             <Text style={[styles.eyebrow, { color: p.muted }]}>WHAT TIME</Text>
-            <View style={styles.timeRow}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', gap: 6 }}>
-                  {HOURS.map((h) => {
-                    const active = schedule.hour === h;
-                    return (
-                      <TouchableOpacity
-                        key={h}
-                        style={[styles.dayChip, {
-                          borderColor: active ? p.accent : p.line,
-                          backgroundColor: active ? `${p.accent}1f` : 'transparent',
-                        }]}
-                        onPress={() => patch({ hour: h })}
-                      >
-                        <Text style={[styles.chipText, { color: active ? p.accent : p.text }]}>
-                          {h % 12 === 0 ? 12 : h % 12}{h < 12 ? 'a' : 'p'}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </ScrollView>
+            <View style={styles.chipWrap}>
+              {HOURS.map((h) => {
+                const active = schedule.hour === h;
+                return (
+                  <TouchableOpacity
+                    key={h}
+                    style={[styles.dayChip, {
+                      borderColor: active ? p.accent : p.line,
+                      backgroundColor: active ? `${p.accent}1f` : 'transparent',
+                    }]}
+                    onPress={() => patch({ hour: h })}
+                  >
+                    <Text style={[styles.chipText, { color: active ? p.accent : p.text }]}>
+                      {h % 12 === 0 ? 12 : h % 12}{h < 12 ? 'a' : 'p'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
             <View style={[styles.chipWrap, { marginTop: 6 }]}>
               {MINUTES.map((m) => {
@@ -290,7 +286,6 @@ const styles = StyleSheet.create({
   input: {
     borderRadius: 10, padding: 11, fontSize: 15, borderWidth: 1, minWidth: 0,
   },
-  timeRow: { flexDirection: 'row', alignItems: 'center' },
   preview: { fontSize: 12, lineHeight: 18, marginTop: 12 },
   actions: {
     flexDirection: 'row', alignItems: 'center', gap: 16,
