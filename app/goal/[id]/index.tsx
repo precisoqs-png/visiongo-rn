@@ -13,6 +13,7 @@ import { Point, ringPoints, clampCenter } from '../../../components/board/Radial
 import { MeasurableBubble, tickMeasurable } from '../../../components/goal/MeasurableBubble';
 import { MeasurableDetailSheet } from '../../../components/goal/MeasurableDetailSheet';
 import { CoachChat } from '../../../components/goal/CoachChat';
+import { SegmentedControl } from '../../../components/shared/SegmentedControl';
 
 const CENTER_SIZE = 168;
 const BUBBLE_SIZE = 76;
@@ -97,18 +98,24 @@ export default function GoalCanvasScreen() {
     <LinearGradient colors={p.bgGradient as any} style={styles.root}>
       <View style={styles.navRow}>
         <TouchableOpacity onPress={() => router.push('/(tabs)/board')} style={styles.yearBubble}>
-          <View style={[styles.yearDisc, { backgroundColor: p.surface, borderColor: p.line }]}>
-            <Text style={[styles.yearText, { color: p.text }]}>{useAppStore.getState().selectedYear}</Text>
+          <View style={[styles.yearDisc, { backgroundColor: p.accent }]}>
+            <Text style={[styles.yearText, { color: p.isDark ? p.bg : '#fff' }]}>
+              {useAppStore.getState().selectedYear}
+            </Text>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => router.push(`/goal/${id}/milestones`)}
-          style={[styles.milestonesPill, { backgroundColor: p.surface, borderColor: p.line }]}
-        >
-          <Ionicons name="flag-outline" size={13} color={p.text} />
-          <Text style={[styles.milestonesText, { color: p.text }]}>Milestones</Text>
-          <Ionicons name="chevron-forward" size={13} color={p.muted} />
-        </TouchableOpacity>
+      </View>
+
+      <View style={styles.segmentedWrap}>
+        <SegmentedControl
+          segments={[
+            { key: 'measurables', label: 'Measurables' },
+            { key: 'milestones', label: 'Milestones' },
+          ]}
+          value="measurables"
+          onChange={(tab) => router.push(`/goal/${id}/${tab}`)}
+          palette={p}
+        />
       </View>
 
       <View
@@ -198,20 +205,16 @@ export default function GoalCanvasScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, paddingTop: Platform.OS === 'ios' ? 50 : 30 },
   navRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, marginBottom: 4,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 20, marginBottom: 8,
   },
   yearBubble: { alignItems: 'center', justifyContent: 'center' },
   yearDisc: {
-    width: 44, height: 44, borderRadius: 22, borderWidth: 1.5,
+    width: 44, height: 44, borderRadius: 22,
     alignItems: 'center', justifyContent: 'center',
   },
   yearText: { fontSize: 13, fontWeight: '700' },
-  milestonesPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    borderWidth: 1, borderRadius: 16, paddingVertical: 7, paddingHorizontal: 12,
-  },
-  milestonesText: { fontSize: 12, fontWeight: '600' },
+  segmentedWrap: { paddingHorizontal: 20, marginBottom: 4 },
   centerWrap: { position: 'absolute' },
   emptyHint: { position: 'absolute', left: 32, right: 32, alignItems: 'center' },
   emptyHintText: { fontSize: 13, lineHeight: 19, textAlign: 'center' },

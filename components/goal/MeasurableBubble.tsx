@@ -13,6 +13,42 @@ import { useCompletionPulse } from '../shared/useCompletionPulse';
 const MOVE_THRESHOLD = 9;
 const HOLD_MS = 450;
 
+// `adjustsFontSizeToFit`/`minimumFontScale` are iOS/Android-only — React
+// Native Web silently ignores both, so they can't be relied on for a bubble
+// that also has to render (and be Playwright-verified) on web. This
+// simulates greedy word-wrapping at a candidate font size and picks the
+// largest one that fits within LINE_BUDGET lines, so long labels shrink
+// instead of truncating on every platform the app runs on.
+const LINE_BUDGET = 4;
+
+function estimatedLineCount(label: string, fontSize: number, maxWidth: number): number {
+  const charWidth = fontSize * 0.56; // rough average glyph width for this font
+  const maxChars = Math.max(1, Math.floor(maxWidth / charWidth));
+  let lines = 1;
+  let lineLen = 0;
+  for (const word of label.split(' ')) {
+    const wLen = word.length;
+    const candidate = lineLen === 0 ? wLen : lineLen + 1 + wLen;
+    if (candidate > maxChars && lineLen > 0) {
+      lines++;
+      lineLen = wLen;
+    } else {
+      lineLen = candidate;
+    }
+  }
+  return lines;
+}
+
+function fitLabelFontSize(size: number, label: string): number {
+  const base = size * 0.17;
+  const floor = size * 0.09;
+  const maxWidth = size * 0.8;
+  for (let fs = base; fs > floor; fs -= 0.5) {
+    if (estimatedLineCount(label, fs, maxWidth) <= LINE_BUDGET) return fs;
+  }
+  return floor;
+}
+
 interface Props {
   measurable: Measurable;
   size: number;
@@ -160,10 +196,7 @@ export function MeasurableBubble({
           }}
         />
         <View style={styles.label}>
-          <Text
-            style={[styles.labelText, { color: p.text, fontSize: size * 0.15 }]}
-            numberOfLines={2}
-          >
+          <Text style={[styles.labelText, { color: p.text, fontSize: fitLabelFontSize(size, m.label) }]}>
             {m.label}
           </Text>
           {m.type === 'number' && (
