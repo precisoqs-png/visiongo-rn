@@ -715,15 +715,17 @@ function CommitmentForm({
                 value={weeksStr}
                 onChangeText={setWeeksStr}
               />
-              {/* Persistent "wks" suffix so a typed value (e.g. "8") still
+              {/* Persistent "wk(s)" suffix so a typed value (e.g. "8") still
                   reads as a week count, not an ambiguous bare number, once
                   the placeholder is gone — Start/End/Unit stay clear from
                   context alone, but this field doesn't. */}
-              <Text style={[styles.weeksSuffix, { color: p.muted }]}>wks</Text>
+              <Text style={[styles.weeksSuffix, { color: p.muted }]}>
+                {weeksCount === 1 ? 'wk' : 'wks'}
+              </Text>
             </View>
           </View>
           <Text style={[styles.formHint, { color: p.muted }]}>
-            Builds {weeksStr || '?'} weekly targets from {startStr || '…'} up to {endStr || '…'}
+            Builds {weeksStr || '?'} weekly {weeksCount === 1 ? 'target' : 'targets'} from {startStr || '…'} up to {endStr || '…'}
             {unit ? ` ${unit}` : ''} — same week-by-week build-up as a ladder measurable, just
             attached to this milestone.
           </Text>
