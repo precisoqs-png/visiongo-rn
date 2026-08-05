@@ -60,6 +60,25 @@ export default function GoalDetailScreen() {
   );
   const notificationsMasterOn = useAppStore((s) => s.notificationsMasterOn);
 
+  // On web this screen is exported as a static SSR shell (see build:vercel):
+  // the server always renders with an empty, never-rehydrated store (no
+  // localStorage server-side), so `goal` is always undefined server-side.
+  // Persisted data loads asynchronously on the client via zustand's persist
+  // middleware. Every hook below that reacts to `goal` (title/motivation
+  // drafts, the completion-celebration tracker) must not fire its state
+  // updates until that rehydration is confirmed done — updating state for
+  // this route while the surrounding hydration boundary is still settling
+  // is what was producing React hydration errors (#418/#421/#422) and, via
+  // React's hydration-error recovery discarding this modal route, the
+  // unexpected bounce back to /board. Same gate the rest of the app already
+  // uses (see app/_layout.tsx, app/index.tsx).
+  const [hydrated, setHydrated] = useState(useAppStore.persist.hasHydrated());
+  useEffect(() => {
+    const unsub = useAppStore.persist.onFinishHydration(() => setHydrated(true));
+    if (useAppStore.persist.hasHydrated()) setHydrated(true);
+    return unsub;
+  }, []);
+
   // The bell must actually schedule/cancel the reminder, not just flip the flag.
   // Turning it on also schedules a push notification for each weekly target.
   const toggleReminder = async () => {
@@ -130,30 +149,33 @@ export default function GoalDetailScreen() {
 
   const [titleDraft, setTitleDraft] = useState(goal?.title ?? '');
   useEffect(() => {
-    if (goal?.id) setTitleDraft(goal.title);
-  }, [goal?.id]);
+    if (hydrated && goal?.id) setTitleDraft(goal.title);
+  }, [hydrated, goal?.id]);
 
   // "Why this matters" is collapsed by default unless the goal already has
   // one written, so an empty goal doesn't show an empty-looking input box.
   const [motivationOpen, setMotivationOpen] = useState(!!goal?.motivation);
   const [motivationDraft, setMotivationDraft] = useState(goal?.motivation ?? '');
   useEffect(() => {
-    if (goal?.id) {
+    if (hydrated && goal?.id) {
       setMotivationDraft(goal.motivation ?? '');
       setMotivationOpen(!!goal.motivation);
     }
-  }, [goal?.id]);
+  }, [hydrated, goal?.id]);
 
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   // One-time celebration when the goal crosses 100% during this session —
   // baselines on first render (so opening an already-complete goal doesn't
-  // re-celebrate) and only fires on the false -> true transition.
+  // re-celebrate) and only fires on the false -> true transition. Gated on
+  // `hydrated` (see above) so it never reacts to the transient "goal became
+  // defined" render that happens the instant persisted data rehydrates.
   const completedNow = goal ? isCompleted(goal) : false;
   const prevCompletedRef = useRef<boolean | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
   const celebrationScale = useRef(new Animated.Value(0.8)).current;
   useEffect(() => {
+    if (!hydrated) return;
     if (prevCompletedRef.current === null) {
       prevCompletedRef.current = completedNow;
       return;
@@ -168,7 +190,7 @@ export default function GoalDetailScreen() {
       return () => clearTimeout(t);
     }
     prevCompletedRef.current = completedNow;
-  }, [completedNow]);
+  }, [hydrated, completedNow]);
 
   const handleDelete = () => {
     const title = goal?.title ?? 'this goal';
@@ -191,10 +213,14 @@ export default function GoalDetailScreen() {
     }
   };
 
-  if (!goal) {
+  // Same placeholder shape for "still rehydrating" and "genuinely missing" —
+  // the SSR shell always renders this (persisted data is client-only), and
+  // keeping both branches visually identical means whichever one the
+  // client's first paint lands on, it already matches the server output.
+  if (!hydrated || !goal) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: p.bg }}>
-        <Text style={{ color: p.muted }}>Goal not found</Text>
+        <Text style={{ color: p.muted }}>{hydrated ? 'Goal not found' : 'Loading…'}</Text>
       </View>
     );
   }
