@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, startTransition } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, Dimensions, Animated, Platform,
@@ -102,13 +102,30 @@ export default function OnboardingScreen() {
       }
       const effectiveMotto = motto.trim() || 'Dream it. Plan it. Live it.';
       completeOnboarding(selectedYear, effectiveMotto, goals);
-      router.replace('/(tabs)/board');
+      navigateToBoard();
     }
   };
 
   const skip = () => {
     completeOnboarding(NOW, 'Dream it. Plan it. Live it.', []);
-    router.replace('/(tabs)/board');
+    navigateToBoard();
+  };
+
+  // Mounting the board here means mounting RadialBoard, the tab bar, and
+  // everything under it — a large commit that, profiled with Chrome's CPU
+  // throttling, ran 1000ms+ under a 10x slowdown (roughly matching the
+  // reported ~2.1s INP trace). React's commit phase is never interruptible
+  // even inside startTransition, so the fix isn't to make that work faster —
+  // it's to make sure it doesn't run inside THIS input's handler at all.
+  // Deferring to a macrotask lets the browser paint a frame first (ending
+  // this interaction quickly), and startTransition inside it still lets
+  // React yield during the subsequent render/reconciliation work.
+  const navigateToBoard = () => {
+    setTimeout(() => {
+      startTransition(() => {
+        router.replace('/(tabs)/board');
+      });
+    }, 0);
   };
 
   const toggleTemplate = (t: GoalTemplate) => {
