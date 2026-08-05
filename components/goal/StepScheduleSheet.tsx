@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, Modal, ScrollView, StyleSheet, Platform,
+  NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Commitment, Cadence, StepSchedule, DEFAULT_SCHEDULE } from '../../store/models';
@@ -18,13 +19,129 @@ interface Props {
   onDismiss: () => void;
 }
 
-const HOURS = Array.from({ length: 24 }, (_, i) => i);
+const HOURS_12 = Array.from({ length: 12 }, (_, i) => i + 1);
 const MINUTES = [0, 15, 30, 45];
+const PERIODS = ['AM', 'PM'] as const;
 const CADENCES: { key: Cadence; label: string }[] = [
   { key: 'weekly', label: 'Weekly' },
   { key: 'monthly', label: 'Monthly' },
   { key: 'custom', label: 'Custom' },
 ];
+
+// 24h `hour` -> the 1-12 value a wheel shows. Handles both midnight (0 -> 12)
+// and noon (12 -> 12) correctly.
+function to12Hour(h: number): number {
+  return ((h + 11) % 12) + 1;
+}
+
+function toPeriod(h: number): 'AM' | 'PM' {
+  return h < 12 ? 'AM' : 'PM';
+}
+
+// Recombine a 1-12 hour + AM/PM back into the 0-23 value StepSchedule stores.
+function to24Hour(hour12: number, period: 'AM' | 'PM'): number {
+  if (period === 'AM') return hour12 === 12 ? 0 : hour12;
+  return hour12 === 12 ? 12 : hour12 + 12;
+}
+
+// ── Rollable wheel column ──────────────────────────────────────
+//
+// A snapping vertical ScrollView with a fixed-height window: the item
+// aligned with the centered highlight band is the selected one. Used for
+// the hour, minute, and AM/PM wheels below — same interaction as a native
+// iOS/Android time picker.
+
+const WHEEL_ITEM_HEIGHT = 36;
+const WHEEL_VISIBLE_ITEMS = 5;
+const WHEEL_HEIGHT = WHEEL_ITEM_HEIGHT * WHEEL_VISIBLE_ITEMS;
+const WHEEL_PAD = WHEEL_ITEM_HEIGHT * Math.floor(WHEEL_VISIBLE_ITEMS / 2);
+
+interface WheelColumnProps {
+  items: string[];
+  index: number;
+  onChange: (index: number) => void;
+  palette: Palette;
+  width: number;
+  // Changes each time the sheet opens, so the wheel snaps back to the
+  // current value instead of wherever the user last scrolled it.
+  resetSignal: string;
+}
+
+function WheelColumn({ items, index, onChange, palette: p, width, resetSignal }: WheelColumnProps) {
+  const scrollRef = useRef<ScrollView>(null);
+  // Mouse-wheel scrolling (desktop web) never fires onMomentumScrollEnd or
+  // onScrollEndDrag — those are touch drag/momentum lifecycle events, and a
+  // wheel event doesn't produce either. Debouncing plain onScroll instead
+  // catches "scrolling has stopped" on every input method, touch included.
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    // No animation: this runs when the sheet is (re)opening, not mid-interaction.
+    scrollRef.current?.scrollTo({ y: index * WHEEL_ITEM_HEIGHT, animated: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetSignal]);
+
+  const settleAt = (rawOffset: number) => {
+    const snapped = Math.max(0, Math.min(items.length - 1, Math.round(rawOffset / WHEEL_ITEM_HEIGHT)));
+    onChange(snapped);
+    scrollRef.current?.scrollTo({ y: snapped * WHEEL_ITEM_HEIGHT, animated: true });
+  };
+
+  const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = e.nativeEvent.contentOffset.y;
+    if (settleTimer.current) clearTimeout(settleTimer.current);
+    settleTimer.current = setTimeout(() => settleAt(y), 120);
+  };
+
+  // Touch momentum/drag end fires reliably on native and settles instantly,
+  // without waiting out the debounce — cancel any pending debounced settle
+  // first so the two paths can't fight over the final position.
+  const settleNow = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (settleTimer.current) clearTimeout(settleTimer.current);
+    settleAt(e.nativeEvent.contentOffset.y);
+  };
+
+  return (
+    <View style={{ width, height: WHEEL_HEIGHT }}>
+      <View
+        pointerEvents="none"
+        style={[
+          styles.wheelHighlight,
+          { top: WHEEL_PAD, borderColor: `${p.accent}55`, backgroundColor: `${p.accent}14` },
+        ]}
+      />
+      <ScrollView
+        ref={scrollRef}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={WHEEL_ITEM_HEIGHT}
+        decelerationRate="fast"
+        nestedScrollEnabled
+        scrollEventThrottle={16}
+        contentContainerStyle={{ paddingVertical: WHEEL_PAD }}
+        onScroll={onScroll}
+        onMomentumScrollEnd={settleNow}
+        onScrollEndDrag={settleNow}
+      >
+        {items.map((label, i) => {
+          const active = i === index;
+          return (
+            <View key={label + i} style={styles.wheelItem}>
+              <Text
+                style={[
+                  styles.wheelItemText,
+                  { color: active ? p.accent : p.muted, fontSize: active ? 17 : 15 },
+                  active && { fontWeight: '700' },
+                ]}
+              >
+                {label}
+              </Text>
+            </View>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
 
 export function StepScheduleSheet({
   visible, step, palette: p, onSave, onTurnOff, onDismiss,
@@ -177,48 +294,45 @@ export function StepScheduleSheet({
             )}
 
             <Text style={[styles.eyebrow, { color: p.muted }]}>WHAT TIME</Text>
-            <View style={styles.timeRow}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', gap: 6 }}>
-                  {HOURS.map((h) => {
-                    const active = schedule.hour === h;
-                    return (
-                      <TouchableOpacity
-                        key={h}
-                        style={[styles.dayChip, {
-                          borderColor: active ? p.accent : p.line,
-                          backgroundColor: active ? `${p.accent}1f` : 'transparent',
-                        }]}
-                        onPress={() => patch({ hour: h })}
-                      >
-                        <Text style={[styles.chipText, { color: active ? p.accent : p.text }]}>
-                          {h % 12 === 0 ? 12 : h % 12}{h < 12 ? 'a' : 'p'}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+            {(() => {
+              const hour12 = to12Hour(schedule.hour);
+              const period = toPeriod(schedule.hour);
+              const hourIndex = HOURS_12.indexOf(hour12);
+              const minuteIndex = Math.max(0, MINUTES.indexOf(schedule.minute));
+              const periodIndex = PERIODS.indexOf(period);
+              // Re-snap the wheels whenever the sheet opens on a (possibly
+              // different) step, not on every schedule edit mid-interaction.
+              const resetSignal = `${visible}:${step.id}`;
+              return (
+                <View style={styles.wheelRow}>
+                  <WheelColumn
+                    items={HOURS_12.map(String)}
+                    index={hourIndex}
+                    onChange={(i) => patch({ hour: to24Hour(HOURS_12[i], period) })}
+                    palette={p}
+                    width={52}
+                    resetSignal={resetSignal}
+                  />
+                  <Text style={[styles.wheelColon, { color: p.text }]}>:</Text>
+                  <WheelColumn
+                    items={MINUTES.map((m) => String(m).padStart(2, '0'))}
+                    index={minuteIndex}
+                    onChange={(i) => patch({ minute: MINUTES[i] })}
+                    palette={p}
+                    width={52}
+                    resetSignal={resetSignal}
+                  />
+                  <WheelColumn
+                    items={[...PERIODS]}
+                    index={periodIndex}
+                    onChange={(i) => patch({ hour: to24Hour(hour12, PERIODS[i]) })}
+                    palette={p}
+                    width={60}
+                    resetSignal={resetSignal}
+                  />
                 </View>
-              </ScrollView>
-            </View>
-            <View style={[styles.chipWrap, { marginTop: 6 }]}>
-              {MINUTES.map((m) => {
-                const active = schedule.minute === m;
-                return (
-                  <TouchableOpacity
-                    key={m}
-                    style={[styles.chip, {
-                      borderColor: active ? p.accent : p.line,
-                      backgroundColor: active ? `${p.accent}1f` : 'transparent',
-                    }]}
-                    onPress={() => patch({ minute: m })}
-                  >
-                    <Text style={[styles.chipText, { color: active ? p.accent : p.text }]}>
-                      :{String(m).padStart(2, '0')}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+              );
+            })()}
 
             <Text style={[styles.preview, { color: p.muted }]}>
               {isBuildUp
@@ -290,7 +404,14 @@ const styles = StyleSheet.create({
   input: {
     borderRadius: 10, padding: 11, fontSize: 15, borderWidth: 1, minWidth: 0,
   },
-  timeRow: { flexDirection: 'row', alignItems: 'center' },
+  wheelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
+  wheelHighlight: {
+    position: 'absolute', left: 0, right: 0, height: WHEEL_ITEM_HEIGHT,
+    borderRadius: 10, borderWidth: 1,
+  },
+  wheelItem: { height: WHEEL_ITEM_HEIGHT, alignItems: 'center', justifyContent: 'center' },
+  wheelItemText: { fontWeight: '500' },
+  wheelColon: { fontSize: 18, fontWeight: '700', marginTop: -2 },
   preview: { fontSize: 12, lineHeight: 18, marginTop: 12 },
   actions: {
     flexDirection: 'row', alignItems: 'center', gap: 16,
