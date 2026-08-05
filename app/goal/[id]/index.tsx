@@ -96,6 +96,17 @@ export default function GoalCanvasScreen() {
 
   return (
     <LinearGradient colors={p.bgGradient as any} style={styles.root}>
+      <View style={styles.segmentedWrap}>
+        <SegmentedControl
+          segments={[
+            { key: 'measurables', label: 'Measurables' },
+            { key: 'milestones', label: 'Milestones' },
+          ]}
+          onChange={(tab) => router.push(`/goal/${id}/${tab}`)}
+          palette={p}
+        />
+      </View>
+
       <View style={styles.navRow}>
         <TouchableOpacity onPress={() => router.push('/(tabs)/board')} style={styles.yearBubble}>
           <View style={[styles.yearDisc, { backgroundColor: p.accent }]}>
@@ -104,18 +115,6 @@ export default function GoalCanvasScreen() {
             </Text>
           </View>
         </TouchableOpacity>
-      </View>
-
-      <View style={styles.segmentedWrap}>
-        <SegmentedControl
-          segments={[
-            { key: 'measurables', label: 'Measurables' },
-            { key: 'milestones', label: 'Milestones' },
-          ]}
-          value="measurables"
-          onChange={(tab) => router.push(`/goal/${id}/${tab}`)}
-          palette={p}
-        />
       </View>
 
       <View
