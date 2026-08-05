@@ -4,13 +4,26 @@ import {
   NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Commitment, Cadence, StepSchedule, DEFAULT_SCHEDULE } from '../../store/models';
+import { Cadence, StepSchedule, DEFAULT_SCHEDULE } from '../../store/models';
 import { WEEKDAY_NAMES, formatTime } from '../../services/notificationService';
 import { Palette } from '../../theme/themes';
 
+// Minimal shape this sheet needs — deliberately NOT `Commitment`, so the
+// same sheet + scheduling UI works for anything reminder-able (a
+// Milestone's Commitment, or a Measurable). cadence/schedule are optional
+// here because a Measurable has no reminder at all until the user sets one.
+export interface ReminderTarget {
+  id: string;
+  label: string;
+  cadence?: Cadence;
+  intervalDays?: number;
+  schedule?: StepSchedule;
+  ramp?: unknown;
+}
+
 interface Props {
   visible: boolean;
-  step: Commitment | null;
+  step: ReminderTarget | null;
   palette: Palette;
   // Saves cadence + schedule together — changing "every 10 days" is a cadence
   // change and a reminder change at once.
@@ -154,7 +167,9 @@ export function StepScheduleSheet({
   // step's real schedule, not whatever was last previewed.
   useEffect(() => {
     if (!visible || !step) return;
-    setCadence(step.cadence);
+    // A Measurable has no cadence until the user sets one — default the
+    // picker to weekly, same as a brand-new Commitment would start.
+    setCadence(step.cadence ?? 'weekly');
     setIntervalStr(String(step.intervalDays ?? 10));
     setSchedule({ ...DEFAULT_SCHEDULE, ...step.schedule });
   }, [visible, step?.id]);
@@ -361,10 +376,10 @@ export function StepScheduleSheet({
             >
               <Ionicons name="notifications" size={15} color={p.surface} />
               <Text style={[styles.primaryText, { color: p.surface }]}>
-                {step.schedule.on ? 'Update reminder' : 'Turn on reminder'}
+                {step.schedule?.on ? 'Update reminder' : 'Turn on reminder'}
               </Text>
             </TouchableOpacity>
-            {step.schedule.on ? (
+            {step.schedule?.on ? (
               <TouchableOpacity onPress={onTurnOff}>
                 <Text style={[styles.secondaryText, { color: '#c0392b' }]}>Turn off</Text>
               </TouchableOpacity>

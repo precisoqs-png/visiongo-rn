@@ -15,6 +15,7 @@ import {
 import { describeSchedule } from '../../services/notificationService';
 import { Palette } from '../../theme/themes';
 import { CalendarPicker } from '../shared/CalendarPicker';
+import { InfoPopover } from '../shared/InfoPopover';
 import { BreakdownPrompt } from './BreakdownPrompt';
 import { StepScheduleSheet } from './StepScheduleSheet';
 import { useCompletionPulse } from '../shared/useCompletionPulse';
@@ -122,7 +123,23 @@ export function MilestoneSection({
   return (
     <View>
       <View style={styles.sectionHead}>
-        <Text style={[styles.eyebrow, { color: p.muted }]}>MILESTONES</Text>
+        <View style={styles.eyebrowRow}>
+          <Text style={[styles.eyebrow, { color: p.muted }]}>MILESTONES</Text>
+          <InfoPopover
+            palette={p}
+            title="Measurables vs Milestones"
+            body={
+              'Milestones are sub-goals — "Save $10,000", "Run a marathon" — that can carry ' +
+              "their own deadline and a recurring Commitment you get reminded about on a " +
+              'schedule (weekly, monthly, or custom). Reach for a Milestone when a piece of ' +
+              'the goal deserves its own repeatable action, not just a one-time tick.\n\n' +
+              'Measurables (above, on the goal itself) are quick, directly-trackable items — ' +
+              'a checkbox, a running number, or a weekly ladder — with no sub-goal of their ' +
+              'own. A good measurable is concrete and countable: a specific unit and target ' +
+              'you can tick up as you go.'
+            }
+          />
+        </View>
         <TouchableOpacity
           onPress={() => setShowForm((s) => !s)}
           style={[styles.addPill, { borderColor: p.line }]}
@@ -886,6 +903,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     justifyContent: 'space-between', marginBottom: 10,
   },
+  eyebrowRow: { flexDirection: 'row', alignItems: 'center' },
   eyebrow: { fontSize: 11, fontWeight: '600', letterSpacing: 1.5 },
   addPill: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
