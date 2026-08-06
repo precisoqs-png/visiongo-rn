@@ -1,8 +1,19 @@
-// Whole-deployment daily cap, distinct from the per-device COACH_DAILY_LIMIT
-// enforced client-side. Belt-and-suspenders against a shared API key being
-// drained faster than the per-device limit alone would allow (e.g. many
-// devices, or a client that's been tampered with).
+// Whole-deployment daily cap. Belt-and-suspenders against a shared API key
+// being drained faster than the per-device limits below would allow (e.g.
+// many devices hitting their own caps still adding up to too much spend).
 const SERVER_DAILY_LIMIT = 500;
+
+// Per-device daily caps, tracked separately by request kind. This is the
+// real enforcement: the client also keeps its own coach-message counter for
+// instant UI feedback, but that one lives in AsyncStorage and is trivially
+// reset (reinstall, clear storage, edit the persisted state) — it cannot
+// stop a client from calling this route more than the stated limit. These
+// counters live in Redis keyed by a per-device id sent as a header, so they
+// hold regardless of what the client does or claims.
+const DEVICE_DAILY_LIMITS: Record<'coach' | 'pair', number> = {
+  coach: 20,
+  pair: 5,
+};
 
 const UPSTASH_TIMEOUT_MS = 15_000;
 const ANTHROPIC_TIMEOUT_MS = 20_000;
@@ -65,48 +76,75 @@ async function fetchWithTimeout(
   }
 }
 
-// Optional: only active when both Upstash env vars are set. Uses the Upstash
-// Redis REST API directly (no SDK dependency) to INCR a per-day counter and
-// EXPIRE it after 24h. Fails open — returns true (allow) — whenever the
-// vars are unset or anything about the request goes wrong, so a
-// misconfigured or unreachable rate limiter never blocks the coach feature.
-async function checkAndIncrementServerLimit(): Promise<boolean> {
+// Upstash isn't configured in every environment (local dev, preview builds
+// without the env vars set) — cached per invocation so callers can decide
+// once whether to enforce anything at all.
+function upstashCreds(): { url: string; token: string } | null {
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) {
-    return true;
-  }
+  return url && token ? { url, token } : null;
+}
+
+// INCRs `key` in Upstash and, on the first increment, sets it to expire in
+// 24h so daily counters reset without a scheduled job. Returns the new count,
+// or null if Upstash is unreachable/misconfigured/erroring — callers treat
+// null as "fail open" so a rate limiter outage never blocks the feature
+// entirely (that's a deliberate trade-off: worst case is some over-usage
+// during an outage, not the coach going down for everyone).
+async function incrWithDailyExpiry(key: string): Promise<number | null> {
+  const creds = upstashCreds();
+  if (!creds) return null;
+  const { url, token } = creds;
 
   try {
-    const key = `coach-usage:${new Date().toISOString().slice(0, 10)}`;
     const incrRes = await fetchWithTimeout(
       `${url}/incr/${key}`,
       { headers: { Authorization: `Bearer ${token}` } },
       UPSTASH_TIMEOUT_MS,
-      'Upstash INCR'
+      `Upstash INCR ${key}`
     );
-    if (!incrRes.ok) {
-      return true;
-    }
+    if (!incrRes.ok) return null;
     const incrData = await incrRes.json();
     const count = typeof incrData?.result === 'number' ? incrData.result : Number(incrData?.result);
-    if (!Number.isFinite(count)) {
-      return true;
-    }
+    if (!Number.isFinite(count)) return null;
+
     if (count === 1) {
-      // First increment of the day for this key — set it to expire in 24h
-      // so the counter resets without needing a scheduled job.
       await fetchWithTimeout(
         `${url}/expire/${key}/86400`,
         { headers: { Authorization: `Bearer ${token}` } },
         UPSTASH_TIMEOUT_MS,
-        'Upstash EXPIRE'
+        `Upstash EXPIRE ${key}`
       );
     }
-    return count <= SERVER_DAILY_LIMIT;
+    return count;
   } catch {
-    return true;
+    return null;
   }
+}
+
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+async function checkAndIncrementServerLimit(): Promise<boolean> {
+  const count = await incrWithDailyExpiry(`coach-usage:${todayKey()}`);
+  if (count === null) return true;
+  return count <= SERVER_DAILY_LIMIT;
+}
+
+// The real per-device enforcement. `deviceId` comes from the x-device-id
+// header the app sends on every request; a request with no header (an old
+// client build, or one crafted to omit it) falls into a single shared
+// "no-device" bucket rather than skipping the check, so it still caps out
+// fast instead of bypassing the limit entirely.
+async function checkAndIncrementDeviceLimit(
+  deviceId: string, kind: 'coach' | 'pair'
+): Promise<{ allowed: boolean; limit: number }> {
+  const limit = DEVICE_DAILY_LIMITS[kind];
+  const key = `device-usage:${kind}:${deviceId || 'no-device'}:${todayKey()}`;
+  const count = await incrWithDailyExpiry(key);
+  if (count === null) return { allowed: true, limit };
+  return { allowed: count <= limit, limit };
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -118,15 +156,15 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const allowed = await checkAndIncrementServerLimit();
-  if (!allowed) {
+  const globalAllowed = await checkAndIncrementServerLimit();
+  if (!globalAllowed) {
     return Response.json(
       { error: 'The coach has reached its daily usage limit for all users. Please try again tomorrow.' },
       { status: 429 }
     );
   }
 
-  let body: { messages: unknown; systemPrompt: string; tools?: unknown };
+  let body: { messages: unknown; systemPrompt: string; tools?: unknown; kind?: unknown };
   try {
     body = await withTimeout(request.json(), REQUEST_BODY_TIMEOUT_MS, 'Inbound request body read');
   } catch (err) {
@@ -143,6 +181,17 @@ export async function POST(request: Request): Promise<Response> {
   }
   if (tools !== undefined && !Array.isArray(tools)) {
     return Response.json({ error: 'tools must be an array when provided' }, { status: 400 });
+  }
+
+  const kind: 'coach' | 'pair' = body.kind === 'pair' ? 'pair' : 'coach';
+  const deviceId = request.headers.get('x-device-id') ?? '';
+  const { allowed: deviceAllowed, limit: deviceLimit } = await checkAndIncrementDeviceLimit(deviceId, kind);
+  if (!deviceAllowed) {
+    const what = kind === 'pair' ? 'Pair' : 'coach chat';
+    return Response.json(
+      { error: `You've reached today's limit of ${deviceLimit} ${what} requests. Please try again tomorrow.` },
+      { status: 429 }
+    );
   }
 
   let upstream: globalThis.Response;
