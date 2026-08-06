@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -7,6 +7,7 @@ import {
 } from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
 import { useCompletionPulse } from '../shared/useCompletionPulse';
+import { useCompletionBurst } from '../shared/useCompletionBurst';
 
 interface Props {
   measurable: Measurable;
@@ -43,6 +44,17 @@ export function MeasurableCard({ measurable: m, goalTargetDate, palette, onUpdat
   const p = palette;
   const frac = measurableFraction(m);
 
+  // Celebratory glow the moment THIS card's measurable finishes (fraction
+  // hits 1) — however that happened (checkbox, stepper, or the last ladder
+  // week), mirroring MeasurableBubble's own burst on the canvas so the same
+  // "just completed" moment reads consistently wherever it's edited from.
+  const { scale: burstScale, opacity: burstOpacity, fire: fireBurst } = useCompletionBurst();
+  const prevFracRef = useRef(frac);
+  useEffect(() => {
+    if (frac >= 1 && prevFracRef.current < 1) fireBurst();
+    prevFracRef.current = frac;
+  }, [frac]);
+
   return (
     <View style={[styles.card, { backgroundColor: p.surface }]}>
       {m.type === 'check' && <CheckRow m={m} p={p} onUpdate={onUpdate} onDelete={onDelete} onOpenSchedule={onOpenSchedule} />}
@@ -50,6 +62,18 @@ export function MeasurableCard({ measurable: m, goalTargetDate, palette, onUpdat
       {m.type === 'ladder' && (
         <LadderRows m={m} goalTargetDate={goalTargetDate} p={p} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} />
       )}
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          StyleSheet.absoluteFill,
+          styles.cardBurst,
+          {
+            borderColor: p.accent,
+            opacity: burstOpacity,
+            transform: [{ scale: burstScale.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1.04] }) }],
+          },
+        ]}
+      />
     </View>
   );
 }
@@ -266,6 +290,7 @@ function LadderWeekRow({ week, idx, unit, p, onToggle }: {
 
 const styles = StyleSheet.create({
   card: { borderRadius: 14, padding: 14, marginBottom: 10 },
+  cardBurst: { borderRadius: 14, borderWidth: 2 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   bellTarget: {
     width: 26, height: 26, borderRadius: 13,

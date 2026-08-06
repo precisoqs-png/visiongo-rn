@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Platform,
-  Animated, PanResponder,
+  Animated, PanResponder, Easing,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -203,8 +203,15 @@ function DraggableBubble({
   const tapOpacity = useRef(new Animated.Value(1)).current;
   const handlePress = () => {
     setOpening(true);
-    Animated.timing(tapScale, { toValue: 9, duration: 260, useNativeDriver: true }).start();
-    Animated.timing(tapOpacity, { toValue: 0, duration: 260, delay: 60, useNativeDriver: true }).start();
+    // Eased (not linear) growth so the bubble accelerates into the screen
+    // smoothly instead of covering ground at a constant rate — paired with
+    // the goal canvas's own settle-in on the other side (contentScale/
+    // textOpacity in app/goal/[id]/index.tsx), the whole jump reads as one
+    // continuous motion rather than two abrupt animations stitched together.
+    Animated.timing(tapScale, {
+      toValue: 9, duration: 280, easing: Easing.out(Easing.cubic), useNativeDriver: true,
+    }).start();
+    Animated.timing(tapOpacity, { toValue: 0, duration: 240, delay: 90, useNativeDriver: true }).start();
     onPress();
   };
   // The board screen isn't necessarily remounted on the way back (a 'fade'

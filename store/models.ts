@@ -643,24 +643,44 @@ export interface Goal {
   measurableBubblePositions?: Record<string, BoardPosition>;
 }
 
-// Measurables and milestones each count as one unit of the goal, so adding a
-// milestone shows real movement on the board instead of sitting at 0%.
+// The bubble/bar fill is driven ONLY by measurables — continuous,
+// quantifiable progress (a running number, a checked box, a ladder week).
+// Milestones are discrete checkpoints, not a fill input: a single milestone
+// flipping done would otherwise jump the bar by a chunk unrelated to what
+// the bubble visually tracks. They're surfaced separately as checkpoint
+// markers (see milestoneCheckpoints) instead. The one exception is a goal
+// with milestones but zero measurables — there's nothing else to show
+// progress from, so it falls back to the milestone completion ratio.
 export function goalProgress(g: Goal): number {
-  const parts = [
-    ...g.measurables.map(measurableFraction),
-    ...(g.milestones ?? []).map(milestoneFraction),
-  ];
-  if (parts.length === 0) return 0;
-  return parts.reduce((acc, f) => acc + f, 0) / parts.length;
+  if (g.measurables.length > 0) {
+    return g.measurables.reduce((acc, m) => acc + measurableFraction(m), 0) / g.measurables.length;
+  }
+  const milestones = g.milestones ?? [];
+  if (milestones.length === 0) return 0;
+  return milestones.reduce((acc, mg) => acc + milestoneFraction(mg), 0) / milestones.length;
 }
 
 export function goalProgressPercent(g: Goal): number {
   return Math.round(goalProgress(g) * 100);
 }
 
+// Checkpoint summary for the discrete milestone markers shown alongside a
+// goal's fill (dots on GoalNote) — independent of goalProgress above.
+export function milestoneCheckpoints(g: Goal): { done: number; total: number } {
+  const milestones = g.milestones ?? [];
+  return { done: milestones.filter((mg) => milestoneFraction(mg) >= 1).length, total: milestones.length };
+}
+
+// A goal is complete only when EVERY measurable and EVERY milestone is fully
+// done — independent of goalProgress, which (per above) may ignore
+// milestones entirely once measurables exist.
 export function isCompleted(g: Goal): boolean {
   const tracked = g.measurables.length + (g.milestones?.length ?? 0);
-  return tracked > 0 && goalProgress(g) >= 1;
+  if (tracked === 0) return false;
+  return (
+    g.measurables.every((m) => measurableFraction(m) >= 1) &&
+    (g.milestones ?? []).every((mg) => milestoneFraction(mg) >= 1)
+  );
 }
 
 export interface YearData {

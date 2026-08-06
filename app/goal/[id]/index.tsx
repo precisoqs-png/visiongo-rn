@@ -16,7 +16,7 @@ import { MeasurableBubble, tickMeasurable } from '../../../components/goal/Measu
 import { MeasurableDetailSheet } from '../../../components/goal/MeasurableDetailSheet';
 import { CoachChat } from '../../../components/goal/CoachChat';
 import { SegmentedControl } from '../../../components/shared/SegmentedControl';
-import { FONTS } from '../../../theme/themes';
+import { FONTS, GOAL_NOTE_COLORS } from '../../../theme/themes';
 
 const TOP_SAFE = 90;
 const BOTTOM_SAFE = 120;
@@ -42,18 +42,30 @@ export default function GoalCanvasScreen() {
   // scaling the tapped bubble up as it navigates away, in RadialBoard), and
   // shrinks back out — the reverse of the same animation — when the user
   // taps the year row to leave, instead of a sheet sliding away.
-  const contentScale = useRef(new Animated.Value(0.85)).current;
+  //
+  // The scale range starts much closer to 1 (0.94, not 0.85) and text fades
+  // in on its own delayed timer (textOpacity) instead of riding the
+  // container's scale from the start — at a steep scale, text near the
+  // container's edges visibly slides inward as it grows, reading as "flying
+  // toward the viewer" rather than a calm zoom. Letting the frame settle
+  // first, then having the title/copy simply fade in place once it's basically
+  // there, removes that flight motion while keeping the same "jump into the
+  // bubble" concept.
+  const contentScale = useRef(new Animated.Value(0.94)).current;
   const contentOpacity = useRef(new Animated.Value(0)).current;
+  const textOpacity = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.parallel([
-      Animated.spring(contentScale, { toValue: 1, useNativeDriver: true, damping: 16, stiffness: 160 }),
-      Animated.timing(contentOpacity, { toValue: 1, duration: 220, useNativeDriver: true }),
+      Animated.spring(contentScale, { toValue: 1, useNativeDriver: true, damping: 20, stiffness: 140 }),
+      Animated.timing(contentOpacity, { toValue: 1, duration: 240, useNativeDriver: true }),
     ]).start();
+    Animated.timing(textOpacity, { toValue: 1, duration: 260, delay: 140, useNativeDriver: true }).start();
   }, []);
 
   const handleBackToBoard = () => {
+    textOpacity.setValue(0);
     Animated.parallel([
-      Animated.timing(contentScale, { toValue: 0.85, duration: 200, useNativeDriver: true }),
+      Animated.timing(contentScale, { toValue: 0.94, duration: 200, useNativeDriver: true }),
       Animated.timing(contentOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
     ]).start(() => router.replace('/(tabs)/board'));
   };
@@ -120,6 +132,7 @@ export default function GoalCanvasScreen() {
   // since this canvas's central GoalNote is a different size than the
   // board's own year-progress disc.
   const layout = computeRadialLayout(goal.measurables.length, cx, cy, size.h, MAX_BUBBLE, CENTER_SIZE);
+  const noteColor = GOAL_NOTE_COLORS[goal.colorIndex % GOAL_NOTE_COLORS.length];
 
   return (
     <LinearGradient colors={p.bgGradient as any} style={styles.root}>
@@ -132,20 +145,20 @@ export default function GoalCanvasScreen() {
           absolutely positioned and this container doesn't clip overflow, so
           without an explicit stacking guarantee a bubble placed near the top
           of the canvas could paint over the back-to-board tap target. */}
-      <View style={[styles.header, { zIndex: 10, elevation: 10 }]}>
+      <Animated.View style={[styles.header, { zIndex: 10, elevation: 10, opacity: textOpacity }]}>
         <View>
           <Text style={[styles.eyebrow, { color: p.muted }]}>GOAL CANVAS</Text>
           <Text style={[styles.motto, { color: p.text }]} numberOfLines={1}>{goal.title}</Text>
         </View>
-      </View>
+      </Animated.View>
 
-      <View style={[styles.yearRow, { zIndex: 10, elevation: 10 }]}>
+      <Animated.View style={[styles.yearRow, { zIndex: 10, elevation: 10, opacity: textOpacity }]}>
         <TouchableOpacity style={styles.yearCenter} onPress={handleBackToBoard} accessibilityLabel="Back to board">
           <Text style={[styles.yearDiamond, { color: p.accent }]}>◈</Text>
           <Text style={[styles.yearNum, { color: p.text }]}>{selectedYear}</Text>
           <Text style={[styles.yearDiamond, { color: p.accent }]}>◈</Text>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
 
       <View style={styles.segmentedWrap}>
         <SegmentedControl
@@ -182,6 +195,7 @@ export default function GoalCanvasScreen() {
               size={bubbleSize}
               center={center}
               palette={p}
+              noteColor={noteColor}
               canvasSize={size}
               onTap={() => setOpenMeasurable(m)}
               onTick={() => updateMeasurableInPlace(tickMeasurable(m))}

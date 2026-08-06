@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Text, TouchableOpacity, View, StyleSheet, Platform } from 'react-native';
-import { Goal, goalProgress, goalProgressPercent } from '../../store/models';
+import { Goal, goalProgress, goalProgressPercent, milestoneCheckpoints } from '../../store/models';
 import { Palette, GOAL_NOTE_COLORS, hexAlpha, FONTS } from '../../theme/themes';
 
 interface Props {
@@ -13,12 +13,19 @@ interface Props {
   animDelay?: number;
 }
 
+const MAX_DOTS = 6;
+
 export function GoalNote({ goal, size, palette, onPress, onLongPress, onPressOut, animDelay = 0 }: Props) {
   const scale = useRef(new Animated.Value(0)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   const noteColor = GOAL_NOTE_COLORS[goal.colorIndex % GOAL_NOTE_COLORS.length];
   const progress = goalProgress(goal);
   const pct = goalProgressPercent(goal);
+  // Milestones no longer move the fill (see goalProgress) — they're discrete
+  // checkpoints, so they're surfaced as a small tick-mark row instead. Capped
+  // at MAX_DOTS so a goal with a dozen milestones doesn't overrun a small
+  // bubble; the rest just count toward the label past that point.
+  const { done: milestonesDone, total: milestonesTotal } = milestoneCheckpoints(goal);
 
   useEffect(() => {
     Animated.parallel([
@@ -80,6 +87,29 @@ export function GoalNote({ goal, size, palette, onPress, onLongPress, onPressOut
             >
               {goal.title}
             </Text>
+            {milestonesTotal > 0 && (
+              <View style={styles.checkpointRow}>
+                {Array.from({ length: Math.min(milestonesTotal, MAX_DOTS) }, (_, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.checkpointDot,
+                      {
+                        width: Math.max(3, size * 0.045), height: Math.max(3, size * 0.045),
+                        borderRadius: Math.max(3, size * 0.045) / 2,
+                        backgroundColor: i < milestonesDone ? noteColor : 'transparent',
+                        borderColor: noteColor,
+                      },
+                    ]}
+                  />
+                ))}
+                {milestonesTotal > MAX_DOTS && (
+                  <Text style={[styles.checkpointOverflow, { color: palette.text, fontSize: size * 0.08 }]}>
+                    +{milestonesTotal - MAX_DOTS}
+                  </Text>
+                )}
+              </View>
+            )}
           </View>
         </View>
       </TouchableOpacity>
@@ -93,4 +123,7 @@ const styles = StyleSheet.create({
   labelContainer: { alignItems: 'center', paddingHorizontal: 4, zIndex: 1 },
   pct: { fontWeight: '700', textAlign: 'center' },
   title: { textAlign: 'center', marginTop: 1 },
+  checkpointRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 4 },
+  checkpointDot: { borderWidth: 1 },
+  checkpointOverflow: { fontWeight: '700', marginLeft: 1 },
 });
