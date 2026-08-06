@@ -43,8 +43,12 @@ export default function PairScreen() {
       };
       const res = await coachService.send([{ role: 'user', text: prompt }], ctx);
       setResult(res.text);
-    } catch {
-      setResult('Unable to get a reading right now. Try again!');
+    } catch (err) {
+      setResult(
+        err instanceof Error && (err as { isRateLimit?: boolean }).isRateLimit
+          ? err.message
+          : 'Unable to get a reading right now. Try again!',
+      );
     } finally {
       setLoading(false);
     }

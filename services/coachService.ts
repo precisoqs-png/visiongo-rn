@@ -3,6 +3,7 @@ import {
   Milestone, MilestoneKind, Cadence,
   milestonePercent, cadenceLabel, isStepDoneThisPeriod,
 } from '../store/models';
+import { getDeviceId } from './deviceId';
 
 // ── Types ──────────────────────────────────────────
 
@@ -808,21 +809,41 @@ export class ProxyCoachService implements CoachService {
   async send(messages: CoachMessageRaw[], ctx: CoachGoalContext): Promise<CoachResponse> {
     const base = process.env.EXPO_PUBLIC_COACH_API_URL ?? '';
     const url = `${base}/api/coach`;
+    const deviceId = await getDeviceId();
 
     let response: globalThis.Response;
     try {
       response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-device-id': deviceId },
         body: JSON.stringify({
           messages: messages.map((m) => ({ role: m.role, content: m.text })),
           systemPrompt: buildSystemPrompt(ctx),
           // No goal to edit on the Pair tab, so no tools there.
           tools: ctx.kind === 'pairing' ? [] : COACH_TOOLS,
+          // Tells the server which of the two independently-capped daily
+          // counters this request counts against.
+          kind: ctx.kind === 'pairing' ? 'pair' : 'coach',
         }),
       });
     } catch {
       return new StubCoachService().send(messages, ctx);
+    }
+
+    // A device or global cap being hit is real, user-facing information —
+    // surface it as-is instead of masking it behind the offline stub, which
+    // would look like a normal (if generic) coach reply.
+    if (response.status === 429) {
+      let msg = 'Daily limit reached. Please try again tomorrow.';
+      try {
+        const data = await response.json();
+        if (typeof data?.error === 'string') msg = data.error;
+      } catch {
+        // Keep the default message.
+      }
+      const err = new Error(msg) as Error & { isRateLimit: true };
+      err.isRateLimit = true;
+      throw err;
     }
 
     if (!response.ok) {

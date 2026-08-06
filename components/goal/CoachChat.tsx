@@ -185,8 +185,12 @@ export function CoachChat({
       addChatMessage(coachMsg, goal.id);
       setStreamingId(msgId);
       addPendingActions(response.actions, goal.id);
-    } catch {
-      setError('Coach is unavailable right now. Try again.');
+    } catch (err) {
+      setError(
+        err instanceof Error && (err as { isRateLimit?: boolean }).isRateLimit
+          ? err.message
+          : 'Coach is unavailable right now. Try again.',
+      );
     } finally {
       setLoading(false);
     }
