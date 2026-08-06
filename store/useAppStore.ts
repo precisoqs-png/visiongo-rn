@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   YearData, Goal, Measurable, ChatMessage,
   CoachAction, PendingAction,
-  Milestone, Commitment, StepSchedule,
+  Milestone, Commitment, StepSchedule, Reminder,
   BoardLayout, BoardViewMode,
   newId, newMeasurable, newMilestone, newCommitment, buildLadderWeeks,
   resolveMeasurable, resolveMilestone, periodKey, milestoneStep, snapToStep,
@@ -788,6 +788,12 @@ function normalizeYears(years: LegacyState['years']): YearData[] {
     ...y,
     goals: (y.goals ?? []).map(({ suggestions, minorGoals, ...g }): Goal => ({
       ...g,
+      // Goals persisted before the reminder feature existed have no
+      // `reminder` key at all — every screen that reads goal.reminder.on
+      // (Settings, the milestones screen, notificationService) assumes it's
+      // always present, so backfill it here rather than scattering `?.`
+      // guards across every read site.
+      reminder: g.reminder ?? ({ on: false, frequency: 'Daily' } as Reminder),
       measurables: (g.measurables ?? []).map((m) => ({
         ...m,
         step: typeof m.step === 'number' && m.step > 0 ? m.step : 1,
