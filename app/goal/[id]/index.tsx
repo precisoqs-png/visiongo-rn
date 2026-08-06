@@ -1,23 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Platform, Modal, ScrollView,
+  View, Text, TouchableOpacity, StyleSheet, Platform, Modal, ScrollView, Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../../store/useThemeStore';
 import { useAppStore } from '../../../store/useAppStore';
-import { Measurable, BoardPosition } from '../../../store/models';
+import { Measurable, BoardPosition, measurableFraction } from '../../../store/models';
 import { GoalNote } from '../../../components/board/GoalNote';
-import { Point, ringPoints, clampCenter } from '../../../components/board/RadialBoard';
+import {
+  Point, clampCenter, computeRadialLayout, MIN_BUBBLE, MAX_BUBBLE, CENTER_SIZE,
+} from '../../../components/board/RadialBoard';
 import { MeasurableBubble, tickMeasurable } from '../../../components/goal/MeasurableBubble';
 import { MeasurableDetailSheet } from '../../../components/goal/MeasurableDetailSheet';
 import { CoachChat } from '../../../components/goal/CoachChat';
 import { SegmentedControl } from '../../../components/shared/SegmentedControl';
+import { FONTS } from '../../../theme/themes';
 
-const CENTER_SIZE = 168;
-const BUBBLE_SIZE = 76;
-const RING_GAP = 14;
 const TOP_SAFE = 90;
 const BOTTOM_SAFE = 120;
 
@@ -32,9 +32,31 @@ export default function GoalCanvasScreen() {
   const p = palette;
 
   const updateGoal = useAppStore((s) => s.updateGoal);
+  const selectedYear = useAppStore((s) => s.selectedYear);
   const goal = useAppStore((s) =>
     s.years.find((y) => y.year === s.selectedYear)?.goals.find((g) => g.id === id),
   );
+
+  // "Jump through the bubble" transition: this screen grows in from a
+  // slightly-shrunk, faded-out start state on mount (paired with the board
+  // scaling the tapped bubble up as it navigates away, in RadialBoard), and
+  // shrinks back out — the reverse of the same animation — when the user
+  // taps the year row to leave, instead of a sheet sliding away.
+  const contentScale = useRef(new Animated.Value(0.85)).current;
+  const contentOpacity = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.parallel([
+      Animated.spring(contentScale, { toValue: 1, useNativeDriver: true, damping: 16, stiffness: 160 }),
+      Animated.timing(contentOpacity, { toValue: 1, duration: 220, useNativeDriver: true }),
+    ]).start();
+  }, []);
+
+  const handleBackToBoard = () => {
+    Animated.parallel([
+      Animated.timing(contentScale, { toValue: 0.85, duration: 200, useNativeDriver: true }),
+      Animated.timing(contentOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+    ]).start(() => router.replace('/(tabs)/board'));
+  };
 
   // Same SSR/hydration gate as the milestones page (see its comment) — this
   // is the URL /goal/[id] resolves to first, so it needs it too.
@@ -91,11 +113,40 @@ export default function GoalCanvasScreen() {
 
   const cx = size.w / 2;
   const cy = TOP_SAFE + (size.h - TOP_SAFE - BOTTOM_SAFE) * 0.42;
-  const ringRadius = CENTER_SIZE / 2 + BUBBLE_SIZE / 2 + RING_GAP;
-  const autoPoints = ringPoints(Math.max(goal.measurables.length, 1), ringRadius, cx, cy, 0);
+  // Same sizing/packing logic as a goal bubble on the main board: diameter
+  // interpolates MIN_BUBBLE..MAX_BUBBLE by the measurable's own progress
+  // fraction, uniformly shrunk (layout.scale) only as far as needed for
+  // every bubble to fit without overlapping — centerSize passed explicitly
+  // since this canvas's central GoalNote is a different size than the
+  // board's own year-progress disc.
+  const layout = computeRadialLayout(goal.measurables.length, cx, cy, size.h, MAX_BUBBLE, CENTER_SIZE);
 
   return (
     <LinearGradient colors={p.bgGradient as any} style={styles.root}>
+      <Animated.View style={{ flex: 1, opacity: contentOpacity, transform: [{ scale: contentScale }] }}>
+      {/* Header — same eyebrow/tagline styling as the main board's, and the
+          same year row (chevrons + "◈ year ◈"), just swapped for this
+          goal's own title instead of the board's motto. Tapping the year
+          row zooms back out to the board (see handleBackToBoard). */}
+      {/* zIndex/elevation here isn't decorative: measurable bubbles below are
+          absolutely positioned and this container doesn't clip overflow, so
+          without an explicit stacking guarantee a bubble placed near the top
+          of the canvas could paint over the back-to-board tap target. */}
+      <View style={[styles.header, { zIndex: 10, elevation: 10 }]}>
+        <View>
+          <Text style={[styles.eyebrow, { color: p.muted }]}>GOAL CANVAS</Text>
+          <Text style={[styles.motto, { color: p.text }]} numberOfLines={1}>{goal.title}</Text>
+        </View>
+      </View>
+
+      <View style={[styles.yearRow, { zIndex: 10, elevation: 10 }]}>
+        <TouchableOpacity style={styles.yearCenter} onPress={handleBackToBoard} accessibilityLabel="Back to board">
+          <Text style={[styles.yearDiamond, { color: p.accent }]}>◈</Text>
+          <Text style={[styles.yearNum, { color: p.text }]}>{selectedYear}</Text>
+          <Text style={[styles.yearDiamond, { color: p.accent }]}>◈</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.segmentedWrap}>
         <SegmentedControl
           segments={[
@@ -107,16 +158,6 @@ export default function GoalCanvasScreen() {
         />
       </View>
 
-      <View style={styles.navRow}>
-        <TouchableOpacity onPress={() => router.push('/(tabs)/board')} style={styles.yearBubble}>
-          <View style={[styles.yearDisc, { backgroundColor: p.accent }]}>
-            <Text style={[styles.yearText, { color: p.isDark ? p.bg : '#fff' }]}>
-              {useAppStore.getState().selectedYear}
-            </Text>
-          </View>
-        </TouchableOpacity>
-      </View>
-
       <View
         style={{ flex: 1 }}
         onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
@@ -126,15 +167,19 @@ export default function GoalCanvasScreen() {
         </View>
 
         {goal.measurables.map((m, idx) => {
+          const bubbleSize = Math.round(
+            (MIN_BUBBLE + measurableFraction(m) * (MAX_BUBBLE - MIN_BUBBLE)) * layout.scale,
+          );
           const saved = goal.measurableBubblePositions?.[m.id];
-          const center = saved
-            ? clampCenter({ x: saved.x * size.w, y: saved.y * size.h }, BUBBLE_SIZE / 2, size.w, size.h)
-            : autoPoints[idx] ?? { x: cx, y: cy };
+          const raw = saved
+            ? { x: saved.x * size.w, y: saved.y * size.h }
+            : layout.points[idx] ?? { x: cx, y: cy };
+          const center = clampCenter(raw, bubbleSize / 2, size.w, size.h);
           return (
             <MeasurableBubble
               key={m.id}
               measurable={m}
-              size={BUBBLE_SIZE}
+              size={bubbleSize}
               center={center}
               palette={p}
               canvasSize={size}
@@ -164,6 +209,7 @@ export default function GoalCanvasScreen() {
         <Ionicons name="sparkles" size={20} color={p.isDark ? p.bg : '#fff'} />
         <Text style={[styles.coachFabText, { color: p.isDark ? p.bg : '#fff' }]}>Coach</Text>
       </TouchableOpacity>
+      </Animated.View>
 
       <Modal visible={coachOpen} transparent animationType="slide" onRequestClose={() => setCoachOpen(false)}>
         <TouchableOpacity style={styles.coachBackdrop} activeOpacity={1} onPress={() => setCoachOpen(false)}>
@@ -203,17 +249,24 @@ export default function GoalCanvasScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, paddingTop: Platform.OS === 'ios' ? 50 : 30 },
-  navRow: {
+  // header/eyebrow/motto/yearRow/yearCenter/yearDiamond/yearNum are a
+  // deliberate 1:1 copy of app/(tabs)/board.tsx's own styles, so this top
+  // section reads as the same header, not a re-styled lookalike.
+  header: {
+    flexDirection: 'row', alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingBottom: 8,
+  },
+  eyebrow: { fontSize: 11, fontWeight: '600', letterSpacing: 2 },
+  motto: { fontSize: 15, fontStyle: 'italic', marginTop: 2 },
+  yearRow: {
     flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 20, marginBottom: 8,
+    justifyContent: 'center', gap: 20, paddingVertical: 6,
   },
-  yearBubble: { alignItems: 'center', justifyContent: 'center' },
-  yearDisc: {
-    width: 44, height: 44, borderRadius: 22,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  yearText: { fontSize: 13, fontWeight: '700' },
-  segmentedWrap: { paddingHorizontal: 20, marginBottom: 4 },
+  yearCenter: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  yearDiamond: { fontSize: 14 },
+  yearNum: { fontSize: 18, fontWeight: '700', fontFamily: FONTS.display },
+  segmentedWrap: { marginHorizontal: 20, marginBottom: 6 },
   centerWrap: { position: 'absolute' },
   emptyHint: { position: 'absolute', left: 32, right: 32, alignItems: 'center' },
   emptyHintText: { fontSize: 13, lineHeight: 19, textAlign: 'center' },

@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   Goal, YearData, BoardPosition,
   yearOverallProgress, isCompleted, goalProgress,
@@ -26,9 +27,14 @@ interface Props {
   onRealign: () => void;
 }
 
-const CENTER_SIZE = 132;
-const MIN_BUBBLE = 70;
-const MAX_BUBBLE = 102;
+export const CENTER_SIZE = 132;
+// A bubble's diameter interpolates between these by the goal's own progress
+// fraction (0 -> MIN_BUBBLE, 1 -> MAX_BUBBLE) before the crowd-shrink scale
+// from computeRadialLayout is applied — exported so other bubble canvases
+// (the goal detail screen's Measurables) size consistently with the board
+// instead of picking their own numbers.
+export const MIN_BUBBLE = 70;
+export const MAX_BUBBLE = 102;
 const BOTTOM_SAFE = 88;
 const TOP_SAFE = 8;
 const TRASH_SIZE = 56;
@@ -93,11 +99,12 @@ interface RadialLayout {
 // closer to the centre disc and further out before leaving the board.
 function tryScale(
   count: number, scale: number, cx: number, cy: number, boardH: number, diameter: number,
+  centerSize: number,
 ): RadialLayout | null {
   const d = diameter * scale;
   const pad = d / 2 + 6;
   const safeR = Math.min(cx - pad, cy - TOP_SAFE - pad, boardH - BOTTOM_SAFE - cy - pad);
-  const innerR = CENTER_SIZE / 2 + d / 2 + BUBBLE_GAP;
+  const innerR = centerSize / 2 + d / 2 + BUBBLE_GAP;
   // On a short board the safe ring can fall inside the centre disc; orbiting
   // slightly off-board beats sitting on top of the year bubble.
   const outerR = Math.max(safeR, innerR);
@@ -125,20 +132,25 @@ function tryScale(
 // so the answer is exact rather than snapped to a ladder of guesses. Verified
 // overlap-free for up to 24 goals on every phone-sized board; past MIN_SCALE
 // bubbles would be too small to read, so that floor wins over the guarantee.
-function computeRadialLayout(
+// `centerSize` defaults to the board's own year-progress disc — pass the
+// actual center bubble's diameter when reusing this elsewhere (the goal
+// canvas's central GoalNote is a different size) so the innermost ring
+// doesn't crowd or gap away from whatever's actually in the middle.
+export function computeRadialLayout(
   count: number, cx: number, cy: number, boardH: number, diameter: number,
+  centerSize: number = CENTER_SIZE,
 ): RadialLayout {
   if (count === 0) return { points: [], scale: 1 };
 
-  const full = tryScale(count, 1, cx, cy, boardH, diameter);
+  const full = tryScale(count, 1, cx, cy, boardH, diameter, centerSize);
   if (full) return full;
 
   let lo = MIN_SCALE;
   let hi = 1;
-  let best = tryScale(count, MIN_SCALE, cx, cy, boardH, diameter);
+  let best = tryScale(count, MIN_SCALE, cx, cy, boardH, diameter, centerSize);
   for (let i = 0; i < 18; i++) {
     const mid = (lo + hi) / 2;
-    const attempt = tryScale(count, mid, cx, cy, boardH, diameter);
+    const attempt = tryScale(count, mid, cx, cy, boardH, diameter, centerSize);
     if (attempt) { best = attempt; lo = mid; } else { hi = mid; }
   }
   return best ?? {
@@ -180,6 +192,32 @@ function DraggableBubble({
   const [dragging, setDragging] = useState(false);
   const draggingRef = useRef(false);
   const movedRef = useRef(false);
+
+  // "Jump through the bubble": tapping grows this bubble to fill the screen
+  // and fades it out while navigating, instead of a sheet sliding up over
+  // the board — the goal canvas's own entry animation (a small grow-and-
+  // fade-in on mount) picks up where this leaves off, on the other side of
+  // the (now gestureless, non-modal) screen transition.
+  const [opening, setOpening] = useState(false);
+  const tapScale = useRef(new Animated.Value(1)).current;
+  const tapOpacity = useRef(new Animated.Value(1)).current;
+  const handlePress = () => {
+    setOpening(true);
+    Animated.timing(tapScale, { toValue: 9, duration: 260, useNativeDriver: true }).start();
+    Animated.timing(tapOpacity, { toValue: 0, duration: 260, delay: 60, useNativeDriver: true }).start();
+    onPress();
+  };
+  // The board screen isn't necessarily remounted on the way back (a 'fade'
+  // stack transition can just reveal it again) — without this, a bubble
+  // tapped open would still be mid-"grow and vanish" the next time the
+  // board comes into focus.
+  useFocusEffect(
+    React.useCallback(() => {
+      setOpening(false);
+      tapScale.setValue(1);
+      tapOpacity.setValue(1);
+    }, []),
+  );
 
   // The bubble is laid out at its target centre; `settle` holds the offset
   // from where it used to be, springing to zero. That turns any position
@@ -266,8 +304,10 @@ function DraggableBubble({
           transform: [
             { translateX: Animated.add(pan.x, settle.x) },
             { translateY: Animated.add(pan.y, settle.y) },
+            { scale: tapScale },
           ],
-          zIndex: dragging ? 20 : 1,
+          opacity: tapOpacity,
+          zIndex: opening ? 30 : dragging ? 20 : 1,
         },
         dragging && styles.draggingBubble,
       ]}
@@ -276,7 +316,7 @@ function DraggableBubble({
         goal={goal}
         size={size}
         palette={palette}
-        onPress={onPress}
+        onPress={handlePress}
         onLongPress={startDrag}
         onPressOut={() => {
           // Long-pressed but never moved and the pan never took over —

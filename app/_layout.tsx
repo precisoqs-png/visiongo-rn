@@ -34,7 +34,17 @@ export default function RootLayout() {
         <Stack.Screen name="index" />
         <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="goal/[id]/index" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
+        {/* Not a modal: the canvas grows out of the tapped bubble (see
+            RadialBoard's onPress) and shrinks back into it on the way out
+            (see the goal canvas's handleBackToBoard) — a swipe-down
+            dismissal would fight that illusion, so it's off entirely
+            rather than just discouraged. A plain fade lets those two
+            local scale animations carry the transition instead of a
+            slide competing with them. */}
+        <Stack.Screen
+          name="goal/[id]/index"
+          options={{ animation: 'fade', gestureEnabled: false }}
+        />
         <Stack.Screen name="goal/[id]/milestones" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="goal/[id]/measurables" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="completed" options={{ animation: 'slide_from_right' }} />
