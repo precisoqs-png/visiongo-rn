@@ -14,6 +14,7 @@ import { GridBoard } from '../../components/board/GridBoard';
 import { MonthBoard } from '../../components/board/MonthBoard';
 import { TemplatePicker } from '../../components/board/TemplatePicker';
 import { GoalActionSheet } from '../../components/board/GoalActionSheet';
+import { SegmentedControl } from '../../components/shared/SegmentedControl';
 import { FONTS } from '../../theme/themes';
 
 export default function BoardScreen() {
@@ -107,23 +108,16 @@ export default function BoardScreen() {
         </View>
 
         {!isEmpty && (
-          <View style={[styles.segmented, { backgroundColor: p.line }]}>
-            {(['wholeYear', 'byMonth'] as const).map((mode) => (
-              <TouchableOpacity
-                key={mode}
-                style={[styles.segBtn, boardViewMode === mode && { backgroundColor: p.ink }]}
-                onPress={() => setBoardViewMode(mode)}
-              >
-                <Text
-                  style={[
-                    styles.segText,
-                    { color: boardViewMode === mode ? (p.isDark ? p.bg : '#fff') : p.muted },
-                  ]}
-                >
-                  {mode === 'wholeYear' ? 'Whole Year' : 'By Month'}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          <View style={styles.segmentedWrap}>
+            <SegmentedControl
+              segments={[
+                { key: 'wholeYear', label: 'Whole Year' },
+                { key: 'byMonth', label: 'By Month' },
+              ]}
+              value={boardViewMode}
+              onChange={setBoardViewMode}
+              palette={p}
+            />
           </View>
         )}
 
@@ -235,12 +229,7 @@ const styles = StyleSheet.create({
   yearCenter: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   yearDiamond: { fontSize: 14 },
   yearNum: { fontSize: 18, fontWeight: '700', fontFamily: FONTS.display },
-  segmented: {
-    flexDirection: 'row', borderRadius: 20, padding: 3,
-    marginHorizontal: 20, marginBottom: 6, gap: 2,
-  },
-  segBtn: { flex: 1, paddingVertical: 7, borderRadius: 16, alignItems: 'center' },
-  segText: { fontSize: 13, fontWeight: '500' },
+  segmentedWrap: { marginHorizontal: 20, marginBottom: 6 },
   emptyWrap: {
     flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 16,
   },

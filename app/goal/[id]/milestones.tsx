@@ -7,20 +7,15 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useThemeStore } from '../../store/useThemeStore';
-import { useAppStore } from '../../store/useAppStore';
-import { GOAL_NOTE_COLORS, hexAlpha, FONTS } from '../../theme/themes';
+import { useThemeStore } from '../../../store/useThemeStore';
+import { useAppStore } from '../../../store/useAppStore';
+import { GOAL_NOTE_COLORS, hexAlpha, FONTS } from '../../../theme/themes';
 import {
-  goalProgress, goalProgressPercent, isCompleted, Commitment, Milestone, Measurable,
-  Cadence, StepSchedule, DEFAULT_SCHEDULE,
-} from '../../store/models';
-import { MeasurableCard } from '../../components/goal/MeasurableCard';
-import { AddMeasurableForm } from '../../components/goal/AddMeasurableForm';
-import { MilestoneSection } from '../../components/goal/MilestoneSection';
-import { CoachChat } from '../../components/goal/CoachChat';
-import { CalendarPicker } from '../../components/shared/CalendarPicker';
-import { InfoPopover } from '../../components/shared/InfoPopover';
-import { StepScheduleSheet } from '../../components/goal/StepScheduleSheet';
+  goalProgress, goalProgressPercent, isCompleted, Commitment, Milestone,
+} from '../../../store/models';
+import { MilestoneSection } from '../../../components/goal/MilestoneSection';
+import { CoachChat } from '../../../components/goal/CoachChat';
+import { CalendarPicker } from '../../../components/shared/CalendarPicker';
 import {
   requestNotificationPermission,
   scheduleGoalNotification,
@@ -29,10 +24,9 @@ import {
   syncWeeklyTargetNotifications,
   syncCommitmentNotifications,
   cancelCommitmentNotification,
-  syncMeasurableReminders,
   cancelEverythingForGoal,
   alertNotificationsUnavailable,
-} from '../../services/notificationService';
+} from '../../../services/notificationService';
 
 function localDate(iso: string): Date {
   const [y, mo, d] = iso.slice(0, 10).split('-').map(Number);
@@ -47,9 +41,6 @@ export default function GoalDetailScreen() {
 
   const updateGoal = useAppStore((s) => s.updateGoal);
   const deleteGoal = useAppStore((s) => s.deleteGoal);
-  const addMeasurable = useAppStore((s) => s.addMeasurable);
-  const updateMeasurable = useAppStore((s) => s.updateMeasurable);
-  const deleteMeasurable = useAppStore((s) => s.deleteMeasurable);
   const addMilestone = useAppStore((s) => s.addMilestone);
   const updateMilestone = useAppStore((s) => s.updateMilestone);
   const deleteMilestone = useAppStore((s) => s.deleteMilestone);
@@ -138,47 +129,6 @@ export default function GoalDetailScreen() {
     }
     updateCommitment(step, mgId, id!);
     resyncStepNotifications();
-  };
-
-  // Same reminder capability as a Milestone's Commitment, reusing
-  // StepScheduleSheet + the notification-scheduling logic unchanged — the
-  // sheet stays open on one measurable at a time, driven from here rather
-  // than per-card, so permission-requesting stays in one place (as it
-  // already does for the goal bell and step reminders above).
-  const [scheduleForMeasurable, setScheduleForMeasurable] = useState<Measurable | null>(null);
-
-  const resyncMeasurableNotifications = () => {
-    const fresh = useAppStore.getState().getGoal(id!);
-    if (fresh && useAppStore.getState().notificationsMasterOn) {
-      void syncMeasurableReminders(fresh);
-    }
-  };
-
-  const saveMeasurableSchedule = async (
-    patch: { cadence: Cadence; intervalDays?: number; schedule: StepSchedule },
-  ) => {
-    const m = scheduleForMeasurable;
-    if (!m) return;
-    if (patch.schedule.on) {
-      const granted = await requestNotificationPermission();
-      if (!granted) {
-        alertNotificationsUnavailable();
-        updateMeasurable({ ...m, ...patch, schedule: { ...patch.schedule, on: false } }, id!);
-        setScheduleForMeasurable(null);
-        return;
-      }
-    }
-    updateMeasurable({ ...m, ...patch }, id!);
-    setScheduleForMeasurable(null);
-    resyncMeasurableNotifications();
-  };
-
-  const turnOffMeasurableReminder = () => {
-    const m = scheduleForMeasurable;
-    if (!m) return;
-    updateMeasurable({ ...m, schedule: { ...(m.schedule ?? DEFAULT_SCHEDULE), on: false } }, id!);
-    setScheduleForMeasurable(null);
-    resyncMeasurableNotifications();
   };
 
   // Hands an effort milestone to the coach: seeds a message the coach answers
@@ -300,7 +250,7 @@ export default function GoalDetailScreen() {
           <View style={styles.navRow}>
             <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
               <Ionicons name="chevron-back" size={16} color={p.text} />
-              <Text style={[styles.backText, { color: p.text }]}>Board</Text>
+              <Text style={[styles.backText, { color: p.text }]}>Canvas</Text>
             </TouchableOpacity>
             <Text style={[styles.goalLabel, { color: p.muted }]}>GOAL · {useAppStore.getState().selectedYear}</Text>
             <View style={styles.navActions}>
@@ -416,7 +366,8 @@ export default function GoalDetailScreen() {
                 <Text style={[styles.decompTitle, { color: p.text }]}>Nothing here yet</Text>
                 <Text style={[styles.decompBody, { color: p.muted }]}>
                   Let the coach break "{goal.title}" into concrete steps and a recurring
-                  commitment — or add things yourself below.
+                  commitment — or add a milestone yourself below. Measurables live on the
+                  goal's bubble canvas now.
                 </Text>
               </View>
               <TouchableOpacity
@@ -431,54 +382,6 @@ export default function GoalDetailScreen() {
             </View>
           </View>
         )}
-
-        <View style={styles.section}>
-          <View style={styles.eyebrowRow}>
-            <Text style={[styles.eyebrow, { color: p.muted }]}>MEASURABLES</Text>
-            <InfoPopover
-              palette={p}
-              title="Measurables vs Milestones"
-              body={
-                'Measurables are quick, directly-trackable items on this goal itself — a ' +
-                'checkbox ("Sign up for a race"), a running number ("145/150 days active"), ' +
-                'or a weekly ladder. A good measurable is concrete and countable: a specific ' +
-                'unit and target you can tick up as you go, with no sub-goal of its own.\n\n' +
-                'Milestones are sub-goals — "Save $10,000", "Run a marathon" — that can carry ' +
-                "their own deadline and a recurring Commitment you get reminded about on a " +
-                'schedule (weekly, monthly, or custom). Reach for a Milestone when a piece of ' +
-                'the goal deserves its own repeatable action, not just a one-time tick.'
-              }
-            />
-          </View>
-          <Text style={[styles.layerHint, { color: p.muted }]}>
-            Quick checklist items you track directly on this goal. For a sub-goal with its
-            own recurring commitment and reminder, use Milestones below instead.
-          </Text>
-          {goal.measurables.length === 0 ? (
-            <Text style={[styles.emptyHint, { color: p.muted }]}>
-              No measurables yet. Add one below or ask your coach.
-            </Text>
-          ) : (
-            goal.measurables.map((m) => (
-              <MeasurableCard
-                key={m.id}
-                measurable={m}
-                goalTargetDate={goal.targetDate}
-                palette={p}
-                onUpdate={(m) => { updateMeasurable(m, goal.id); resyncWeekNotifications(); }}
-                onDelete={(mid) => { deleteMeasurable(mid, goal.id); resyncWeekNotifications(); }}
-                onOpenSchedule={(m) => setScheduleForMeasurable(m)}
-              />
-            ))
-          )}
-        </View>
-
-        <View style={styles.section}>
-          <AddMeasurableForm
-            palette={p}
-            onAdd={(m) => { addMeasurable(m, goal.id); resyncWeekNotifications(); }}
-          />
-        </View>
 
         <View style={styles.section}>
           <MilestoneSection
@@ -538,17 +441,6 @@ export default function GoalDetailScreen() {
           setShowDatePicker(false);
         }}
         onDismiss={() => setShowDatePicker(false)}
-      />
-
-      {/* Reminder sheet for a Measurable — same component + logic as a
-          Milestone Commitment's, just saving onto the measurable instead. */}
-      <StepScheduleSheet
-        visible={!!scheduleForMeasurable}
-        step={scheduleForMeasurable}
-        palette={p}
-        onSave={(patch) => { void saveMeasurableSchedule(patch); }}
-        onTurnOff={turnOffMeasurableReminder}
-        onDismiss={() => setScheduleForMeasurable(null)}
       />
     </LinearGradient>
   );
