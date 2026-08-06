@@ -9,7 +9,7 @@ import {
   newId, newMeasurable, newMilestone, newCommitment, buildLadderWeeks,
   resolveMeasurable, resolveMilestone, periodKey, milestoneStep, snapToStep,
   DEFAULT_SCHEDULE, currentBuildUpWeek, isStepDoneThisPeriod, currentStepPeriodDueDate,
-  formatNumber,
+  formatNumber, isCompleted,
 } from './models';
 import { GOAL_NOTE_COLORS as COLORS } from '../theme/themes';
 
@@ -98,6 +98,10 @@ interface AppState {
 
   // Drops every hand-placed bubble position so the board re-runs its layout.
   realignBoard: () => void;
+
+  // Marks a goal's board completion-flight animation as played (see
+  // Goal.completionCelebrated) — called once the pop/confetti/fly finishes.
+  markGoalCelebrated: (goalId: string) => void;
 }
 
 export interface TaskItem {
@@ -583,6 +587,15 @@ export const useAppStore = create<AppState>()(
           ),
         }));
       },
+
+      markGoalCelebrated: (goalId) => {
+        set((s) => ({
+          years: s.years.map((y) => ({
+            ...y,
+            goals: y.goals.map((g) => (g.id === goalId ? { ...g, completionCelebrated: true } : g)),
+          })),
+        }));
+      },
     }),
     {
       name: 'visiongo-app-data',
@@ -598,6 +611,46 @@ export const useAppStore = create<AppState>()(
     }
   )
 );
+
+// ── Completion-flag watcher ─────────────────────────────────────
+//
+// Marks Goal.completionCelebrated = false the moment a goal's own
+// isCompleted() flips from false to true, and clears it back to unset the
+// moment isCompleted() goes false again (so a later re-completion — e.g.
+// after deleting and re-adding a measurable — celebrates again). This lives
+// here, once, instead of inside every mutation path that could touch a
+// measurable or milestone (updateMeasurable, deleteMeasurable, _patchGoal,
+// applyCoachAction, direct updateGoal calls…) — subscribing to the store
+// sees every one of those regardless of which action fired.
+//
+// `seen` starts empty, not populated from the persisted snapshot, so goals
+// that are ALREADY complete the first time this runs (app boot, or a fresh
+// mount after navigating) are never treated as "just transitioned" — only a
+// transition observed live, within this store's lifetime, owes a
+// celebration. That's what keeps a goal completed before this feature
+// existed (or completed in a previous session) from replaying the board
+// animation the next time the app loads.
+const seenCompletion = new Map<string, boolean>();
+useAppStore.subscribe((state) => {
+  const patches = new Map<string, boolean | undefined>();
+  state.years.forEach((y) => y.goals.forEach((g) => {
+    const nowDone = isCompleted(g);
+    const wasDone = seenCompletion.get(g.id);
+    if (nowDone && wasDone === false && g.completionCelebrated !== false) {
+      patches.set(g.id, false);
+    } else if (!nowDone && g.completionCelebrated !== undefined) {
+      patches.set(g.id, undefined);
+    }
+    seenCompletion.set(g.id, nowDone);
+  }));
+  if (patches.size === 0) return;
+  useAppStore.setState((s) => ({
+    years: s.years.map((y) => ({
+      ...y,
+      goals: y.goals.map((g) => (patches.has(g.id) ? { ...g, completionCelebrated: patches.get(g.id) } : g)),
+    })),
+  }));
+});
 
 // ── Coach action reducer ──────────────────────────────────────
 //

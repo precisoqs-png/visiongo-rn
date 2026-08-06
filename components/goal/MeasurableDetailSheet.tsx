@@ -9,6 +9,10 @@ interface Props {
   measurable: Measurable | null;
   goalTargetDate?: string;
   palette: Palette;
+  // The parent goal's own color — passed straight through to MeasurableCard
+  // so a bubble opened from the canvas edits in the same color it's shown
+  // in, not the theme's flat accent tone.
+  noteColor: string;
   onUpdate: (m: Measurable) => void;
   onDelete: (id: string) => void;
   onDismiss: () => void;
@@ -18,7 +22,7 @@ interface Props {
 // gets in the old list view (MeasurableCard, unchanged), just surfaced in a
 // modal since the bubble itself is too small for steppers/ladder weeks.
 export function MeasurableDetailSheet({
-  measurable, goalTargetDate, palette: p, onUpdate, onDelete, onDismiss,
+  measurable, goalTargetDate, palette: p, noteColor, onUpdate, onDelete, onDismiss,
 }: Props) {
   return (
     <Modal visible={!!measurable} transparent animationType="fade" onRequestClose={onDismiss}>
@@ -41,6 +45,7 @@ export function MeasurableDetailSheet({
               measurable={measurable}
               goalTargetDate={goalTargetDate}
               palette={p}
+              noteColor={noteColor}
               onUpdate={onUpdate}
               onDelete={(mid) => { onDelete(mid); onDismiss(); }}
             />

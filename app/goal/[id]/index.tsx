@@ -253,6 +253,7 @@ export default function GoalCanvasScreen() {
         measurable={openMeasurable}
         goalTargetDate={goal.targetDate}
         palette={p}
+        noteColor={noteColor}
         onUpdate={updateMeasurableInPlace}
         onDelete={(mid) => { deleteMeasurableInPlace(mid); setOpenMeasurable(null); }}
         onDismiss={() => setOpenMeasurable(null)}

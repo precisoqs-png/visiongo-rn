@@ -165,6 +165,7 @@ export default function MeasurablesListScreen() {
                 measurable={m}
                 goalTargetDate={goal.targetDate}
                 palette={p}
+                noteColor={noteColor}
                 onUpdate={(m) => { updateMeasurable(m, goal.id); resyncWeekNotifications(); }}
                 onDelete={(mid) => { deleteMeasurable(mid, goal.id); resyncWeekNotifications(); }}
                 onOpenSchedule={(m) => setScheduleForMeasurable(m)}

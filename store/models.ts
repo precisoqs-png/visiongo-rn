@@ -641,6 +641,16 @@ export interface Goal {
   // boardPosition on the main board. Absent entries auto-place on a ring
   // around the central goal bubble.
   measurableBubblePositions?: Record<string, BoardPosition>;
+  // Whether the board's pop/confetti/fly-to-completed-column animation has
+  // already played for this goal's current completion. `false` means the
+  // goal just became complete and the board still owes it that animation;
+  // `true` (or unset) means either it was already celebrated, or it isn't
+  // complete right now. Managed centrally by the completion-flag watcher in
+  // useAppStore (not by any single mutation path) — see there for why. A
+  // goal completed before this field existed is treated as already
+  // celebrated (unset defaults to "nothing owed"), so old data never
+  // replays the animation retroactively.
+  completionCelebrated?: boolean;
 }
 
 // The bubble/bar fill is driven ONLY by measurables — continuous,

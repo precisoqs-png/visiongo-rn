@@ -10,9 +10,10 @@ import {
   Goal, YearData, BoardPosition,
   yearOverallProgress, isCompleted, goalProgress,
 } from '../../store/models';
-import { Palette, FONTS } from '../../theme/themes';
+import { Palette, FONTS, GOAL_NOTE_COLORS, hexAlpha } from '../../theme/themes';
 import { ProgressRing } from '../shared/ProgressRing';
 import { GoalNote } from './GoalNote';
+import { useAppStore } from '../../store/useAppStore';
 
 interface Props {
   yearData: YearData;
@@ -44,6 +45,30 @@ const MAX_RINGS = 3;
 // Bubbles never shrink below this fraction of their normal size — past it the
 // title and percentage stop being readable.
 const MIN_SCALE = 0.25;
+
+// ── Completed column (docked left) ─────────────────────────────
+//
+// A goal reaching 100% no longer keeps growing with the rest of the ring —
+// it pops, bursts a bit of confetti, then flies over to this compact column
+// instead, and drops out of the radial ring for good.
+const CHIP_SIZE = 34;
+const CHIP_GAP = 10;
+const COLUMN_LEFT = 16;
+const COLUMN_TOP = 118;
+const MAX_VISIBLE_CHIPS = 6;
+const CONFETTI_COUNT = 8;
+// How long the pop + confetti burst plays before the bubble starts flying to
+// the column — long enough to read as its own beat, not just a blip before
+// the motion starts.
+const POP_MS = 620;
+const FLY_MS = 480;
+
+function columnChipCenter(index: number): Point {
+  return {
+    x: COLUMN_LEFT + CHIP_SIZE / 2,
+    y: COLUMN_TOP + index * (CHIP_SIZE + CHIP_GAP) + CHIP_SIZE / 2,
+  };
+}
 
 export interface Point { x: number; y: number }
 
@@ -164,6 +189,138 @@ export function clampCenter(p: Point, r: number, w: number, h: number): Point {
     x: Math.min(Math.max(p.x, r), w - r),
     y: Math.min(Math.max(p.y, TOP_SAFE + r), h - BOTTOM_SAFE - r + 24),
   };
+}
+
+// ── Completion flight ────────────────────────────────────────────
+//
+// Plays once per goal, the moment it transitions from incomplete to
+// complete: a quick pop, a handful of colored dots bursting outward (no
+// confetti library — plain Animated.View dots, same "no new deps" rule as
+// the rest of the app's animations), then a fly from wherever the bubble sat
+// on the ring over to its slot in the completed column, shrinking to chip
+// size as it goes. `onDone` removes it from the board's `flights` map, at
+// which point it's simply a completed goal like any other — nothing further
+// animates it.
+function CompletionFlight({
+  goal, from, size, target, palette, onDone,
+}: {
+  goal: Goal; from: Point; size: number; target: Point; palette: Palette; onDone: () => void;
+}) {
+  const noteColor = GOAL_NOTE_COLORS[goal.colorIndex % GOAL_NOTE_COLORS.length];
+  const pop = useRef(new Animated.Value(0.7)).current;
+  const flyX = useRef(new Animated.Value(0)).current;
+  const flyY = useRef(new Animated.Value(0)).current;
+  const flyScale = useRef(new Animated.Value(1)).current;
+  const confetti = useRef(
+    Array.from({ length: CONFETTI_COUNT }, (_, i) => ({
+      progress: new Animated.Value(0),
+      angle: (i / CONFETTI_COUNT) * Math.PI * 2 + Math.random() * 0.4,
+    })),
+  ).current;
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    }
+    // Pop: overshoot past full size, then settle — the "pop" itself.
+    Animated.sequence([
+      Animated.timing(pop, { toValue: 1.3, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.spring(pop, { toValue: 1, useNativeDriver: true, damping: 8, stiffness: 180 }),
+    ]).start();
+    Animated.parallel(
+      confetti.map((c) => Animated.timing(c.progress, {
+        toValue: 1, duration: 560, easing: Easing.out(Easing.quad), useNativeDriver: true,
+      })),
+    ).start();
+
+    const dx = target.x - from.x;
+    const dy = target.y - from.y;
+    const targetScale = CHIP_SIZE / size;
+    const timer = setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(flyX, { toValue: dx, duration: FLY_MS, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(flyY, { toValue: dy, duration: FLY_MS, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(flyScale, { toValue: targetScale, duration: FLY_MS, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
+      ]).start(() => onDone());
+    }, POP_MS);
+    return () => clearTimeout(timer);
+    // Deliberately runs once — from/target/size are the values captured at
+    // the moment the transition was detected and never change mid-flight.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <View
+      pointerEvents="none"
+      style={{ position: 'absolute', left: from.x - size / 2, top: from.y - size / 2, width: size, height: size }}
+    >
+      <Animated.View
+        style={{
+          width: size, height: size, borderRadius: size / 2,
+          transform: [{ translateX: flyX }, { translateY: flyY }, { scale: Animated.multiply(pop, flyScale) }],
+        }}
+      >
+        <View
+          style={{
+            width: size, height: size, borderRadius: size / 2,
+            backgroundColor: hexAlpha(noteColor, 0.35),
+            borderColor: noteColor, borderWidth: 1.5,
+            alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <Ionicons name="checkmark" size={size * 0.32} color={noteColor} />
+        </View>
+      </Animated.View>
+      {confetti.map((c, i) => {
+        const dist = size * 0.85;
+        const tx = Math.cos(c.angle) * dist;
+        const ty = Math.sin(c.angle) * dist;
+        return (
+          <Animated.View
+            key={i}
+            style={{
+              position: 'absolute', left: size / 2 - 4, top: size / 2 - 4,
+              width: 7, height: 7, borderRadius: 2,
+              backgroundColor: GOAL_NOTE_COLORS[(goal.colorIndex + i) % GOAL_NOTE_COLORS.length],
+              opacity: c.progress.interpolate({ inputRange: [0, 0.65, 1], outputRange: [1, 1, 0] }),
+              transform: [
+                { translateX: c.progress.interpolate({ inputRange: [0, 1], outputRange: [0, tx] }) },
+                { translateY: c.progress.interpolate({ inputRange: [0, 1], outputRange: [0, ty] }) },
+                { rotate: c.progress.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '200deg'] }) },
+              ],
+            }}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
+// One chip in the completed column — a small colored circle in the goal's
+// own color (not the board's flat accent), same identity language as its
+// board bubble and canvas carried before it finished.
+function CompletedChip({ goal, index, onPress }: { goal: Goal; index: number; onPress: () => void }) {
+  const noteColor = GOAL_NOTE_COLORS[goal.colorIndex % GOAL_NOTE_COLORS.length];
+  const center = columnChipCenter(index);
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      accessibilityLabel={`${goal.title}, completed`}
+      style={[
+        styles.completedChip,
+        {
+          left: center.x - CHIP_SIZE / 2,
+          top: center.y - CHIP_SIZE / 2,
+          width: CHIP_SIZE, height: CHIP_SIZE, borderRadius: CHIP_SIZE / 2,
+          backgroundColor: hexAlpha(noteColor, 0.35),
+          borderColor: noteColor,
+        },
+        Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : undefined,
+      ]}
+    >
+      <Ionicons name="checkmark" size={14} color={noteColor} />
+    </TouchableOpacity>
+  );
 }
 
 // ── Draggable bubble ─────────────────────────────────────────────
@@ -348,7 +505,7 @@ export function RadialBoard({
   const centerScale = useRef(new Animated.Value(1)).current;
 
   const activeGoals = yearData.goals.filter((g) => !isCompleted(g));
-  const completedCount = yearData.goals.filter((g) => isCompleted(g)).length;
+  const completedGoals = yearData.goals.filter((g) => isCompleted(g));
   const overallProg = yearOverallProgress(yearData);
   const pct = Math.round(overallProg * 100);
 
@@ -361,6 +518,53 @@ export function RadialBoard({
   );
 
   const trashCenter: Point = { x: size.w / 2, y: size.h - BOTTOM_SAFE / 2 - 4 };
+
+  // ── Completion flights ─────────────────────────────────────────
+  //
+  // A ring bubble that just hit 100% doesn't disappear the instant
+  // `isCompleted` flips true — it keeps rendering (as an overlaid
+  // CompletionFlight, not as part of the ring) until its pop/confetti/fly
+  // animation finishes, then it's gone from the ring for good and shows up
+  // as a chip in the completed column instead. `lastCenterRef` remembers
+  // where every still-active bubble currently sits so a flight has a real
+  // start point to animate from — it's updated every render, not just on
+  // completion, since we don't know which goal will complete next.
+  const lastCenterRef = useRef<Map<string, { center: Point; size: number }>>(new Map());
+  const [flights, setFlights] = useState<Record<string, { goal: Goal; from: Point; size: number; target: Point }>>({});
+
+  // A goal "owes" this animation when it's complete but hasn't been
+  // celebrated yet (Goal.completionCelebrated === false) — a flag managed
+  // centrally in useAppStore's completion-flag watcher, not derived from
+  // comparing renders here. That's what makes this correct even though the
+  // board is a completely different mounted component from wherever the
+  // completing edit actually happened (almost always the goal detail
+  // screen): the flag survives the navigation, this effect doesn't need to.
+  useEffect(() => {
+    const owed = yearData.goals.filter((g) => isCompleted(g) && g.completionCelebrated === false);
+    if (owed.length === 0) return;
+    setFlights((prev) => {
+      const next = { ...prev };
+      const pending = owed.filter((g) => !next[g.id]);
+      if (pending.length === 0) return prev;
+      const settledCount = completedGoals.filter((g) => !next[g.id] && g.completionCelebrated !== false).length;
+      pending.forEach((g, i) => {
+        const last = lastCenterRef.current.get(g.id);
+        const from = last?.center ?? { x: cx, y: cy };
+        const fromSize = last?.size ?? MIN_BUBBLE;
+        const target = columnChipCenter(Math.min(settledCount + i, MAX_VISIBLE_CHIPS - 1));
+        next[g.id] = { goal: g, from, size: fromSize, target };
+      });
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [yearData.goals]);
+
+  const flightIds = new Set(Object.keys(flights));
+  // Chips shown in the column: everyone completed except a goal still mid-
+  // flight (it renders as the flight overlay instead, until it lands).
+  const columnGoals = completedGoals.filter((g) => !flightIds.has(g.id));
+  const visibleColumnGoals = columnGoals.slice(0, MAX_VISIBLE_CHIPS - (columnGoals.length > MAX_VISIBLE_CHIPS ? 1 : 0));
+  const overflowCount = columnGoals.length - visibleColumnGoals.length;
 
   // Tapping the centre bubble tidies the board: every dragged position is
   // dropped and the bubbles spring back into an even radial arrangement.
@@ -464,6 +668,10 @@ export function RadialBoard({
               bubbleSize / 2, size.w, size.h,
             )
           : layout.points[idx] ?? { x: cx, y: cy };
+        // Remembered so a completion flight starting from this goal knows
+        // where to fly from, without the ring layout itself ever needing to
+        // know about flights.
+        lastCenterRef.current.set(goal.id, { center: base, size: bubbleSize });
         return (
           <DraggableBubble
             key={goal.id}
@@ -479,6 +687,28 @@ export function RadialBoard({
           />
         );
       })}
+
+      {/* Completion flights — a goal that just hit 100% pops, bursts
+          confetti, and flies to the completed column instead of growing
+          any further; see the effect above for how these get added. */}
+      {Object.entries(flights).map(([id, f]) => (
+        <CompletionFlight
+          key={id}
+          goal={f.goal}
+          from={f.from}
+          size={f.size}
+          target={f.target}
+          palette={palette}
+          onDone={() => {
+            useAppStore.getState().markGoalCelebrated(id);
+            setFlights((prev) => {
+              const next = { ...prev };
+              delete next[id];
+              return next;
+            });
+          }}
+        />
+      ))}
 
       {/* Trash drop zone — only while dragging */}
       {dragging && (
@@ -499,22 +729,33 @@ export function RadialBoard({
         </View>
       )}
 
-      {/* Completed goals bubble — bottom-left */}
-      {completedCount > 0 && !dragging && (
+      {/* Completed column — docked left. Goals that have finished (per
+          isCompleted) live here instead of in the main ring, each shown as a
+          small chip in its own goal color rather than one flat generic
+          badge. Overflow past MAX_VISIBLE_CHIPS collapses into a "+N" chip
+          that opens the full Completed screen (app/completed.tsx) for the
+          rest — this column is a compact on-board glance, not a
+          replacement for that fuller list. */}
+      {!dragging && visibleColumnGoals.map((goal, i) => (
+        <CompletedChip key={goal.id} goal={goal} index={i} onPress={() => onGoalPress(goal.id)} />
+      ))}
+      {!dragging && overflowCount > 0 && (
         <TouchableOpacity
-          style={styles.completedWrap}
           onPress={onCompletedPress}
-          activeOpacity={0.8}
+          accessibilityLabel={`${overflowCount} more completed goals`}
+          style={[
+            styles.completedChip,
+            styles.overflowChip,
+            {
+              left: columnChipCenter(MAX_VISIBLE_CHIPS - 1).x - CHIP_SIZE / 2,
+              top: columnChipCenter(MAX_VISIBLE_CHIPS - 1).y - CHIP_SIZE / 2,
+              width: CHIP_SIZE, height: CHIP_SIZE, borderRadius: CHIP_SIZE / 2,
+              backgroundColor: palette.surface, borderColor: palette.line,
+            },
+            Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : undefined,
+          ]}
         >
-          <View style={[styles.completedBubble, { backgroundColor: palette.accent }]}>
-            <Ionicons name="checkmark" size={24} color={palette.surface} />
-            <View style={[styles.completedBadge, { backgroundColor: palette.surface }]}>
-              <Text style={[styles.completedBadgeText, { color: palette.accent }]}>
-                {completedCount}
-              </Text>
-            </View>
-          </View>
-          <Text style={[styles.completedLabel, { color: palette.muted }]}>Completed</Text>
+          <Text style={[styles.overflowChipText, { color: palette.text }]}>+{overflowCount}</Text>
         </TouchableOpacity>
       )}
 
@@ -583,42 +824,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     zIndex: 15,
   },
-  completedWrap: {
+  completedChip: {
     position: 'absolute',
-    bottom: 10,
-    left: 20,
-    alignItems: 'center',
-  },
-  completedBubble: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.18,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  completedBadge: {
-    position: 'absolute',
-    top: -3,
-    right: -3,
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    paddingHorizontal: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
     elevation: 3,
   },
-  completedBadgeText: { fontSize: 11, fontWeight: '700' },
-  completedLabel: { fontSize: 10, fontWeight: '600', marginTop: 3 },
+  overflowChip: { borderStyle: 'dashed' },
+  overflowChipText: { fontSize: 11, fontWeight: '700' },
   fab: {
     position: 'absolute',
     bottom: 16,
