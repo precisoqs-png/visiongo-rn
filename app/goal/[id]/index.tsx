@@ -10,7 +10,7 @@ import { useAppStore } from '../../../store/useAppStore';
 import { Measurable, BoardPosition, measurableFraction } from '../../../store/models';
 import { GoalNote } from '../../../components/board/GoalNote';
 import {
-  Point, clampCenter, computeRadialLayout, MIN_BUBBLE, MAX_BUBBLE,
+  Point, clampCenter, computeRadialLayout, MIN_BUBBLE, MAX_BUBBLE, CENTER_SIZE,
 } from '../../../components/board/RadialBoard';
 import { MeasurableBubble, tickMeasurable } from '../../../components/goal/MeasurableBubble';
 import { MeasurableDetailSheet } from '../../../components/goal/MeasurableDetailSheet';
@@ -18,7 +18,6 @@ import { CoachChat } from '../../../components/goal/CoachChat';
 import { SegmentedControl } from '../../../components/shared/SegmentedControl';
 import { FONTS } from '../../../theme/themes';
 
-const CENTER_SIZE = 168;
 const TOP_SAFE = 90;
 const BOTTOM_SAFE = 120;
 
@@ -34,7 +33,6 @@ export default function GoalCanvasScreen() {
 
   const updateGoal = useAppStore((s) => s.updateGoal);
   const selectedYear = useAppStore((s) => s.selectedYear);
-  const selectYear = useAppStore((s) => s.selectYear);
   const goal = useAppStore((s) =>
     s.years.find((y) => y.year === s.selectedYear)?.goals.find((g) => g.id === id),
   );
@@ -130,24 +128,22 @@ export default function GoalCanvasScreen() {
           same year row (chevrons + "◈ year ◈"), just swapped for this
           goal's own title instead of the board's motto. Tapping the year
           row zooms back out to the board (see handleBackToBoard). */}
-      <View style={styles.header}>
+      {/* zIndex/elevation here isn't decorative: measurable bubbles below are
+          absolutely positioned and this container doesn't clip overflow, so
+          without an explicit stacking guarantee a bubble placed near the top
+          of the canvas could paint over the back-to-board tap target. */}
+      <View style={[styles.header, { zIndex: 10, elevation: 10 }]}>
         <View>
           <Text style={[styles.eyebrow, { color: p.muted }]}>GOAL CANVAS</Text>
           <Text style={[styles.motto, { color: p.text }]} numberOfLines={1}>{goal.title}</Text>
         </View>
       </View>
 
-      <View style={styles.yearRow}>
-        <TouchableOpacity onPress={() => selectYear(selectedYear - 1)}>
-          <Ionicons name="chevron-back" size={16} color={p.muted} />
-        </TouchableOpacity>
+      <View style={[styles.yearRow, { zIndex: 10, elevation: 10 }]}>
         <TouchableOpacity style={styles.yearCenter} onPress={handleBackToBoard} accessibilityLabel="Back to board">
           <Text style={[styles.yearDiamond, { color: p.accent }]}>◈</Text>
           <Text style={[styles.yearNum, { color: p.text }]}>{selectedYear}</Text>
           <Text style={[styles.yearDiamond, { color: p.accent }]}>◈</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => selectYear(selectedYear + 1)}>
-          <Ionicons name="chevron-forward" size={16} color={p.muted} />
         </TouchableOpacity>
       </View>
 
@@ -175,9 +171,10 @@ export default function GoalCanvasScreen() {
             (MIN_BUBBLE + measurableFraction(m) * (MAX_BUBBLE - MIN_BUBBLE)) * layout.scale,
           );
           const saved = goal.measurableBubblePositions?.[m.id];
-          const center = saved
-            ? clampCenter({ x: saved.x * size.w, y: saved.y * size.h }, bubbleSize / 2, size.w, size.h)
+          const raw = saved
+            ? { x: saved.x * size.w, y: saved.y * size.h }
             : layout.points[idx] ?? { x: cx, y: cy };
+          const center = clampCenter(raw, bubbleSize / 2, size.w, size.h);
           return (
             <MeasurableBubble
               key={m.id}

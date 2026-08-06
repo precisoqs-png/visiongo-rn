@@ -27,7 +27,7 @@ interface Props {
   onRealign: () => void;
 }
 
-const CENTER_SIZE = 132;
+export const CENTER_SIZE = 132;
 // A bubble's diameter interpolates between these by the goal's own progress
 // fraction (0 -> MIN_BUBBLE, 1 -> MAX_BUBBLE) before the crowd-shrink scale
 // from computeRadialLayout is applied — exported so other bubble canvases
