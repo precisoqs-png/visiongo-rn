@@ -38,14 +38,72 @@ const TOPICS: Topic[] = [
       "toggle at the top to switch views. Tap the year row to return to the board.",
   },
   {
-    key: 'measurables-milestones',
-    title: 'Measurables and Milestones',
+    key: 'measurables',
+    title: 'Measurables',
     icon: 'checkbox-outline',
     body:
-      'Measurables are the trackable numbers behind a goal, like counts, checklists, or ' +
-      'step by step build ups. Milestones are the bigger checkpoints and commitments you ' +
-      'set for yourself. Add either manually or ask the AI Coach to set them up for you. ' +
-      'Add a why this matters note to remind yourself why the goal counts.',
+      'Measurables are the quick, directly-trackable items on a goal itself — no sub-goal ' +
+      'of their own, just a concrete number or check you tick up as you go. They show as ' +
+      'bubbles on the goal\'s own canvas, and their fill is what drives that bubble\'s size ' +
+      'and percentage (milestones are checkpoints, not fill — see the Milestones topic). ' +
+      'Add one from the Measurables tab on a goal, or by asking the Coach.\n\n' +
+      'Three types:\n\n' +
+      '• Checkbox — a single one-time tick, like "Sign up for a race." Done is 100%, ' +
+      'not done is 0%.\n\n' +
+      '• Number — a running count toward a target, like "145/150 days active." Set a ' +
+      'Target, an optional Unit (e.g. "km", "$"), and a Step — how much one tap of the ' +
+      '+/- buttons moves the number (defaults to 1). Tap the bubble on the canvas and ' +
+      'hold to advance it by one step, or use the +/- steppers in the Measurables list.\n\n' +
+      '• Build-up (a "ladder" under the hood) — a progressive weekly target that climbs ' +
+      'from a Start value to an End value over a number of weeks, e.g. building a run from ' +
+      '2 km to 10 km over 8 weeks. Set Start, "+ per week," Weeks, and a Unit; VisionGo ' +
+      'paces one target date per week back from the goal\'s "Achieve by" date (or from ' +
+      'today if the goal has no date). Tick off each week as you hit it — holding the ' +
+      'bubble on the canvas advances to the next not-yet-done week. If you later change ' +
+      'the goal\'s target date, a banner offers to re-pace the remaining weeks against the ' +
+      'new date, or you can dismiss it and keep the original schedule.\n\n' +
+      'Every measurable can also carry its own optional reminder — tap its bell icon in ' +
+      'the Measurables list to pick a cadence (daily/weekly/monthly-style schedule) and a ' +
+      'time; this needs Push Notifications on in Settings and is separate from the goal\'s ' +
+      'own check-in reminder. Delete a measurable with the × next to it; edit any field by ' +
+      'tapping its bubble on the canvas or its card in the Measurables list.',
+  },
+  {
+    key: 'milestones',
+    title: 'Milestones and Commitments',
+    icon: 'flag-outline',
+    body:
+      'Milestones are sub-goals — "Save $10,000," "Run a marathon" — that can carry their ' +
+      'own deadline and recurring Commitments you get reminded about. They\'re discrete ' +
+      'checkpoints: reaching one shows as a small tick mark on the goal\'s bubble, but does ' +
+      'not by itself move the goal\'s fill percentage once that goal has any measurables — ' +
+      'a milestone is a marker of "reached" or "not yet," not a continuous number. (A goal ' +
+      'with milestones but zero measurables is the one exception: its fill falls back to ' +
+      'how many of its milestones are complete, since there\'s nothing else to show.)\n\n' +
+      'Add a milestone from the Milestones tab on a goal. Give it a title, and optionally:\n\n' +
+      '• Target, Unit, and Step — fill these in to make it a Numeric milestone tracked by ' +
+      'a running current/target number, with its own +/- steppers. Leave Target blank and ' +
+      'it becomes an Effort milestone instead, marked done with a single tap of its circle ' +
+      'icon.\n\n' +
+      '• Deadline — pick a date from the calendar. A numeric milestone with both a Target ' +
+      'and a Deadline gets offered an automatic weekly/monthly split ("12 payments of ' +
+      '$1,000") the moment you add it. If the goal\'s own "Achieve by" date later changes, ' +
+      'a milestone whose deadline was inherited from it shows an "update or keep as-is" ' +
+      'banner.\n\n' +
+      'Commitments are the recurring actions attached to a milestone — tap "Commitment" on ' +
+      'a milestone card to add one, in one of two shapes:\n\n' +
+      '• Same each time — a flat recurring target on a Weekly, Monthly, or Custom (every N ' +
+      'days) cadence, checked off each period with a tap. Consecutive completed periods ' +
+      'build a streak, shown once it reaches 2.\n\n' +
+      '• Build up gradually — a Start→End value ramping week by week (identical math to a ' +
+      'Build-up measurable, just attached to a milestone instead), with each week ' +
+      'individually checkable once you expand the row.\n\n' +
+      'Every commitment has its own bell for an independent reminder (needs Push ' +
+      'Notifications on in Settings, same as measurables). Delete a commitment or a whole ' +
+      'milestone with the trash/× icon — deleting cancels any reminders tied to it. Add a ' +
+      '"why this matters" note on the goal itself (below its title) to remind yourself why ' +
+      'the goal counts, or ask the Coach to break a goal down into measurables and ' +
+      'milestones for you.',
   },
   {
     key: 'pair',

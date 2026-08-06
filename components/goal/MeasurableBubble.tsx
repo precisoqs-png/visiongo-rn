@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Animated, PanResponder, Text, View, StyleSheet, Platform } from 'react-native';
 import {
   Measurable, measurableFraction, steppedValue, formatNumber,
@@ -6,6 +6,7 @@ import {
 import { Point, clampCenter } from '../board/RadialBoard';
 import { Palette, hexAlpha } from '../../theme/themes';
 import { useCompletionPulse } from '../shared/useCompletionPulse';
+import { useCompletionBurst } from '../shared/useCompletionBurst';
 
 // A press-and-hold that stays put ticks the measurable off; moving past this
 // many px before the hold timer fires cancels the tick and starts a drag
@@ -54,6 +55,10 @@ interface Props {
   size: number;
   center: Point;
   palette: Palette;
+  // The parent goal's own color (GOAL_NOTE_COLORS[goal.colorIndex % ...]) —
+  // measurable bubbles render in this instead of a flat accent tone, so a
+  // goal's own canvas carries the same color variety the board already has.
+  noteColor: string;
   canvasSize: { w: number; h: number };
   onTap: () => void;
   onTick: () => void;
@@ -67,11 +72,21 @@ interface Props {
 // press that stays still past HOLD_MS ticks the measurable off (or, for a
 // ladder, advances it to the next week) instead of opening it.
 export function MeasurableBubble({
-  measurable: m, size, center, palette: p, canvasSize, onTap, onTick, onDragStart, onDragEnd,
+  measurable: m, size, center, palette: p, noteColor, canvasSize, onTap, onTick, onDragStart, onDragEnd,
 }: Props) {
   const pan = useRef(new Animated.ValueXY()).current;
   const { scale: popScale, pulse } = useCompletionPulse();
+  const { scale: burstScale, opacity: burstOpacity, fire: fireBurst } = useCompletionBurst();
   const frac = measurableFraction(m);
+
+  // Fires the celebratory burst on the 0->1 transition only — however it
+  // happened (hold-to-tick here, or an edit made in MeasurableDetailSheet's
+  // card, which re-renders this same bubble with the new fraction).
+  const prevFracRef = useRef(frac);
+  useEffect(() => {
+    if (frac >= 1 && prevFracRef.current < 1) fireBurst();
+    prevFracRef.current = frac;
+  }, [frac]);
 
   const centerRef = useRef(center);
   centerRef.current = center;
@@ -184,15 +199,15 @@ export function MeasurableBubble({
           styles.circle,
           {
             width: size, height: size, borderRadius: size / 2,
-            backgroundColor: hexAlpha(p.accent, 0.16),
-            borderColor: p.accent, borderWidth: 1.5, overflow: 'hidden',
+            backgroundColor: hexAlpha(noteColor, 0.16),
+            borderColor: noteColor, borderWidth: 1.5, overflow: 'hidden',
           },
         ]}
       >
         <View
           style={{
             position: 'absolute', bottom: 0, left: 0, right: 0,
-            height: fillHeight, backgroundColor: hexAlpha(p.accent, 0.55),
+            height: fillHeight, backgroundColor: hexAlpha(noteColor, 0.55),
           }}
         />
         <View style={styles.label}>
@@ -211,6 +226,18 @@ export function MeasurableBubble({
           )}
         </View>
       </View>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.burstRing,
+          {
+            width: size, height: size, borderRadius: size / 2,
+            borderColor: noteColor,
+            opacity: burstOpacity,
+            transform: [{ scale: burstScale.interpolate({ inputRange: [0, 1], outputRange: [1, 1.55] }) }],
+          },
+        ]}
+      />
     </Animated.View>
   );
 }
@@ -249,6 +276,7 @@ export function tickMeasurable(m: Measurable): Measurable {
 const styles = StyleSheet.create({
   wrap: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
   circle: { alignItems: 'center', justifyContent: 'center' },
+  burstRing: { position: 'absolute', borderWidth: 2 },
   label: { alignItems: 'center', paddingHorizontal: 4, zIndex: 1 },
   labelText: { fontWeight: '700', textAlign: 'center' },
   subText: { textAlign: 'center', marginTop: 2 },

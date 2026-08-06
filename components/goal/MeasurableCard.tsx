@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -7,6 +7,7 @@ import {
 } from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
 import { useCompletionPulse } from '../shared/useCompletionPulse';
+import { useCompletionBurst } from '../shared/useCompletionBurst';
 
 interface Props {
   measurable: Measurable;
@@ -14,6 +15,12 @@ interface Props {
   // ladder's weeks were actually paced against, to flag it as outdated.
   goalTargetDate?: string;
   palette: Palette;
+  // The parent goal's own color (GOAL_NOTE_COLORS[goal.colorIndex % ...]) —
+  // every progress-indicating element on this card (checkbox fill, progress
+  // bar, ladder boxes, completion burst) renders in this instead of the
+  // theme's flat accent color, so a goal's Measurables list carries the same
+  // per-goal color identity as its canvas bubbles and its board bubble.
+  noteColor: string;
   onUpdate: (m: Measurable) => void;
   onDelete: (id: string) => void;
   // Opens the same reminder sheet a Milestone Commitment uses, for this
@@ -39,23 +46,46 @@ function ScheduleBell({ m, p, onOpenSchedule }: { m: Measurable; p: Palette; onO
   );
 }
 
-export function MeasurableCard({ measurable: m, goalTargetDate, palette, onUpdate, onDelete, onOpenSchedule }: Props) {
+export function MeasurableCard({ measurable: m, goalTargetDate, palette, noteColor, onUpdate, onDelete, onOpenSchedule }: Props) {
   const p = palette;
   const frac = measurableFraction(m);
 
+  // Celebratory glow the moment THIS card's measurable finishes (fraction
+  // hits 1) — however that happened (checkbox, stepper, or the last ladder
+  // week), mirroring MeasurableBubble's own burst on the canvas so the same
+  // "just completed" moment reads consistently wherever it's edited from.
+  const { scale: burstScale, opacity: burstOpacity, fire: fireBurst } = useCompletionBurst();
+  const prevFracRef = useRef(frac);
+  useEffect(() => {
+    if (frac >= 1 && prevFracRef.current < 1) fireBurst();
+    prevFracRef.current = frac;
+  }, [frac]);
+
   return (
     <View style={[styles.card, { backgroundColor: p.surface }]}>
-      {m.type === 'check' && <CheckRow m={m} p={p} onUpdate={onUpdate} onDelete={onDelete} onOpenSchedule={onOpenSchedule} />}
-      {m.type === 'number' && <NumberRow m={m} p={p} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} />}
+      {m.type === 'check' && <CheckRow m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} onOpenSchedule={onOpenSchedule} />}
+      {m.type === 'number' && <NumberRow m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} />}
       {m.type === 'ladder' && (
-        <LadderRows m={m} goalTargetDate={goalTargetDate} p={p} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} />
+        <LadderRows m={m} goalTargetDate={goalTargetDate} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} />
       )}
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          StyleSheet.absoluteFill,
+          styles.cardBurst,
+          {
+            borderColor: noteColor,
+            opacity: burstOpacity,
+            transform: [{ scale: burstScale.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1.04] }) }],
+          },
+        ]}
+      />
     </View>
   );
 }
 
-function CheckRow({ m, p, onUpdate, onDelete, onOpenSchedule }: {
-  m: Measurable; p: Palette; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void;
+function CheckRow({ m, p, noteColor, onUpdate, onDelete, onOpenSchedule }: {
+  m: Measurable; p: Palette; noteColor: string; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void;
   onOpenSchedule?: (m: Measurable) => void;
 }) {
   const { scale, pulse } = useCompletionPulse();
@@ -65,8 +95,8 @@ function CheckRow({ m, p, onUpdate, onDelete, onOpenSchedule }: {
         <TouchableOpacity
           style={[
             styles.checkbox,
-            { borderColor: m.done ? p.accent : p.line },
-            m.done && { backgroundColor: p.accent },
+            { borderColor: m.done ? noteColor : p.line },
+            m.done && { backgroundColor: noteColor },
           ]}
           onPress={() => {
             const next = !m.done;
@@ -94,8 +124,8 @@ function CheckRow({ m, p, onUpdate, onDelete, onOpenSchedule }: {
   );
 }
 
-function NumberRow({ m, p, onUpdate, onDelete, frac, onOpenSchedule }: {
-  m: Measurable; p: Palette; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number;
+function NumberRow({ m, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule }: {
+  m: Measurable; p: Palette; noteColor: string; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number;
   onOpenSchedule?: (m: Measurable) => void;
 }) {
   // Each measurable carries its own increment — "145 / 150 days" ticks by 1,
@@ -139,7 +169,7 @@ function NumberRow({ m, p, onUpdate, onDelete, frac, onOpenSchedule }: {
         </Text>
       </View>
       <View style={[styles.progressTrack, { backgroundColor: p.line }]}>
-        <View style={[styles.progressFill, { backgroundColor: p.accent, width: `${frac * 100}%` }]} />
+        <View style={[styles.progressFill, { backgroundColor: noteColor, width: `${frac * 100}%` }]} />
       </View>
     </View>
   );
@@ -155,8 +185,8 @@ function fmtDeadline(iso: string): string {
   });
 }
 
-function LadderRows({ m, goalTargetDate, p, onUpdate, onDelete, frac, onOpenSchedule }: {
-  m: Measurable; goalTargetDate?: string; p: Palette;
+function LadderRows({ m, goalTargetDate, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule }: {
+  m: Measurable; goalTargetDate?: string; p: Palette; noteColor: string;
   onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number;
   onOpenSchedule?: (m: Measurable) => void;
 }) {
@@ -176,7 +206,7 @@ function LadderRows({ m, goalTargetDate, p, onUpdate, onDelete, frac, onOpenSche
     <View>
       <View style={[styles.row, { marginBottom: 8 }]}>
         <Text style={[styles.numLabel, { color: p.text }]}>{m.label}</Text>
-        <Text style={[styles.ladderPct, { color: p.accent }]}>
+        <Text style={[styles.ladderPct, { color: noteColor }]}>
           {doneCount}/{m.weeks.length} wks
         </Text>
         <ScheduleBell m={m} p={p} onOpenSchedule={onOpenSchedule} />
@@ -219,6 +249,7 @@ function LadderRows({ m, goalTargetDate, p, onUpdate, onDelete, frac, onOpenSche
           idx={idx}
           unit={m.unit}
           p={p}
+          noteColor={noteColor}
           onToggle={() => {
             const weeks = m.weeks.map((w) => w.id === week.id ? { ...w, done: !w.done } : w);
             onUpdate({ ...m, weeks });
@@ -229,9 +260,9 @@ function LadderRows({ m, goalTargetDate, p, onUpdate, onDelete, frac, onOpenSche
   );
 }
 
-function LadderWeekRow({ week, idx, unit, p, onToggle }: {
+function LadderWeekRow({ week, idx, unit, p, noteColor, onToggle }: {
   week: { id: string; value: number; targetDate: string; done: boolean };
-  idx: number; unit: string; p: Palette; onToggle: () => void;
+  idx: number; unit: string; p: Palette; noteColor: string; onToggle: () => void;
 }) {
   const { scale, pulse } = useCompletionPulse();
   const fmt = formatNumber;
@@ -243,8 +274,8 @@ function LadderWeekRow({ week, idx, unit, p, onToggle }: {
         <TouchableOpacity
           style={[
             styles.ladderBox,
-            { borderColor: week.done ? p.accent : p.line },
-            week.done && { backgroundColor: p.accent },
+            { borderColor: week.done ? noteColor : p.line },
+            week.done && { backgroundColor: noteColor },
           ]}
           onPress={() => {
             const next = !week.done;
@@ -266,6 +297,7 @@ function LadderWeekRow({ week, idx, unit, p, onToggle }: {
 
 const styles = StyleSheet.create({
   card: { borderRadius: 14, padding: 14, marginBottom: 10 },
+  cardBurst: { borderRadius: 14, borderWidth: 2 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   bellTarget: {
     width: 26, height: 26, borderRadius: 13,
