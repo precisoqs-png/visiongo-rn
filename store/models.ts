@@ -30,6 +30,13 @@ export interface Measurable {
   // before this existed, so old data is never retroactively flagged. See
   // isMeasurableDeadlineOutdated.
   sizedForGoalDate?: string;
+  // Optional reminder — same shape as a Commitment's cadence + schedule, so
+  // it reuses StepScheduleSheet and the notification-scheduling logic
+  // unchanged rather than duplicating either. Absent/schedule.on=false means
+  // no reminder; every measurable predating this feature has neither field.
+  cadence?: Cadence;
+  intervalDays?: number;
+  schedule?: StepSchedule;
 }
 
 // Data persisted before per-measurable steps existed has no `step`, and a
@@ -181,7 +188,7 @@ export function milestoneStep(mg: Milestone): number {
 
 // ── Cadence periods ───────────────────────────────────────────
 
-export function cadenceIntervalDays(step: Commitment): number {
+export function cadenceIntervalDays(step: { cadence: Cadence; intervalDays?: number }): number {
   switch (step.cadence) {
     case 'weekly': return 7;
     case 'monthly': return 30;

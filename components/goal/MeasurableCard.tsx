@@ -16,24 +16,48 @@ interface Props {
   palette: Palette;
   onUpdate: (m: Measurable) => void;
   onDelete: (id: string) => void;
+  // Opens the same reminder sheet a Milestone Commitment uses, for this
+  // measurable. Optional so existing call sites don't have to be updated
+  // in lockstep — no bell renders if it's omitted.
+  onOpenSchedule?: (m: Measurable) => void;
 }
 
-export function MeasurableCard({ measurable: m, goalTargetDate, palette, onUpdate, onDelete }: Props) {
+// Small bell button, same shape/behaviour as MilestoneSection's step bell —
+// tinted when a reminder is on, otherwise a plain outline.
+function ScheduleBell({ m, p, onOpenSchedule }: { m: Measurable; p: Palette; onOpenSchedule?: (m: Measurable) => void }) {
+  if (!onOpenSchedule) return null;
+  const on = !!m.schedule?.on;
+  return (
+    <TouchableOpacity
+      onPress={() => onOpenSchedule(m)}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      accessibilityLabel={`Edit reminder for ${m.label}`}
+      style={[styles.bellTarget, on && { backgroundColor: `${p.accent}1f` }]}
+    >
+      <Ionicons name={on ? 'notifications' : 'notifications-outline'} size={17} color={on ? p.accent : p.muted} />
+    </TouchableOpacity>
+  );
+}
+
+export function MeasurableCard({ measurable: m, goalTargetDate, palette, onUpdate, onDelete, onOpenSchedule }: Props) {
   const p = palette;
   const frac = measurableFraction(m);
 
   return (
     <View style={[styles.card, { backgroundColor: p.surface }]}>
-      {m.type === 'check' && <CheckRow m={m} p={p} onUpdate={onUpdate} onDelete={onDelete} />}
-      {m.type === 'number' && <NumberRow m={m} p={p} onUpdate={onUpdate} onDelete={onDelete} frac={frac} />}
+      {m.type === 'check' && <CheckRow m={m} p={p} onUpdate={onUpdate} onDelete={onDelete} onOpenSchedule={onOpenSchedule} />}
+      {m.type === 'number' && <NumberRow m={m} p={p} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} />}
       {m.type === 'ladder' && (
-        <LadderRows m={m} goalTargetDate={goalTargetDate} p={p} onUpdate={onUpdate} onDelete={onDelete} frac={frac} />
+        <LadderRows m={m} goalTargetDate={goalTargetDate} p={p} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} />
       )}
     </View>
   );
 }
 
-function CheckRow({ m, p, onUpdate, onDelete }: { m: Measurable; p: Palette; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void }) {
+function CheckRow({ m, p, onUpdate, onDelete, onOpenSchedule }: {
+  m: Measurable; p: Palette; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void;
+  onOpenSchedule?: (m: Measurable) => void;
+}) {
   const { scale, pulse } = useCompletionPulse();
   return (
     <View style={styles.row}>
@@ -62,6 +86,7 @@ function CheckRow({ m, p, onUpdate, onDelete }: { m: Measurable; p: Palette; onU
       >
         {m.label}
       </Text>
+      <ScheduleBell m={m} p={p} onOpenSchedule={onOpenSchedule} />
       <TouchableOpacity onPress={() => onDelete(m.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
         <Ionicons name="close" size={14} color={p.muted} />
       </TouchableOpacity>
@@ -69,7 +94,10 @@ function CheckRow({ m, p, onUpdate, onDelete }: { m: Measurable; p: Palette; onU
   );
 }
 
-function NumberRow({ m, p, onUpdate, onDelete, frac }: { m: Measurable; p: Palette; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number }) {
+function NumberRow({ m, p, onUpdate, onDelete, frac, onOpenSchedule }: {
+  m: Measurable; p: Palette; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number;
+  onOpenSchedule?: (m: Measurable) => void;
+}) {
   // Each measurable carries its own increment — "145 / 150 days" ticks by 1,
   // while "$5000 saved" can tick by 50. No global guess from the target.
   const stepSize = measurableStep(m);
@@ -81,6 +109,7 @@ function NumberRow({ m, p, onUpdate, onDelete, frac }: { m: Measurable; p: Palet
     <View>
       <View style={[styles.row, { marginBottom: 10 }]}>
         <Text style={[styles.numLabel, { color: p.text }]}>{m.label}</Text>
+        <ScheduleBell m={m} p={p} onOpenSchedule={onOpenSchedule} />
         <TouchableOpacity onPress={() => onDelete(m.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Ionicons name="close" size={14} color={p.muted} />
         </TouchableOpacity>
@@ -126,9 +155,10 @@ function fmtDeadline(iso: string): string {
   });
 }
 
-function LadderRows({ m, goalTargetDate, p, onUpdate, onDelete, frac }: {
+function LadderRows({ m, goalTargetDate, p, onUpdate, onDelete, frac, onOpenSchedule }: {
   m: Measurable; goalTargetDate?: string; p: Palette;
   onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number;
+  onOpenSchedule?: (m: Measurable) => void;
 }) {
   const fmt = formatNumber;
   const doneCount = m.weeks.filter((w) => w.done).length;
@@ -149,6 +179,7 @@ function LadderRows({ m, goalTargetDate, p, onUpdate, onDelete, frac }: {
         <Text style={[styles.ladderPct, { color: p.accent }]}>
           {doneCount}/{m.weeks.length} wks
         </Text>
+        <ScheduleBell m={m} p={p} onOpenSchedule={onOpenSchedule} />
         <TouchableOpacity onPress={() => onDelete(m.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={{ marginLeft: 8 }}>
           <Ionicons name="close" size={14} color={p.muted} />
         </TouchableOpacity>
@@ -236,6 +267,10 @@ function LadderWeekRow({ week, idx, unit, p, onToggle }: {
 const styles = StyleSheet.create({
   card: { borderRadius: 14, padding: 14, marginBottom: 10 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  bellTarget: {
+    width: 26, height: 26, borderRadius: 13,
+    alignItems: 'center', justifyContent: 'center',
+  },
   checkbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   checkLabel: { flex: 1, fontSize: 15 },
   numLabel: { flex: 1, fontSize: 15, fontWeight: '600' },

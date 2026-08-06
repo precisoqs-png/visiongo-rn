@@ -491,6 +491,7 @@ const styles = StyleSheet.create({
     padding: 14, paddingHorizontal: 20, gap: 8,
   },
   eyebrow: { fontSize: 11, fontWeight: '600', letterSpacing: 1.5 },
+  eyebrowRow: { flexDirection: 'row', alignItems: 'center' },
   dateText: { fontSize: 14, fontWeight: '600' },
   daysLeft: { fontSize: 13 },
   layerHint: { fontSize: 11, lineHeight: 15, marginTop: 4, marginBottom: 10 },
