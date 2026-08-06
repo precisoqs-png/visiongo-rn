@@ -107,6 +107,16 @@ export default function SettingsScreen() {
           <Ionicons name="chevron-forward" size={14} color={p.muted} />
         </TouchableOpacity>
 
+        <SectionLabel label="HELP" palette={p} />
+        <TouchableOpacity
+          style={[styles.settingsRow, { backgroundColor: p.surface }]}
+          onPress={() => router.push('/how-to-use')}
+          activeOpacity={0.75}
+        >
+          <Text style={[styles.settingsRowText, { color: p.text }]}>How to Use</Text>
+          <Ionicons name="chevron-forward" size={14} color={p.muted} />
+        </TouchableOpacity>
+
         <SectionLabel label="DATA" palette={p} />
         <TouchableOpacity
           style={[styles.settingsRow, { backgroundColor: p.surface }]}

@@ -38,6 +38,7 @@ export default function RootLayout() {
         <Stack.Screen name="goal/[id]/milestones" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="goal/[id]/measurables" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="completed" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="how-to-use" options={{ animation: 'slide_from_right' }} />
       </Stack>
     </GestureHandlerRootView>
   );
