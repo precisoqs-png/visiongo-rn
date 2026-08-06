@@ -206,13 +206,25 @@ export function MeasurableBubble({
           )}
           {m.type === 'ladder' && (
             <Text style={[styles.subText, { color: p.muted, fontSize: size * 0.1 }]}>
-              {m.weeks.filter((w) => w.done).length}/{m.weeks.length} wks
+              {currentLadderStepText(m)}
             </Text>
           )}
         </View>
       </View>
     </Animated.View>
   );
+}
+
+// The value the bubble should show for a ladder — the next not-yet-done
+// week's target (what the user is working toward right now), or the final
+// week's value once every week is done. A generic "N/M wks" fraction told
+// the user how far along they were but not what to actually go do; this
+// tells them the concrete number, same as tapping the checkbox next to
+// LadderRows' own current-week row would show.
+export function currentLadderStepText(m: Measurable): string {
+  if (m.type !== 'ladder' || m.weeks.length === 0) return '';
+  const next = m.weeks.find((w) => !w.done) ?? m.weeks[m.weeks.length - 1];
+  return `${formatNumber(next.value)}${m.unit ? ` ${m.unit}` : ''}`;
 }
 
 // Applies a hold gesture's effect to a measurable: a checkbox toggles, a

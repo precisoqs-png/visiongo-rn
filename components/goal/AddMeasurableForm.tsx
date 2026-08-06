@@ -1,28 +1,39 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
-import { MeasurableType, Measurable, newMeasurable } from '../../store/models';
+import { MeasurableType, Measurable, newMeasurable, buildLadderWeeks } from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
 
 interface Props {
   palette: Palette;
   onAdd: (m: Measurable) => void;
+  // Paces a new build-up's weekly dates the same way the coach does
+  // (buildLadderWeeks anchors the LAST week to this date, walking the rest
+  // back from it) — omitted falls back to "starting today".
+  goalTargetDate?: string;
 }
 
-// No "Weekly" (ladder) option here — a progressive weekly build-up is
-// strictly better served by a Milestone's build-up Commitment, which gets
-// its own reminder and shows up in the Tasks tab; a ladder Measurable gets
-// neither. No template creates one anymore either (see goalTemplates.ts).
+// "Build-up" (type 'ladder' under the hood) mirrors exactly what the coach
+// already builds for a "weekly long-run build-up" style measurable — this
+// used to only be reachable by asking the coach or going through a
+// Milestone's "Build up gradually" Commitment; this is the same shape
+// (Measurable.weeks, applyCoachAction's 'addTask'/type 'ladder' case in
+// useAppStore.ts) as a direct, no-Milestone-needed manual path.
 const TYPES: { key: MeasurableType; label: string; icon: string }[] = [
   { key: 'check', label: 'Checkbox', icon: '✓' },
   { key: 'number', label: 'Number', icon: '#' },
+  { key: 'ladder', label: 'Build-up', icon: '↗' },
 ];
 
-export function AddMeasurableForm({ palette: p, onAdd }: Props) {
+export function AddMeasurableForm({ palette: p, onAdd, goalTargetDate }: Props) {
   const [label, setLabel] = useState('');
   const [type, setType] = useState<MeasurableType>('check');
   const [targetStr, setTargetStr] = useState('');
   const [unit, setUnit] = useState('');
   const [stepStr, setStepStr] = useState('');
+  // Build-up-only fields — same three things the coach asks for in chat:
+  // current baseline, step size, and how many weeks to build over.
+  const [startStr, setStartStr] = useState('');
+  const [weeksStr, setWeeksStr] = useState('8');
 
   const commit = () => {
     if (!label.trim()) return;
@@ -33,10 +44,21 @@ export function AddMeasurableForm({ palette: p, onAdd }: Props) {
       // Blank or nonsense step falls back to 1 rather than a hardcoded jump.
       const parsedStep = parseFloat(stepStr);
       m.step = Number.isFinite(parsedStep) && parsedStep > 0 ? parsedStep : 1;
+    } else if (type === 'ladder') {
+      const start = parseFloat(startStr) || 0;
+      const parsedStep = parseFloat(stepStr);
+      const increment = Number.isFinite(parsedStep) && parsedStep > 0 ? parsedStep : 1;
+      const weeks = Math.max(1, parseInt(weeksStr, 10) || 1);
+      const end = start + increment * weeks;
+      m.unit = unit;
+      m.target = end;
+      m.step = increment;
+      m.weeks = buildLadderWeeks(start, end, weeks, goalTargetDate);
+      m.sizedForGoalDate = goalTargetDate;
     }
     onAdd(m);
     setLabel(''); setTargetStr(''); setUnit('');
-    setStepStr('');
+    setStepStr(''); setStartStr(''); setWeeksStr('8');
   };
 
   return (
@@ -101,9 +123,55 @@ export function AddMeasurableForm({ palette: p, onAdd }: Props) {
         </>
       )}
 
-      <Text style={[styles.fieldHint, { color: p.muted }]}>
-        Want a progressive weekly build-up instead? Add a Milestone below and use its "Build up gradually" option.
-      </Text>
+      {type === 'ladder' && (
+        <>
+          <View style={styles.inputRow}>
+            <TextInput
+              style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
+              placeholder="Start"
+              placeholderTextColor={p.muted}
+              keyboardType="numeric"
+              value={startStr}
+              onChangeText={setStartStr}
+            />
+            <TextInput
+              style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
+              placeholder="+ per week"
+              placeholderTextColor={p.muted}
+              keyboardType="numeric"
+              value={stepStr}
+              onChangeText={setStepStr}
+            />
+            <TextInput
+              style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
+              placeholder="Weeks"
+              placeholderTextColor={p.muted}
+              keyboardType="numeric"
+              value={weeksStr}
+              onChangeText={setWeeksStr}
+            />
+            <TextInput
+              style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1.2 }]}
+              placeholder="Unit (e.g. km)"
+              placeholderTextColor={p.muted}
+              value={unit}
+              onChangeText={setUnit}
+            />
+          </View>
+          <Text style={[styles.fieldHint, { color: p.muted }]}>
+            Builds {Math.max(1, parseInt(weeksStr, 10) || 1)} weekly steps from{' '}
+            {(parseFloat(startStr) || 0) + (Number.isFinite(parseFloat(stepStr)) && parseFloat(stepStr) > 0 ? parseFloat(stepStr) : 1)}{' '}
+            up to {(parseFloat(startStr) || 0) + (Number.isFinite(parseFloat(stepStr)) && parseFloat(stepStr) > 0 ? parseFloat(stepStr) : 1) * Math.max(1, parseInt(weeksStr, 10) || 1)}
+            {unit.trim() ? ` ${unit.trim()}` : ''}, same as the AI coach builds one.
+          </Text>
+        </>
+      )}
+
+      {type !== 'ladder' && (
+        <Text style={[styles.fieldHint, { color: p.muted }]}>
+          Want a progressive weekly build-up? Pick "Build-up" above.
+        </Text>
+      )}
 
       <TouchableOpacity
         style={[styles.addBtn, { backgroundColor: label.trim() ? p.ink : p.muted }]}
