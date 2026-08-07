@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView, StyleSheet, Platform,
+  View, Text, TouchableOpacity, ScrollView, StyleSheet, Platform, KeyboardAvoidingView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -107,6 +107,10 @@ export default function MeasurablesListScreen() {
 
   return (
     <LinearGradient colors={p.bgGradient as any} style={styles.root}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
       <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
         <LinearGradient
           colors={[hexAlpha(noteColor, 0.4), hexAlpha(noteColor, 0.1)]}
@@ -186,6 +190,7 @@ export default function MeasurablesListScreen() {
           <CoachChat goal={goal} palette={p} onGoalEdited={resyncWeekNotifications} />
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* Reminder sheet for a Measurable — same component + logic as a
           Milestone Commitment's, just saving onto the measurable instead. */}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, Platform, Alert, Animated,
+  StyleSheet, Platform, Alert, Animated, KeyboardAvoidingView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -246,6 +246,10 @@ export default function GoalDetailScreen() {
 
   return (
     <LinearGradient colors={p.bgGradient as any} style={styles.root}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
       <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
 
         <LinearGradient
@@ -439,6 +443,7 @@ export default function GoalDetailScreen() {
         </View>
 
       </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* Calendar pop-up for the "Achieve by" date */}
       <CalendarPicker
