@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Platform, Modal, ScrollView, Animated,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -396,9 +397,14 @@ export default function GoalCanvasScreen() {
                 <Ionicons name="chevron-down" size={18} color={p.muted} />
               </TouchableOpacity>
             </View>
-            <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
-              <CoachChat goal={goal} palette={p} />
-            </ScrollView>
+            <KeyboardAvoidingView
+              style={{ flex: 1 }}
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            >
+              <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+                <CoachChat goal={goal} palette={p} />
+              </ScrollView>
+            </KeyboardAvoidingView>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
