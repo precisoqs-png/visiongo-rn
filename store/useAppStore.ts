@@ -603,6 +603,21 @@ export const useAppStore = create<AppState>()(
       version: STORE_VERSION,
       migrate: migrateState,
       merge: mergeState,
+      // Persist would otherwise call rehydrate() itself the instant this
+      // module loads, racing against whatever else renders on that same
+      // tick. Under SSR (EXPO_WEB_OUTPUT=server) the server always builds
+      // this store fresh — no localStorage there — so the very first client
+      // render starts from the same empty defaults too, matching the SSR
+      // markup exactly. If ANY store-mutating action fires (from a mounted
+      // screen's effect, a stray tap, etc.) before the async AsyncStorage
+      // read resolves, `persist` would happily write that still-default
+      // state straight over the real data already on disk — silent data
+      // loss with no error. skipHydration hands control of *when*
+      // rehydrate() runs to app/_layout.tsx, which holds the entire route
+      // tree unmounted (rendering nothing that could dispatch an action)
+      // until rehydration has actually finished. See scripts/repro-hydration-race.ts
+      // for a standalone reproduction of the race this prevents.
+      skipHydration: true,
       onRehydrateStorage: () => (_state, error) => {
         if (error) {
           console.warn('[VisionGo] Failed to restore saved data:', error);

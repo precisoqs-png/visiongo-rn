@@ -16,10 +16,32 @@ import { MeasurableBubble, tickMeasurable } from '../../../components/goal/Measu
 import { MeasurableDetailSheet } from '../../../components/goal/MeasurableDetailSheet';
 import { CoachChat } from '../../../components/goal/CoachChat';
 import { SegmentedControl } from '../../../components/shared/SegmentedControl';
+import { CompletionFlight, CompletedChip } from '../../../components/shared/CompletionFlight';
 import { FONTS, GOAL_NOTE_COLORS } from '../../../theme/themes';
 
 const TOP_SAFE = 90;
 const BOTTOM_SAFE = 120;
+
+// ── Per-goal completed column (docked left) ───────────────────────
+//
+// Same beat as the board's own completed-goal column (RadialBoard.tsx) —
+// pop, confetti, fly-to-column — but scoped to this one goal's own canvas
+// and its measurables, not the whole-year board. Deliberately its own
+// constants/container rather than reusing RadialBoard's: this canvas's
+// header/safe-area geometry is different, and the two columns never share
+// a screen so there's no risk of them colliding.
+const CANVAS_CHIP_SIZE = 56;
+const CANVAS_CHIP_GAP = 10;
+const CANVAS_COLUMN_LEFT = 14;
+const CANVAS_COLUMN_TOP = TOP_SAFE + 96;
+const CANVAS_MAX_VISIBLE_CHIPS = 5;
+
+function canvasChipCenter(index: number): Point {
+  return {
+    x: CANVAS_COLUMN_LEFT + CANVAS_CHIP_SIZE / 2,
+    y: CANVAS_COLUMN_TOP + index * (CANVAS_CHIP_SIZE + CANVAS_CHIP_GAP) + CANVAS_CHIP_SIZE / 2,
+  };
+}
 
 // The goal's own bubble canvas — same visual language as a bubble on the
 // main board (GoalNote for the central goal bubble, the same drag/settle
@@ -83,6 +105,62 @@ export default function GoalCanvasScreen() {
   const [openMeasurable, setOpenMeasurable] = useState<Measurable | null>(null);
   const [coachOpen, setCoachOpen] = useState(false);
 
+  // ── Completion flights (measurables) ───────────────────────────
+  //
+  // `seenFracRef` starts out populated from whatever this goal's measurables
+  // look like on the very first render of this screen — so a measurable
+  // that was ALREADY complete before the user opened this canvas just shows
+  // up as a resting chip in the column immediately, and only a 0->1
+  // transition observed live (while this screen is mounted) plays the
+  // pop/confetti/fly animation. Same "only celebrate a transition you
+  // actually witnessed" rule the board's own completion-flag watcher uses
+  // in useAppStore.ts, just kept local to this screen since there's no
+  // per-measurable persisted "celebrated" flag to hang it on.
+  const seenFracRef = useRef<Map<string, number> | null>(null);
+  const lastMeasurableCenterRef = useRef<Map<string, { center: Point; size: number }>>(new Map());
+  const [measurableFlights, setMeasurableFlights] = useState<
+    Record<string, { measurable: Measurable; from: Point; size: number; target: Point }>
+  >({});
+  const [settledCompletedIds, setSettledCompletedIds] = useState<string[]>([]);
+
+  const cx = size.w / 2;
+  const cy = TOP_SAFE + (size.h - TOP_SAFE - BOTTOM_SAFE) * 0.42;
+
+  useEffect(() => {
+    if (!goal) return;
+    const frac = new Map(goal.measurables.map((m) => [m.id, measurableFraction(m)]));
+    if (seenFracRef.current === null) {
+      // First render of this screen for this goal — anything already
+      // complete is a resting chip from the start, not a transition.
+      seenFracRef.current = frac;
+      setSettledCompletedIds(goal.measurables.filter((m) => frac.get(m.id)! >= 1).map((m) => m.id));
+      return;
+    }
+    const prev = seenFracRef.current;
+    const justCompleted = goal.measurables.filter(
+      (m) => frac.get(m.id)! >= 1 && (prev.get(m.id) ?? 0) < 1,
+    );
+    seenFracRef.current = frac;
+    if (justCompleted.length === 0) return;
+    setMeasurableFlights((current) => {
+      const next = { ...current };
+      const already = justCompleted.filter((m) => !next[m.id]);
+      if (already.length === 0) return current;
+      setSettledCompletedIds((ids) => {
+        const startIndex = ids.length;
+        already.forEach((m, i) => {
+          const last = lastMeasurableCenterRef.current.get(m.id);
+          const from = last?.center ?? { x: cx, y: cy };
+          const fromSize = last?.size ?? MIN_BUBBLE;
+          next[m.id] = { measurable: m, from, size: fromSize, target: canvasChipCenter(startIndex + i) };
+        });
+        return ids;
+      });
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goal?.measurables]);
+
   // Reads the goal fresh from the store rather than trusting the `goal`
   // render closure — several bubbles can be mid-gesture at once, each
   // holding its own callback closures, so writes must always apply on top
@@ -123,15 +201,24 @@ export default function GoalCanvasScreen() {
     );
   }
 
-  const cx = size.w / 2;
-  const cy = TOP_SAFE + (size.h - TOP_SAFE - BOTTOM_SAFE) * 0.42;
+  // Measurables shown as regular canvas bubbles: not complete, and not
+  // currently mid-flight to the completed column (those render as
+  // CompletionFlight overlays instead — see below).
+  const flightIds = new Set(Object.keys(measurableFlights));
+  const activeMeasurables = goal.measurables.filter(
+    (m) => measurableFraction(m) < 1 && !flightIds.has(m.id),
+  );
+  const completedMeasurables = goal.measurables.filter(
+    (m) => settledCompletedIds.includes(m.id) && !flightIds.has(m.id),
+  );
+
   // Same sizing/packing logic as a goal bubble on the main board: diameter
   // interpolates MIN_BUBBLE..MAX_BUBBLE by the measurable's own progress
   // fraction, uniformly shrunk (layout.scale) only as far as needed for
   // every bubble to fit without overlapping — centerSize passed explicitly
   // since this canvas's central GoalNote is a different size than the
   // board's own year-progress disc.
-  const layout = computeRadialLayout(goal.measurables.length, cx, cy, size.h, MAX_BUBBLE, CENTER_SIZE);
+  const layout = computeRadialLayout(activeMeasurables.length, cx, cy, size.h, MAX_BUBBLE, CENTER_SIZE);
   const noteColor = GOAL_NOTE_COLORS[goal.colorIndex % GOAL_NOTE_COLORS.length];
 
   return (
@@ -179,7 +266,7 @@ export default function GoalCanvasScreen() {
           <GoalNote goal={goal} size={CENTER_SIZE} palette={p} onPress={() => router.push(`/goal/${id}/milestones`)} />
         </View>
 
-        {goal.measurables.map((m, idx) => {
+        {activeMeasurables.map((m, idx) => {
           const bubbleSize = Math.round(
             (MIN_BUBBLE + measurableFraction(m) * (MAX_BUBBLE - MIN_BUBBLE)) * layout.scale,
           );
@@ -188,6 +275,11 @@ export default function GoalCanvasScreen() {
             ? { x: saved.x * size.w, y: saved.y * size.h }
             : layout.points[idx] ?? { x: cx, y: cy };
           const center = clampCenter(raw, bubbleSize / 2, size.w, size.h);
+          // Remembered so a completion flight starting from this bubble
+          // knows where to fly from — same pattern as RadialBoard's
+          // lastCenterRef, updated every render since we don't know ahead
+          // of time which measurable will complete next.
+          lastMeasurableCenterRef.current.set(m.id, { center, size: bubbleSize });
           return (
             <MeasurableBubble
               key={m.id}
@@ -208,6 +300,68 @@ export default function GoalCanvasScreen() {
           <View style={[styles.emptyHint, { top: cy + CENTER_SIZE / 2 + 24 }]}>
             <Text style={[styles.emptyHintText, { color: p.muted }]}>
               No measurables yet — ask the Coach to add some, or open Milestones to add one.
+            </Text>
+          </View>
+        )}
+
+        {/* Completion flights — a measurable that just hit 100% pops, bursts
+            confetti, and flies to this goal's own completed column instead
+            of sitting on the canvas fully filled. */}
+        {Object.entries(measurableFlights).map(([mid, f]) => (
+          <CompletionFlight
+            key={mid}
+            id={mid}
+            color={noteColor}
+            from={f.from}
+            size={f.size}
+            target={f.target}
+            chipSize={CANVAS_CHIP_SIZE}
+            onDone={() => {
+              setMeasurableFlights((current) => {
+                const next = { ...current };
+                delete next[mid];
+                return next;
+              });
+              setSettledCompletedIds((ids) => (ids.includes(mid) ? ids : [...ids, mid]));
+            }}
+          />
+        ))}
+
+        {/* Completed column — docked left, this goal's own measurables that
+            have finished, separated from the ones still in progress. */}
+        {completedMeasurables.slice(
+          0,
+          completedMeasurables.length > CANVAS_MAX_VISIBLE_CHIPS
+            ? CANVAS_MAX_VISIBLE_CHIPS - 1
+            : CANVAS_MAX_VISIBLE_CHIPS,
+        ).map((m, i) => {
+          const center = canvasChipCenter(i);
+          return (
+            <CompletedChip
+              key={m.id}
+              label={m.label}
+              color={noteColor}
+              size={CANVAS_CHIP_SIZE}
+              left={center.x - CANVAS_CHIP_SIZE / 2}
+              top={center.y - CANVAS_CHIP_SIZE / 2}
+              onPress={() => setOpenMeasurable(m)}
+            />
+          );
+        })}
+        {completedMeasurables.length > CANVAS_MAX_VISIBLE_CHIPS && (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.overflowHint,
+              {
+                left: canvasChipCenter(CANVAS_MAX_VISIBLE_CHIPS).x - CANVAS_CHIP_SIZE / 2,
+                top: canvasChipCenter(CANVAS_MAX_VISIBLE_CHIPS).y - CANVAS_CHIP_SIZE / 2,
+                width: CANVAS_CHIP_SIZE, borderColor: p.line,
+              },
+            ]}
+          >
+            <Text style={[styles.overflowHintText, { color: p.muted }]}>
+              +{completedMeasurables.length - CANVAS_MAX_VISIBLE_CHIPS}
             </Text>
           </View>
         )}
@@ -284,6 +438,11 @@ const styles = StyleSheet.create({
   segmentedWrap: { marginHorizontal: 20, marginBottom: 6 },
   centerWrap: { position: 'absolute' },
   emptyHint: { position: 'absolute', left: 32, right: 32, alignItems: 'center' },
+  overflowHint: {
+    position: 'absolute', height: CANVAS_CHIP_SIZE, borderRadius: CANVAS_CHIP_SIZE / 2,
+    borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center',
+  },
+  overflowHintText: { fontSize: 12, fontWeight: '700' },
   emptyHintText: { fontSize: 13, lineHeight: 19, textAlign: 'center' },
   coachFab: {
     position: 'absolute', bottom: 20, right: 20,
