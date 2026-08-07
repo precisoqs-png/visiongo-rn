@@ -94,16 +94,22 @@ export default function BoardScreen() {
         </Pressable>
 
         <View style={styles.yearRow}>
-          <TouchableOpacity onPress={() => selectYear(selectedYear - 1)}>
-            <Ionicons name="chevron-back" size={16} color={p.muted} />
+          <TouchableOpacity
+            onPress={() => selectYear(selectedYear - 1)}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Ionicons name="chevron-back" size={22} color={p.muted} />
           </TouchableOpacity>
           <View style={styles.yearCenter}>
             <Text style={[styles.yearDiamond, { color: p.accent }]}>◈</Text>
             <Text style={[styles.yearNum, { color: p.text }]}>{selectedYear}</Text>
             <Text style={[styles.yearDiamond, { color: p.accent }]}>◈</Text>
           </View>
-          <TouchableOpacity onPress={() => selectYear(selectedYear + 1)}>
-            <Ionicons name="chevron-forward" size={16} color={p.muted} />
+          <TouchableOpacity
+            onPress={() => selectYear(selectedYear + 1)}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Ionicons name="chevron-forward" size={22} color={p.muted} />
           </TouchableOpacity>
         </View>
 
@@ -213,7 +219,7 @@ function EmptyState({ year, p, onAdd }: { year: number; p: any; onAdd: () => voi
 
 const styles = StyleSheet.create({
   root: { flex: 1, paddingTop: Platform.OS === 'ios' ? 50 : 30 },
-  inner: { flex: 1 },
+  inner: { flex: 1, overflow: 'hidden' },
   header: {
     flexDirection: 'row', alignItems: 'flex-start',
     justifyContent: 'space-between',
@@ -228,7 +234,7 @@ const styles = StyleSheet.create({
   },
   yearCenter: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   yearDiamond: { fontSize: 14 },
-  yearNum: { fontSize: 18, fontWeight: '700', fontFamily: FONTS.display },
+  yearNum: { fontSize: 22, fontWeight: '700', fontFamily: FONTS.display },
   segmentedWrap: { marginHorizontal: 20, marginBottom: 6 },
   emptyWrap: {
     flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 16,

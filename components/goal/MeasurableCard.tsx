@@ -117,8 +117,12 @@ function CheckRow({ m, p, noteColor, onUpdate, onDelete, onOpenSchedule }: {
         {m.label}
       </Text>
       <ScheduleBell m={m} p={p} onOpenSchedule={onOpenSchedule} />
-      <TouchableOpacity onPress={() => onDelete(m.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-        <Ionicons name="close" size={14} color={p.muted} />
+      <TouchableOpacity
+        onPress={() => onDelete(m.id)}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        style={styles.deleteCircle}
+      >
+        <Ionicons name="close" size={12} color={p.muted} />
       </TouchableOpacity>
     </View>
   );
@@ -140,8 +144,12 @@ function NumberRow({ m, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule }
       <View style={[styles.row, { marginBottom: 10 }]}>
         <Text style={[styles.numLabel, { color: p.text }]}>{m.label}</Text>
         <ScheduleBell m={m} p={p} onOpenSchedule={onOpenSchedule} />
-        <TouchableOpacity onPress={() => onDelete(m.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Ionicons name="close" size={14} color={p.muted} />
+        <TouchableOpacity
+          onPress={() => onDelete(m.id)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          style={styles.deleteCircle}
+        >
+          <Ionicons name="close" size={12} color={p.muted} />
         </TouchableOpacity>
       </View>
       <View style={[styles.row, { marginBottom: 10 }]}>
@@ -210,8 +218,12 @@ function LadderRows({ m, goalTargetDate, p, noteColor, onUpdate, onDelete, frac,
           {doneCount}/{m.weeks.length} wks
         </Text>
         <ScheduleBell m={m} p={p} onOpenSchedule={onOpenSchedule} />
-        <TouchableOpacity onPress={() => onDelete(m.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={{ marginLeft: 8 }}>
-          <Ionicons name="close" size={14} color={p.muted} />
+        <TouchableOpacity
+          onPress={() => onDelete(m.id)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          style={[styles.deleteCircle, { marginLeft: 0 }]}
+        >
+          <Ionicons name="close" size={12} color={p.muted} />
         </TouchableOpacity>
       </View>
 
@@ -303,7 +315,8 @@ const styles = StyleSheet.create({
     width: 26, height: 26, borderRadius: 13,
     alignItems: 'center', justifyContent: 'center',
   },
-  checkbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  checkbox: { width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  deleteCircle: { width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(128,128,128,0.15)', alignItems: 'center', justifyContent: 'center' },
   checkLabel: { flex: 1, fontSize: 15 },
   numLabel: { flex: 1, fontSize: 15, fontWeight: '600' },
   stepper: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },

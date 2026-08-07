@@ -35,8 +35,8 @@ export const CENTER_SIZE = 132;
 // from computeRadialLayout is applied — exported so other bubble canvases
 // (the goal detail screen's Measurables) size consistently with the board
 // instead of picking their own numbers.
-export const MIN_BUBBLE = 70;
-export const MAX_BUBBLE = 102;
+export const MIN_BUBBLE = 80;
+export const MAX_BUBBLE = 120;
 const BOTTOM_SAFE = 88;
 const TOP_SAFE = 8;
 const TRASH_SIZE = 56;

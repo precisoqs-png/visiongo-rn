@@ -90,10 +90,14 @@ export default function GoalDetailScreen() {
         await scheduleGoalNotification(updated);
         await syncWeeklyTargetNotifications(updated);
       }
+      setBellToast('Reminder on');
+      setTimeout(() => setBellToast(null), 2000);
     } else {
       updateGoal({ ...goal, reminder: { ...goal.reminder, on: false } });
       await cancelGoalNotification(goal.id);
       await cancelWeeklyTargetNotifications(goal.id);
+      setBellToast('Reminder off');
+      setTimeout(() => setBellToast(null), 2000);
     }
   };
 
@@ -159,6 +163,7 @@ export default function GoalDetailScreen() {
   }, [hydrated, goal?.id]);
 
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [bellToast, setBellToast] = useState<string | null>(null);
 
   // One-time celebration when the goal crosses 100% during this session —
   // baselines on first render (so opening an already-complete goal doesn't
@@ -254,13 +259,20 @@ export default function GoalDetailScreen() {
             </TouchableOpacity>
             <Text style={[styles.goalLabel, { color: p.muted }]}>GOAL · {useAppStore.getState().selectedYear}</Text>
             <View style={styles.navActions}>
-              <TouchableOpacity onPress={toggleReminder}>
-                <Ionicons
-                  name={goal.reminder.on ? 'notifications' : 'notifications-outline'}
-                  size={20}
-                  color={goal.reminder.on ? p.accent : p.muted}
-                />
-              </TouchableOpacity>
+              <View style={{ alignItems: 'center' }}>
+                <TouchableOpacity onPress={toggleReminder}>
+                  <Ionicons
+                    name={goal.reminder.on ? 'notifications' : 'notifications-outline'}
+                    size={20}
+                    color={goal.reminder.on ? p.accent : p.muted}
+                  />
+                </TouchableOpacity>
+                {bellToast && (
+                  <View style={[styles.bellToast, { backgroundColor: p.surface }]}>
+                    <Text style={[styles.bellToastText, { color: p.text }]}>{bellToast}</Text>
+                  </View>
+                )}
+              </View>
               <TouchableOpacity onPress={handleDelete} style={{ marginLeft: 14 }}>
                 <Ionicons name="trash-outline" size={20} color={p.muted} />
               </TouchableOpacity>
@@ -314,7 +326,7 @@ export default function GoalDetailScreen() {
                 <View
                   style={[
                     styles.progFill,
-                    { backgroundColor: almostThere ? '#e89300' : p.accent, width: `${progress * 100}%` },
+                    { backgroundColor: almostThere ? '#e89300' : noteColor, width: `${progress * 100}%` },
                   ]}
                 />
               </View>
@@ -356,6 +368,7 @@ export default function GoalDetailScreen() {
             <Text style={[styles.daysLeft, { color: p.muted }]}>· {daysLeft} days left</Text>
           )}
           <Ionicons name="calendar-outline" size={14} color={p.muted} style={{ marginLeft: 'auto' as any }} />
+          <Ionicons name="chevron-forward" size={14} color={p.muted} />
         </TouchableOpacity>
 
         {isEmptyGoal && (
@@ -489,6 +502,7 @@ const styles = StyleSheet.create({
   achieveRow: {
     flexDirection: 'row', alignItems: 'center',
     padding: 14, paddingHorizontal: 20, gap: 8,
+    marginHorizontal: 18, marginTop: 12, borderRadius: 14,
   },
   eyebrow: { fontSize: 11, fontWeight: '600', letterSpacing: 1.5 },
   eyebrowRow: { flexDirection: 'row', alignItems: 'center' },
@@ -505,4 +519,12 @@ const styles = StyleSheet.create({
   decompBody: { fontSize: 12, lineHeight: 17 },
   decompBtn: { borderRadius: 12, paddingVertical: 9, paddingHorizontal: 14 },
   decompBtnText: { fontSize: 13, fontWeight: '700' },
+  bellToast: {
+    position: 'absolute', top: 26, right: 0,
+    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12, shadowRadius: 4, elevation: 4,
+    minWidth: 80, alignItems: 'center',
+  },
+  bellToastText: { fontSize: 11, fontWeight: '600' },
 });
