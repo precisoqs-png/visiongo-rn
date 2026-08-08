@@ -21,10 +21,11 @@ export function GoalNote({ goal, size, palette, onPress, onLongPress, onPressOut
   const noteColor = GOAL_NOTE_COLORS[goal.colorIndex % GOAL_NOTE_COLORS.length];
   const progress = goalProgress(goal);
   const pct = goalProgressPercent(goal);
-  // Milestones no longer move the fill (see goalProgress) — they're discrete
-  // checkpoints, so they're surfaced as a small tick-mark row instead. Capped
-  // at MAX_DOTS so a goal with a dozen milestones doesn't overrun a small
-  // bubble; the rest just count toward the label past that point.
+  // Milestones now blend into the fill too (see goalProgress), but they're
+  // still surfaced separately as a small tick-mark row of discrete
+  // checkpoints. Capped at MAX_DOTS so a goal with a dozen milestones
+  // doesn't overrun a small bubble; the rest just count toward the label
+  // past that point.
   const { done: milestonesDone, total: milestonesTotal } = milestoneCheckpoints(goal);
 
   useEffect(() => {

@@ -91,6 +91,10 @@ interface AppState {
 
   completeOnboarding: (year: number, motto: string, goals: Goal[]) => void;
   resetOnboarding: () => void;
+  // Replace-only restore from an exported backup JSON (Settings > Backup).
+  // Runs the incoming years through the same normalizeYears backfilling as
+  // any other persisted blob before swapping it in.
+  importBackup: (data: { years: YearData[]; selectedYear?: number; hasCompletedOnboarding?: boolean }) => void;
 
   setBoardLayout: (l: BoardLayout) => void;
   setBoardViewMode: (m: BoardViewMode) => void;
@@ -570,6 +574,18 @@ export const useAppStore = create<AppState>()(
 
       resetOnboarding: () => set({ hasCompletedOnboarding: false }),
 
+      importBackup: (data) => {
+        const years = normalizeYears(data.years as LegacyState['years']);
+        set((s) => ({
+          years,
+          selectedYear:
+            data.selectedYear ?? (years.find((y) => y.year === s.selectedYear) ? s.selectedYear : years[0]?.year ?? s.selectedYear),
+          ...(data.hasCompletedOnboarding !== undefined
+            ? { hasCompletedOnboarding: data.hasCompletedOnboarding }
+            : {}),
+        }));
+      },
+
       setBoardLayout: (l) => set({ boardLayout: l }),
       setBoardViewMode: (m) => set({ boardViewMode: m }),
       setNotificationsMaster: (on) => set({ notificationsMasterOn: on }),
@@ -850,8 +866,11 @@ function migratePendingAction(p: LegacyPendingAction): PendingAction {
   };
 }
 
-// Idempotent: safe to run on already-migrated data.
-function normalizeYears(years: LegacyState['years']): YearData[] {
+// Idempotent: safe to run on already-migrated data. Exported so imported
+// backup JSON (Settings > Backup > Import) can be run through the same
+// defensive backfilling as any other persisted blob, instead of duplicating
+// this logic.
+export function normalizeYears(years: LegacyState['years']): YearData[] {
   return (years ?? []).map((y) => ({
     ...y,
     goals: (y.goals ?? []).map(({ suggestions, minorGoals, ...g }): Goal => ({

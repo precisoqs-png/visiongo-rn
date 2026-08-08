@@ -653,21 +653,20 @@ export interface Goal {
   completionCelebrated?: boolean;
 }
 
-// The bubble/bar fill is driven ONLY by measurables — continuous,
-// quantifiable progress (a running number, a checked box, a ladder week).
-// Milestones are discrete checkpoints, not a fill input: a single milestone
-// flipping done would otherwise jump the bar by a chunk unrelated to what
-// the bubble visually tracks. They're surfaced separately as checkpoint
-// markers (see milestoneCheckpoints) instead. The one exception is a goal
-// with milestones but zero measurables — there's nothing else to show
-// progress from, so it falls back to the milestone completion ratio.
+// The bubble/bar fill blends every tracked item — measurables AND
+// milestones — into one average, so it can never read 100% while
+// isCompleted() below still says the goal isn't done. Milestones remain
+// discrete checkpoints surfaced separately via milestoneCheckpoints (dots
+// on GoalNote), but they also count toward the fill now, same as a
+// measurable would.
 export function goalProgress(g: Goal): number {
-  if (g.measurables.length > 0) {
-    return g.measurables.reduce((acc, m) => acc + measurableFraction(m), 0) / g.measurables.length;
-  }
   const milestones = g.milestones ?? [];
-  if (milestones.length === 0) return 0;
-  return milestones.reduce((acc, mg) => acc + milestoneFraction(mg), 0) / milestones.length;
+  const fractions = [
+    ...g.measurables.map(measurableFraction),
+    ...milestones.map(milestoneFraction),
+  ];
+  if (fractions.length === 0) return 0;
+  return fractions.reduce((acc, f) => acc + f, 0) / fractions.length;
 }
 
 export function goalProgressPercent(g: Goal): number {
