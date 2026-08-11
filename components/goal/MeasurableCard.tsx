@@ -1,13 +1,14 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  Measurable, measurableFraction, measurableStep, steppedValue, formatNumber,
-  isMeasurableDeadlineOutdated, buildLadderWeeks,
+  Measurable, Commitment, measurableFraction, measurableStep, steppedValue, formatNumber,
+  isMeasurableDeadlineOutdated, buildLadderWeeks, milestonePercent,
 } from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
 import { useCompletionPulse } from '../shared/useCompletionPulse';
 import { useCompletionBurst } from '../shared/useCompletionBurst';
+import { CommitmentsBlock } from './CommitmentsBlock';
 
 interface Props {
   measurable: Measurable;
@@ -27,6 +28,14 @@ interface Props {
   // measurable. Optional so existing call sites don't have to be updated
   // in lockstep — no bell renders if it's omitted.
   onOpenSchedule?: (m: Measurable) => void;
+  // Opens the reminder sheet for ONE of this item's Commitments, rather than
+  // the item's own reminder. Only ever relevant for a milestone-flagged item
+  // (see the `m.milestone` block below) — measurables.tsx never passes this,
+  // since a plain measurable's commitments array is always empty.
+  onOpenCommitmentSchedule?: (m: Measurable, step: Commitment) => void;
+  // Hands a 'commitment'-type (former "effort") milestone to the AI coach
+  // for a baseline + weekly target. Only rendered for that type.
+  onAskCoach?: (m: Measurable) => void;
 }
 
 // Small bell button, same shape/behaviour as MilestoneSection's step bell —
@@ -46,9 +55,24 @@ function ScheduleBell({ m, p, onOpenSchedule }: { m: Measurable; p: Palette; onO
   );
 }
 
-export function MeasurableCard({ measurable: m, goalTargetDate, palette, noteColor, onUpdate, onDelete, onOpenSchedule }: Props) {
+// Include the year only when it is not the current one — "by Jul 29" is
+// ambiguous for a deadline that is actually next year.
+function fmtDeadlineShared(iso: string): string {
+  const d = new Date(iso);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }),
+  });
+}
+
+export function MeasurableCard({
+  measurable: m, goalTargetDate, palette, noteColor, onUpdate, onDelete, onOpenSchedule, onOpenCommitmentSchedule, onAskCoach,
+}: Props) {
   const p = palette;
   const frac = measurableFraction(m);
+  // Commitments start collapsed so the flat list reads as one row per item —
+  // expanding is opt-in, not a permanently-visible nested section.
+  const [commitmentsOpen, setCommitmentsOpen] = useState(false);
 
   // Celebratory glow the moment THIS card's measurable finishes (fraction
   // hits 1) — however that happened (checkbox, stepper, or the last ladder
@@ -61,6 +85,11 @@ export function MeasurableCard({ measurable: m, goalTargetDate, palette, noteCol
     prevFracRef.current = frac;
   }, [frac]);
 
+  // A milestone-flagged item's own deadline going stale relative to the
+  // goal's current date — independent of a ladder's own week-pacing banner
+  // below, which already covers the ladder case via `sizedForGoalDate`.
+  const deadlineOutdated = m.milestone && m.type !== 'ladder' && isMeasurableDeadlineOutdated(m, goalTargetDate);
+
   return (
     <View style={[styles.card, { backgroundColor: p.surface }]}>
       {m.type === 'check' && <CheckRow m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} onOpenSchedule={onOpenSchedule} />}
@@ -68,6 +97,50 @@ export function MeasurableCard({ measurable: m, goalTargetDate, palette, noteCol
       {m.type === 'ladder' && (
         <LadderRows m={m} goalTargetDate={goalTargetDate} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} />
       )}
+      {m.type === 'commitment' && (
+        <CommitmentTypeRow m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} onAskCoach={onAskCoach} />
+      )}
+
+      {m.milestone && m.deadline && (
+        <Text style={[styles.deadlineMeta, { color: p.muted }]}>by {fmtDeadlineShared(m.deadline)}</Text>
+      )}
+
+      {deadlineOutdated && (
+        <View style={[styles.outdatedBanner, { backgroundColor: '#e8930022', borderColor: '#e89300' }]}>
+          <Ionicons name="alert-circle-outline" size={15} color="#c47700" style={{ marginTop: 1 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.outdatedText, { color: p.text }]}>
+              This was sized for {m.sizedForGoalDate ? fmtDeadlineShared(m.sizedForGoalDate) : 'no deadline'} — the
+              goal's deadline is now {goalTargetDate ? fmtDeadlineShared(goalTargetDate) : 'unset'}.
+            </Text>
+            <View style={styles.outdatedActions}>
+              <TouchableOpacity onPress={() => onUpdate({ ...m, deadline: goalTargetDate, sizedForGoalDate: goalTargetDate })}>
+                <Text style={[styles.outdatedActionText, { color: '#c47700' }]}>
+                  Update to {goalTargetDate ? fmtDeadlineShared(goalTargetDate) : 'no deadline'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => onUpdate({ ...m, sizedForGoalDate: undefined })}>
+                <Text style={[styles.outdatedActionText, { color: p.muted }]}>Keep as-is</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Recurring commitments — only ever present on a milestone-flagged
+          item (a plain measurable's `commitments` is always empty), so this
+          never renders on measurables.tsx's cards. */}
+      {m.milestone && onOpenCommitmentSchedule && (
+        <CommitmentsBlock
+          item={m}
+          palette={p}
+          onUpdate={onUpdate}
+          onOpenSchedule={(step) => onOpenCommitmentSchedule(m, step)}
+          expanded={commitmentsOpen}
+          onToggleExpand={() => setCommitmentsOpen((v) => !v)}
+        />
+      )}
+
       <Animated.View
         pointerEvents="none"
         style={[
@@ -80,6 +153,47 @@ export function MeasurableCard({ measurable: m, goalTargetDate, palette, noteCol
           },
         ]}
       />
+    </View>
+  );
+}
+
+// A former "effort" Milestone — no current/target of its own, entirely
+// driven by its attached Commitments (see measurableFraction's 'commitment'
+// branch). `done` is a manual override a user can still flip directly.
+function CommitmentTypeRow({ m, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule, onAskCoach }: {
+  m: Measurable; p: Palette; noteColor: string; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number;
+  onOpenSchedule?: (m: Measurable) => void; onAskCoach?: (m: Measurable) => void;
+}) {
+  const { scale, pulse } = useCompletionPulse();
+  const pct = milestonePercent(m);
+  return (
+    <View>
+      <View style={[styles.row, { marginBottom: 8 }]}>
+        <Animated.View style={{ transform: [{ scale }] }}>
+          <TouchableOpacity
+            onPress={() => { const next = !m.done; onUpdate({ ...m, done: next }); pulse(next); }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel={m.done ? 'Mark not done' : 'Mark done'}
+          >
+            <Ionicons name={m.done ? 'checkmark-circle' : 'ellipse-outline'} size={20} color={m.done ? noteColor : p.muted} />
+          </TouchableOpacity>
+        </Animated.View>
+        <Text style={[styles.numLabel, { color: m.done ? p.muted : p.text }]}>{m.label}</Text>
+        <Text style={[styles.ladderPct, { color: noteColor }]}>{pct}%</Text>
+        <ScheduleBell m={m} p={p} onOpenSchedule={onOpenSchedule} />
+        <TouchableOpacity onPress={() => onDelete(m.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.deleteCircle}>
+          <Ionicons name="close" size={12} color={p.muted} />
+        </TouchableOpacity>
+      </View>
+      <View style={[styles.progressTrack, { backgroundColor: p.line }]}>
+        <View style={[styles.progressFill, { backgroundColor: noteColor, width: `${frac * 100}%` }]} />
+      </View>
+      {onAskCoach && (
+        <TouchableOpacity style={[styles.askCoachBtn, { borderColor: `${p.accent}66` }]} onPress={() => onAskCoach(m)}>
+          <Ionicons name="sparkles-outline" size={12} color={p.accent} />
+          <Text style={[styles.askCoachText, { color: p.accent }]}>Ask coach</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -336,4 +450,10 @@ const styles = StyleSheet.create({
   outdatedText: { fontSize: 12, lineHeight: 16 },
   outdatedActions: { flexDirection: 'row', gap: 16, marginTop: 6 },
   outdatedActionText: { fontSize: 12, fontWeight: '700' },
+  deadlineMeta: { fontSize: 11, marginTop: -4, marginBottom: 6 },
+  askCoachBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start',
+    borderWidth: 1, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 6, marginTop: 10,
+  },
+  askCoachText: { fontSize: 12, fontWeight: '600' },
 });
