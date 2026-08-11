@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["../*"],
+      "expo-crypto": ["./_shims/expo-crypto.ts"]
+    }
+  }
+}
