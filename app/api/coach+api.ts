@@ -79,10 +79,27 @@ async function fetchWithTimeout(
 // Upstash isn't configured in every environment (local dev, preview builds
 // without the env vars set) — cached per invocation so callers can decide
 // once whether to enforce anything at all.
+//
+// When it's missing, incrWithDailyExpiry fails open (every cap below is
+// unenforced) — an intentional trade-off so a Redis outage doesn't take
+// down the coach feature. But a *misconfigured production deployment*
+// looks identical to that outage and would otherwise fail open silently
+// forever. This flag makes that condition loud in the server logs exactly
+// once per server instance (not once per request, to avoid log spam on a
+// busy misconfigured deployment).
+let warnedMissingUpstash = false;
+
 function upstashCreds(): { url: string; token: string } | null {
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  return url && token ? { url, token } : null;
+  if (url && token) return { url, token };
+  if (!warnedMissingUpstash) {
+    warnedMissingUpstash = true;
+    console.warn(
+      '[coach+api] UPSTASH_REDIS_REST_URL/TOKEN not set — rate limiting is DISABLED, all cost ceilings are unenforced'
+    );
+  }
+  return null;
 }
 
 // INCRs `key` in Upstash and, on the first increment, sets it to expire in
@@ -212,7 +229,13 @@ export async function POST(request: Request): Promise<Response> {
           // it doesn't need Opus-tier reasoning — at a third of the cost.
           // No `fallbacks` param: claude-sonnet-5 doesn't support it (400s).
           model: 'claude-sonnet-5',
-          max_tokens: 4096,
+          // Coach replies are short paragraphs by design (see the STYLE rule
+          // in buildSystemPrompt: "Warm, brief, direct. Short paragraphs. No
+          // preamble, no filler.") plus at most a handful of small tool_use
+          // blocks (edit_step/set_target/etc.) per turn. 1536 comfortably
+          // covers that while capping the worst-case cost per request well
+          // below the old 4096 ceiling.
+          max_tokens: 1536,
           output_config: { effort: 'low' },
           system: systemPrompt,
           messages,

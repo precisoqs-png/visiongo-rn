@@ -6,6 +6,9 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import * as DocumentPicker from 'expo-document-picker';
 import { useThemeStore } from '../../store/useThemeStore';
 import { useAppStore } from '../../store/useAppStore';
 import { THEMES, THEME_ORDER, ThemeKey, GOAL_NOTE_COLORS, FONTS, hexAlpha } from '../../theme/themes';
@@ -29,8 +32,109 @@ export default function SettingsScreen() {
   const p = palette;
 
   const resetOnboarding = useAppStore((s) => s.resetOnboarding);
+  const importBackup = useAppStore((s) => s.importBackup);
 
   const [showNotifications, setShowNotifications] = useState(false);
+
+  async function handleExport() {
+    try {
+      // Whole persisted state, JSON-serialized (JSON.stringify drops the
+      // store's action functions on its own, so this matches exactly what
+      // zustand's persist middleware would have written to disk).
+      const state = useAppStore.getState();
+      const payload = {
+        years: state.years,
+        selectedYear: state.selectedYear,
+        hasCompletedOnboarding: state.hasCompletedOnboarding,
+        exportedAt: new Date().toISOString(),
+      };
+      const json = JSON.stringify(payload, null, 2);
+
+      if (Platform.OS === 'web') {
+        // No expo-sharing on web — fall back to a browser download.
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `visiongo-backup-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        return;
+      }
+
+      const fileUri = `${FileSystem.cacheDirectory}visiongo-backup-${Date.now()}.json`;
+      await FileSystem.writeAsStringAsync(fileUri, json, { encoding: FileSystem.EncodingType.UTF8 });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, { mimeType: 'application/json', dialogTitle: 'Save VisionGo backup' });
+      } else {
+        Alert.alert('Backup saved', `Saved to: ${fileUri}`);
+      }
+    } catch (err) {
+      Alert.alert('Export failed', 'Could not create the backup file. Please try again.');
+    }
+  }
+
+  function applyImportedJson(text: string) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      Alert.alert('Import failed', 'That file is not valid JSON.');
+      return;
+    }
+    const data = parsed as { years?: unknown };
+    if (!data || typeof data !== 'object' || !Array.isArray(data.years)) {
+      Alert.alert('Import failed', 'That file does not look like a VisionGo backup (missing a "years" list).');
+      return;
+    }
+
+    const doImport = () => {
+      try {
+        importBackup(parsed as { years: any; selectedYear?: number; hasCompletedOnboarding?: boolean });
+      } catch {
+        Alert.alert('Import failed', 'The backup file was readable but its data could not be restored.');
+      }
+    };
+
+    const message =
+      'This will replace ALL current goals and progress with the contents of the selected backup file. ' +
+      'This cannot be undone.';
+    if (Platform.OS === 'web') {
+      if ((window as any).confirm(`Replace all data?\n\n${message}`)) doImport();
+      return;
+    }
+    Alert.alert('Replace all data?', message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Replace', style: 'destructive', onPress: doImport },
+    ]);
+  }
+
+  async function handleImport() {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/json',
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+
+      const asset = result.assets[0];
+      let text: string;
+      if (Platform.OS === 'web') {
+        // On web the picked file exposes a `file` (browser File object)
+        // rather than a readable local uri.
+        const file = (asset as any).file as File | undefined;
+        text = file ? await file.text() : await (await fetch(asset.uri)).text();
+      } else {
+        text = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.UTF8 });
+      }
+      applyImportedJson(text);
+    } catch (err) {
+      Alert.alert('Import failed', 'Could not read the selected file. Please try again.');
+    }
+  }
 
   function handleStartFresh() {
     if (Platform.OS === 'web') {
@@ -116,6 +220,28 @@ export default function SettingsScreen() {
           <Text style={[styles.settingsRowText, { color: p.text }]}>How to Use</Text>
           <Ionicons name="chevron-forward" size={14} color={p.muted} />
         </TouchableOpacity>
+
+        <SectionLabel label="BACKUP" palette={p} />
+        <TouchableOpacity
+          style={[styles.settingsRow, { backgroundColor: p.surface }]}
+          onPress={handleExport}
+          activeOpacity={0.75}
+        >
+          <Text style={[styles.settingsRowText, { color: p.text }]}>Export Backup</Text>
+          <Ionicons name="share-outline" size={16} color={p.muted} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.settingsRow, { backgroundColor: p.surface }]}
+          onPress={handleImport}
+          activeOpacity={0.75}
+        >
+          <Text style={[styles.settingsRowText, { color: p.text }]}>Import Backup</Text>
+          <Ionicons name="download-outline" size={16} color={p.muted} />
+        </TouchableOpacity>
+        <Text style={[styles.tip, { color: p.muted, paddingHorizontal: 22 }]}>
+          Everything stays on this device — export a JSON file to keep elsewhere, or import one to replace all
+          current data.
+        </Text>
 
         <SectionLabel label="DATA" palette={p} />
         <TouchableOpacity

@@ -75,11 +75,10 @@ const TOPICS: Topic[] = [
     body:
       'Milestones are sub-goals — "Save $10,000," "Run a marathon" — that can carry their ' +
       'own deadline and recurring Commitments you get reminded about. They\'re discrete ' +
-      'checkpoints: reaching one shows as a small tick mark on the goal\'s bubble, but does ' +
-      'not by itself move the goal\'s fill percentage once that goal has any measurables — ' +
-      'a milestone is a marker of "reached" or "not yet," not a continuous number. (A goal ' +
-      'with milestones but zero measurables is the one exception: its fill falls back to ' +
-      'how many of its milestones are complete, since there\'s nothing else to show.)\n\n' +
+      'checkpoints, each either "reached" or "not yet" rather than a continuous number, and ' +
+      'reaching one still shows as a small tick mark on the goal\'s bubble — but a milestone ' +
+      'also counts toward the goal\'s fill percentage, right alongside its measurables. A ' +
+      'goal only shows 100% once every measurable and every milestone is complete.\n\n' +
       'Add a milestone from the Milestones tab on a goal. Give it a title, and optionally:\n\n' +
       '• Target, Unit, and Step — fill these in to make it a Numeric milestone tracked by ' +
       'a running current/target number, with its own +/- steppers. Leave Target blank and ' +
