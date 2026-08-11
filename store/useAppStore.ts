@@ -2,15 +2,16 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  YearData, Goal, Measurable, ChatMessage,
+  YearData, Goal, TrackableItem, ChatMessage,
   CoachAction, PendingAction,
-  Milestone, Commitment, StepSchedule, Reminder,
+  Commitment, StepSchedule,
   BoardLayout, BoardViewMode,
   newId, newMeasurable, newMilestone, newCommitment, buildLadderWeeks,
-  resolveMeasurable, resolveMilestone, periodKey, milestoneStep, snapToStep,
+  resolveMeasurable, resolveMilestone, periodKey,
   DEFAULT_SCHEDULE, currentBuildUpWeek, isStepDoneThisPeriod, currentStepPeriodDueDate,
   formatNumber, isCompleted,
 } from './models';
+import { normalizeYears, LegacyYears } from './migration';
 import { GOAL_NOTE_COLORS as COLORS } from '../theme/themes';
 
 export const COACH_DAILY_LIMIT = 20;
@@ -21,7 +22,11 @@ export const COACH_DAILY_LIMIT = 20;
 // etc.) from the "Minor Goal" -> "Milestone" rename.
 // v4: CoachAction kind addAccountableStep -> addCommitment, from the
 // "Accountable Step" -> "Commitment" rename.
-const STORE_VERSION = 4;
+// v5: Goal.measurables + Goal.milestones (each with `steps: Commitment[]`)
+// merged into one Goal.items: TrackableItem[] array — a measurable becomes a
+// plain item, a milestone becomes an item with `milestone: true` and its
+// `steps` renamed to `commitments`. See normalizeYears.
+const STORE_VERSION = 5;
 
 function todayKey(): string {
   const d = new Date();
@@ -52,16 +57,17 @@ interface AppState {
   deleteGoal: (id: string) => void;
   getGoal: (id: string) => Goal | undefined;
 
-  addMeasurable: (m: Measurable, goalId: string) => void;
-  updateMeasurable: (m: Measurable, goalId: string) => void;
+  // Plain (non-milestone) items — check/number/ladder.
+  addMeasurable: (m: TrackableItem, goalId: string) => void;
+  updateMeasurable: (m: TrackableItem, goalId: string) => void;
   deleteMeasurable: (mid: string, goalId: string) => void;
 
-  // Milestones — the layer between a goal and its commitments.
-  addMilestone: (mg: Milestone, goalId: string) => void;
-  updateMilestone: (mg: Milestone, goalId: string) => void;
+  // Milestone-flagged items — the layer that can carry commitments.
+  addMilestone: (mg: TrackableItem, goalId: string) => void;
+  updateMilestone: (mg: TrackableItem, goalId: string) => void;
   deleteMilestone: (mgId: string, goalId: string) => void;
 
-  // Commitments — one recurring commitment each, under a milestone.
+  // Commitments — one recurring commitment each, under a milestone item.
   addCommitment: (step: Commitment, mgId: string, goalId: string) => void;
   updateCommitment: (step: Commitment, mgId: string, goalId: string) => void;
   deleteCommitment: (stepId: string, mgId: string, goalId: string) => void;
@@ -91,6 +97,10 @@ interface AppState {
 
   completeOnboarding: (year: number, motto: string, goals: Goal[]) => void;
   resetOnboarding: () => void;
+  // Replace-only restore from an exported backup JSON (Settings > Backup).
+  // Runs the incoming years through the same normalizeYears backfilling as
+  // any other persisted blob before swapping it in.
+  importBackup: (data: { years: YearData[]; selectedYear?: number; hasCompletedOnboarding?: boolean }) => void;
 
   setBoardLayout: (l: BoardLayout) => void;
   setBoardViewMode: (m: BoardViewMode) => void;
@@ -115,8 +125,8 @@ export interface TaskItem {
   // Measurable-based task (check, or one ladder week).
   measurableId?: string;
   ladderWeekId?: string;
-  // Commitment task (from a Milestone) — either a flat step's current
-  // period, or one week of a progressive build-up.
+  // Commitment task (from a milestone-flagged item) — either a flat step's
+  // current period, or one week of a progressive build-up.
   milestoneId?: string;
   stepId?: string;
   rampWeekId?: string;
@@ -187,7 +197,7 @@ export const useAppStore = create<AppState>()(
         const goal: Goal = {
           id: newId(), title, colorIndex,
           reminder: { on: false, frequency: 'Daily' },
-          chat: [], pendingActions: [], measurables: [], milestones: [],
+          chat: [], pendingActions: [], items: [],
         };
         set((s) => ({
           years: s.years.map((y) =>
@@ -232,94 +242,67 @@ export const useAppStore = create<AppState>()(
       getGoal: (id) => get().currentYearData()?.goals.find((g) => g.id === id),
 
       addMeasurable: (m, goalId) => {
-        const year = get().selectedYear;
-        set((s) => ({
-          years: s.years.map((y) =>
-            y.year === year
-              ? { ...y, goals: y.goals.map((g) =>
-                  g.id === goalId ? { ...g, measurables: [...g.measurables, m] } : g
-                )}
-              : y
-          ),
-        }));
+        get()._patchGoal(goalId, (g) => ({ ...g, items: [...g.items, m] }));
       },
 
       updateMeasurable: (m, goalId) => {
-        const year = get().selectedYear;
-        set((s) => ({
-          years: s.years.map((y) =>
-            y.year === year
-              ? { ...y, goals: y.goals.map((g) =>
-                  g.id === goalId
-                    ? { ...g, measurables: g.measurables.map((mm) => mm.id === m.id ? m : mm) }
-                    : g
-                )}
-              : y
-          ),
+        get()._patchGoal(goalId, (g) => ({
+          ...g, items: g.items.map((it) => it.id === m.id ? m : it),
         }));
       },
 
       deleteMeasurable: (mid, goalId) => {
-        const year = get().selectedYear;
-        set((s) => ({
-          years: s.years.map((y) =>
-            y.year === year
-              ? { ...y, goals: y.goals.map((g) =>
-                  g.id === goalId
-                    ? { ...g, measurables: g.measurables.filter((m) => m.id !== mid) }
-                    : g
-                )}
-              : y
-          ),
+        get()._patchGoal(goalId, (g) => ({
+          ...g, items: g.items.filter((it) => it.id !== mid),
         }));
       },
 
       addMilestone: (mg, goalId) => {
-        get()._patchGoal(goalId, (g) => ({ ...g, milestones: [...(g.milestones ?? []), mg] }));
+        get()._patchGoal(goalId, (g) => ({ ...g, items: [...g.items, { ...mg, milestone: true }] }));
       },
 
       updateMilestone: (mg, goalId) => {
         get()._patchGoal(goalId, (g) => ({
           ...g,
-          milestones: (g.milestones ?? []).map((m) => (m.id === mg.id ? mg : m)),
+          items: g.items.map((it) => (it.id === mg.id ? { ...mg, milestone: true } : it)),
         }));
       },
 
       deleteMilestone: (mgId, goalId) => {
         get()._patchGoal(goalId, (g) => ({
           ...g,
-          milestones: (g.milestones ?? []).filter((m) => m.id !== mgId),
+          items: g.items.filter((it) => it.id !== mgId),
         }));
       },
 
       addCommitment: (step, mgId, goalId) => {
         get()._patchGoal(goalId, (g) => patchMilestone(g, mgId, (mg) => ({
-          ...mg, steps: [...mg.steps, step],
+          ...mg, commitments: [...mg.commitments, step],
         })));
       },
 
       updateCommitment: (step, mgId, goalId) => {
         get()._patchGoal(goalId, (g) => patchMilestone(g, mgId, (mg) => ({
-          ...mg, steps: mg.steps.map((s) => (s.id === step.id ? step : s)),
+          ...mg, commitments: mg.commitments.map((s) => (s.id === step.id ? step : s)),
         })));
       },
 
       deleteCommitment: (stepId, mgId, goalId) => {
         get()._patchGoal(goalId, (g) => patchMilestone(g, mgId, (mg) => ({
-          ...mg, steps: mg.steps.filter((s) => s.id !== stepId),
+          ...mg, commitments: mg.commitments.filter((s) => s.id !== stepId),
         })));
       },
 
       setStepSchedule: (schedule, stepId, mgId, goalId) => {
         get()._patchGoal(goalId, (g) => patchMilestone(g, mgId, (mg) => ({
           ...mg,
-          steps: mg.steps.map((s) => (s.id === stepId ? { ...s, schedule } : s)),
+          commitments: mg.commitments.map((s) => (s.id === stepId ? { ...s, schedule } : s)),
         })));
       },
 
       toggleStepCheckIn: (stepId, mgId, goalId) => {
         get()._patchGoal(goalId, (g) => patchMilestone(g, mgId, (mg) => {
-          const step = mg.steps.find((s) => s.id === stepId);
+          const step = mg.commitments.find((s) => s.id === stepId);
           if (!step) return mg;
 
           // A build-up tracks completion per week (like a ladder measurable),
@@ -329,7 +312,7 @@ export const useAppStore = create<AppState>()(
             if (!week) return mg;
             return {
               ...mg,
-              steps: mg.steps.map((s) => (s.id === stepId
+              commitments: mg.commitments.map((s) => (s.id === stepId
                 ? { ...s, ramp: s.ramp!.map((w) => (w.id === week.id ? { ...w, done: !w.done } : w)) }
                 : s)),
             };
@@ -340,11 +323,12 @@ export const useAppStore = create<AppState>()(
           const completions = wasDone
             ? step.completions.filter((k) => k !== key)
             : [...step.completions, key];
-          // A numeric milestone moves by the step's own amount, so checking off
-          // "Save $830 per month" adds exactly $830 — deliberately NOT snapped
-          // to the +/- grid, which would silently inflate the commitment.
+          // A numeric milestone item moves by the step's own amount, so
+          // checking off "Save $830 per month" adds exactly $830 —
+          // deliberately NOT snapped to the +/- grid, which would silently
+          // inflate the commitment.
           let current = mg.current;
-          if (mg.kind === 'numeric' && step.amount) {
+          if (mg.type === 'number' && step.amount) {
             const delta = wasDone ? -step.amount : step.amount;
             const next = Math.round(((current ?? 0) + delta) * 1000) / 1000;
             current = Math.min(Math.max(next, 0), Math.max(mg.target ?? 0, 0));
@@ -352,7 +336,7 @@ export const useAppStore = create<AppState>()(
           return {
             ...mg,
             current,
-            steps: mg.steps.map((s) => (s.id === stepId ? { ...s, completions } : s)),
+            commitments: mg.commitments.map((s) => (s.id === stepId ? { ...s, completions } : s)),
           };
         }));
       },
@@ -360,7 +344,7 @@ export const useAppStore = create<AppState>()(
       toggleRampWeek: (stepId, weekId, mgId, goalId) => {
         get()._patchGoal(goalId, (g) => patchMilestone(g, mgId, (mg) => ({
           ...mg,
-          steps: mg.steps.map((s) => (s.id === stepId && s.ramp
+          commitments: mg.commitments.map((s) => (s.id === stepId && s.ramp
             ? { ...s, ramp: s.ramp.map((w) => (w.id === weekId ? { ...w, done: !w.done } : w)) }
             : s)),
         })));
@@ -428,48 +412,50 @@ export const useAppStore = create<AppState>()(
           'Overdue': [], 'This Week': [], 'This Month': [], 'Upcoming': [], 'Anytime': [],
         };
         for (const goal of yd.goals) {
-          for (const m of goal.measurables) {
-            if (m.type === 'check') {
-              const dueDate = goal.targetDate ? localDate(goal.targetDate) : undefined;
-              const item: TaskItem = {
-                id: `task-${m.id}`, measurableId: m.id, goalId: goal.id,
-                goalTitle: goal.title, goalColorIndex: goal.colorIndex,
-                label: m.label, dueDate, done: m.done,
-              };
-              if (!dueDate) buckets['Anytime'].push(item);
-              else if (dueDate < todayStart) buckets['Overdue'].push(item);
-              else if (dueDate <= weekEnd) buckets['This Week'].push(item);
-              else if (dueDate <= monthEnd) buckets['This Month'].push(item);
-              else buckets['Upcoming'].push(item);
-            } else if (m.type === 'ladder') {
-              for (const week of m.weeks) {
-                const due = localDate(week.targetDate);
+          for (const m of goal.items) {
+            if (m.commitments.length === 0) {
+              // A plain check/number/ladder item — same bucketing as before.
+              if (m.type === 'check') {
+                const dueDate = goal.targetDate ? localDate(goal.targetDate) : undefined;
                 const item: TaskItem = {
-                  id: `task-${m.id}-${week.id}`, measurableId: m.id, ladderWeekId: week.id,
-                  goalId: goal.id, goalTitle: goal.title, goalColorIndex: goal.colorIndex,
-                  label: `${formatNumber(week.value)} ${m.unit} – ${m.label}`,
-                  dueDate: due, done: week.done,
+                  id: `task-${m.id}`, measurableId: m.id, goalId: goal.id,
+                  goalTitle: goal.title, goalColorIndex: goal.colorIndex,
+                  label: m.label, dueDate, done: m.done,
                 };
-                if (due < todayStart) buckets['Overdue'].push(item);
-                else if (due <= weekEnd) buckets['This Week'].push(item);
-                else if (due <= monthEnd) buckets['This Month'].push(item);
+                if (!dueDate) buckets['Anytime'].push(item);
+                else if (dueDate < todayStart) buckets['Overdue'].push(item);
+                else if (dueDate <= weekEnd) buckets['This Week'].push(item);
+                else if (dueDate <= monthEnd) buckets['This Month'].push(item);
                 else buckets['Upcoming'].push(item);
+              } else if (m.type === 'ladder') {
+                for (const week of m.weeks) {
+                  const due = localDate(week.targetDate);
+                  const item: TaskItem = {
+                    id: `task-${m.id}-${week.id}`, measurableId: m.id, ladderWeekId: week.id,
+                    goalId: goal.id, goalTitle: goal.title, goalColorIndex: goal.colorIndex,
+                    label: `${formatNumber(week.value)} ${m.unit} – ${m.label}`,
+                    dueDate: due, done: week.done,
+                  };
+                  if (due < todayStart) buckets['Overdue'].push(item);
+                  else if (due <= weekEnd) buckets['This Week'].push(item);
+                  else if (due <= monthEnd) buckets['This Month'].push(item);
+                  else buckets['Upcoming'].push(item);
+                }
               }
+              continue;
             }
-          }
 
-          // Commitments — same due-date buckets as measurable tasks,
-          // so a "Save $830 per month" or "Run 40 km this week" commitment
-          // shows up right alongside ladder/check tasks instead of only
-          // living on the goal's own screen.
-          for (const mg of goal.milestones ?? []) {
-            for (const step of mg.steps) {
+            // An item carrying commitments — same due-date buckets as plain
+            // tasks, so a "Save $830 per month" or "Run 40 km this week"
+            // commitment shows up right alongside check/ladder tasks instead
+            // of only living on the goal's own screen.
+            for (const step of m.commitments) {
               if (step.ramp) {
                 for (const week of step.ramp) {
                   if (week.done) continue;
                   const due = localDate(week.targetDate);
                   const item: TaskItem = {
-                    id: `task-step-${step.id}-${week.id}`, milestoneId: mg.id, stepId: step.id, rampWeekId: week.id,
+                    id: `task-step-${step.id}-${week.id}`, milestoneId: m.id, stepId: step.id, rampWeekId: week.id,
                     goalId: goal.id, goalTitle: goal.title, goalColorIndex: goal.colorIndex,
                     label: `${formatNumber(week.value)} ${step.unit ?? ''} – ${step.label}`.trim(),
                     dueDate: due, done: false,
@@ -482,7 +468,7 @@ export const useAppStore = create<AppState>()(
               } else if (!isStepDoneThisPeriod(step, now)) {
                 const due = currentStepPeriodDueDate(step, now);
                 const item: TaskItem = {
-                  id: `task-step-${step.id}`, milestoneId: mg.id, stepId: step.id,
+                  id: `task-step-${step.id}`, milestoneId: m.id, stepId: step.id,
                   goalId: goal.id, goalTitle: goal.title, goalColorIndex: goal.colorIndex,
                   label: step.amount != null
                     ? `${formatNumber(step.amount)} ${step.unit ?? ''} – ${step.label}`.trim()
@@ -504,7 +490,7 @@ export const useAppStore = create<AppState>()(
 
       completeTaskItem: (item) => {
         // A Commitment task — delegate to the same actions the goal
-        // screen uses, so the numeric-milestone current-value bump and
+        // screen uses, so the numeric-item current-value bump and
         // build-up/period bookkeeping stay in exactly one place. These toggle
         // done<->not-done, but the Tasks UI only ever calls completeTaskItem
         // on an item it knows is not yet done, so a toggle here always lands
@@ -528,7 +514,7 @@ export const useAppStore = create<AppState>()(
                 if (g.id !== item.goalId) return g;
                 return {
                   ...g,
-                  measurables: g.measurables.map((m) => {
+                  items: g.items.map((m) => {
                     if (m.id !== item.measurableId) return m;
                     if (item.ladderWeekId) {
                       return { ...m, weeks: m.weeks.map((w) =>
@@ -569,6 +555,18 @@ export const useAppStore = create<AppState>()(
       },
 
       resetOnboarding: () => set({ hasCompletedOnboarding: false }),
+
+      importBackup: (data) => {
+        const years = normalizeYears(data.years as LegacyState['years']);
+        set((s) => ({
+          years,
+          selectedYear:
+            data.selectedYear ?? (years.find((y) => y.year === s.selectedYear) ? s.selectedYear : years[0]?.year ?? s.selectedYear),
+          ...(data.hasCompletedOnboarding !== undefined
+            ? { hasCompletedOnboarding: data.hasCompletedOnboarding }
+            : {}),
+        }));
+      },
 
       setBoardLayout: (l) => set({ boardLayout: l }),
       setBoardViewMode: (m) => set({ boardViewMode: m }),
@@ -632,11 +630,11 @@ export const useAppStore = create<AppState>()(
 // Marks Goal.completionCelebrated = false the moment a goal's own
 // isCompleted() flips from false to true, and clears it back to unset the
 // moment isCompleted() goes false again (so a later re-completion — e.g.
-// after deleting and re-adding a measurable — celebrates again). This lives
-// here, once, instead of inside every mutation path that could touch a
-// measurable or milestone (updateMeasurable, deleteMeasurable, _patchGoal,
-// applyCoachAction, direct updateGoal calls…) — subscribing to the store
-// sees every one of those regardless of which action fired.
+// after deleting and re-adding an item — celebrates again). This lives here,
+// once, instead of inside every mutation path that could touch an item
+// (updateMeasurable, deleteMeasurable, _patchGoal, applyCoachAction, direct
+// updateGoal calls…) — subscribing to the store sees every one of those
+// regardless of which action fired.
 //
 // `seen` starts empty, not populated from the persisted snapshot, so goals
 // that are ALREADY complete the first time this runs (app boot, or a fresh
@@ -673,10 +671,10 @@ useAppStore.subscribe((state) => {
 // Anything that cannot be resolved (an edit to a step the user already deleted)
 // is a no-op rather than an error — the action has already left the queue.
 
-function patchMilestone(goal: Goal, mgId: string, fn: (mg: Milestone) => Milestone): Goal {
+function patchMilestone(goal: Goal, mgId: string, fn: (mg: TrackableItem) => TrackableItem): Goal {
   return {
     ...goal,
-    milestones: (goal.milestones ?? []).map((mg) => (mg.id === mgId ? fn(mg) : mg)),
+    items: goal.items.map((it) => (it.id === mgId ? fn(it) : it)),
   };
 }
 
@@ -685,7 +683,7 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
     const title = (a.label ?? '').trim();
     if (!title) return goal;
     const mg = newMilestone({
-      title,
+      label: title,
       kind: a.milestoneKind ?? (a.target != null ? 'numeric' : 'effort'),
       target: a.target,
       current: a.target != null ? 0 : undefined,
@@ -697,14 +695,15 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
       // flagged outdated later — the coach naming its own date is deliberate.
       sizedForGoalDate: a.deadline == null ? goal.targetDate : undefined,
     });
-    return { ...goal, milestones: [...(goal.milestones ?? []), mg] };
+    return { ...goal, items: [...goal.items, mg] };
   }
 
   if (a.kind === 'addCommitment') {
     const label = (a.label ?? '').trim();
     if (!label) return goal;
-    // Attach to the named milestone, or the only one if the coach did not say.
-    const list = goal.milestones ?? [];
+    // Attach to the named milestone item, or the only one if the coach did
+    // not say.
+    const list = goal.items.filter((it) => it.milestone);
     const target = resolveMilestone(a, goal) ?? (list.length === 1 ? list[0] : undefined);
     if (!target) return goal;
     const step = newCommitment({
@@ -717,7 +716,7 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
       // user's call, made from the goal screen.
       schedule: { ...DEFAULT_SCHEDULE, on: false },
     });
-    return patchMilestone(goal, target.id, (mg) => ({ ...mg, steps: [...mg.steps, step] }));
+    return patchMilestone(goal, target.id, (mg) => ({ ...mg, commitments: [...mg.commitments, step] }));
   }
 
   if (a.kind === 'removeMilestone') {
@@ -725,7 +724,7 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
     if (!target) return goal;
     return {
       ...goal,
-      milestones: (goal.milestones ?? []).filter((mg) => mg.id !== target.id),
+      items: goal.items.filter((it) => it.id !== target.id),
     };
   }
 
@@ -744,17 +743,17 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
       m.weeks = buildLadderWeeks(a.ladderStart ?? 0, end, a.ladderWeeks ?? 4, goal.targetDate);
       m.sizedForGoalDate = goal.targetDate;
     }
-    return { ...goal, measurables: [...goal.measurables, m] };
+    return { ...goal, items: [...goal.items, m] };
   }
 
   const existing = resolveMeasurable(a, goal);
   if (!existing) return goal;
 
   if (a.kind === 'removeTask') {
-    return { ...goal, measurables: goal.measurables.filter((m) => m.id !== existing.id) };
+    return { ...goal, items: goal.items.filter((it) => it.id !== existing.id) };
   }
 
-  const patched: Measurable = { ...existing };
+  const patched: TrackableItem = { ...existing };
   if (a.kind === 'setTarget') {
     if (a.target == null) return goal;
     patched.target = a.target;
@@ -776,117 +775,20 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
   }
   return {
     ...goal,
-    measurables: goal.measurables.map((m) => (m.id === existing.id ? patched : m)),
+    items: goal.items.map((it) => (it.id === existing.id ? patched : it)),
   };
 }
 
 // ── Persist migration ─────────────────────────────────────────
 //
-// v1: measurables gained a per-measurable `step`, and coach `suggestions`
-// became `pendingActions`. v2: goals gained `milestones`, each with its own
-// accountable steps. Saved data predating any of these must be backfilled or
-// the +/- controls freeze and the goal screen reads an undefined array.
+// The actual backfill logic (normalizeYears and everything it depends on)
+// lives in ./migration — pulled out so it has no zustand/React Native
+// dependency and can run standalone (see scripts/verify-unify-migration.ts).
+// Re-exported here since importBackup and other call sites have always
+// imported it from this module.
+export { normalizeYears } from './migration';
 
-interface LegacySuggestion {
-  id: string;
-  label: string;
-  type: Measurable['type'];
-  target?: number;
-  unit?: string;
-  ladderStart?: number;
-  ladderEnd?: number;
-  ladderWeeks?: number;
-}
-
-type LegacyMeasurable = Omit<Measurable, 'step'> & { step?: number };
-type LegacyMilestone = Omit<Milestone, 'steps' | 'done'> & {
-  done?: boolean;
-  steps?: (Omit<Commitment, 'completions' | 'schedule' | 'createdAt'> & {
-    completions?: string[];
-    schedule?: Partial<StepSchedule>;
-    createdAt?: string;
-  })[];
-};
-// v2-and-earlier field/action names, from before the "Minor Goal" ->
-// "Milestone" rename, and v3-and-earlier action names from before
-// "Accountable Step" -> "Commitment" — still readable so nobody's existing
-// saved goals silently lose their data on these upgrades.
-type LegacyCoachActionKind = 'addMinorGoal' | 'removeMinorGoal' | 'addAccountableStep';
-type LegacyCoachAction = Omit<CoachAction, 'kind'> & {
-  kind: CoachAction['kind'] | LegacyCoachActionKind;
-  minorGoalKind?: Milestone['kind'];
-  minorGoalId?: string;
-  minorGoalLabel?: string;
-};
-type LegacyPendingAction = Omit<PendingAction, 'action'> & { action: LegacyCoachAction };
-type LegacyGoal = Omit<Goal, 'pendingActions' | 'measurables' | 'milestones'> & {
-  pendingActions?: LegacyPendingAction[];
-  measurables?: LegacyMeasurable[];
-  milestones?: LegacyMilestone[];
-  minorGoals?: LegacyMilestone[];
-  suggestions?: LegacySuggestion[];
-};
-type LegacyState = Omit<AppState, 'years'> & { years?: (Omit<YearData, 'goals'> & { goals: LegacyGoal[] })[] };
-
-const LEGACY_ACTION_KIND: Record<LegacyCoachActionKind, CoachAction['kind']> = {
-  addMinorGoal: 'addMilestone',
-  removeMinorGoal: 'removeMilestone',
-  addAccountableStep: 'addCommitment',
-};
-
-function migratePendingAction(p: LegacyPendingAction): PendingAction {
-  const { kind, minorGoalKind, minorGoalId, minorGoalLabel, ...rest } = p.action;
-  const migratedKind: CoachAction['kind'] =
-    (LEGACY_ACTION_KIND as Record<string, CoachAction['kind']>)[kind] ?? (kind as CoachAction['kind']);
-  return {
-    id: p.id,
-    action: {
-      ...rest,
-      kind: migratedKind,
-      milestoneKind: rest.milestoneKind ?? minorGoalKind,
-      milestoneId: rest.milestoneId ?? minorGoalId,
-      milestoneLabel: rest.milestoneLabel ?? minorGoalLabel,
-    },
-  };
-}
-
-// Idempotent: safe to run on already-migrated data.
-function normalizeYears(years: LegacyState['years']): YearData[] {
-  return (years ?? []).map((y) => ({
-    ...y,
-    goals: (y.goals ?? []).map(({ suggestions, minorGoals, ...g }): Goal => ({
-      ...g,
-      // Goals persisted before the reminder feature existed have no
-      // `reminder` key at all — every screen that reads goal.reminder.on
-      // (Settings, the milestones screen, notificationService) assumes it's
-      // always present, so backfill it here rather than scattering `?.`
-      // guards across every read site.
-      reminder: g.reminder ?? ({ on: false, frequency: 'Daily' } as Reminder),
-      measurables: (g.measurables ?? []).map((m) => ({
-        ...m,
-        step: typeof m.step === 'number' && m.step > 0 ? m.step : 1,
-      })),
-      pendingActions: g.pendingActions
-        ? g.pendingActions.map(migratePendingAction)
-        : (suggestions ?? []).map(legacySuggestionToPending),
-      // v2: goals saved before milestones existed have no array at all, and a
-      // step persisted mid-upgrade may be missing its schedule or history.
-      // v3: the array itself moved from `minorGoals` to `milestones` — read
-      // the old key as a fallback and drop it from the destructured `g` above
-      // so the stale duplicate doesn't linger in the re-saved blob.
-      milestones: (g.milestones ?? minorGoals ?? []).map((mg) => ({
-        ...mg,
-        done: mg.done ?? false,
-        steps: (mg.steps ?? []).map((s) => ({
-          ...s,
-          completions: s.completions ?? [],
-          createdAt: s.createdAt ?? new Date().toISOString(),
-          schedule: { ...DEFAULT_SCHEDULE, ...(s.schedule ?? {}) },
-        })),
-      })),
-    })),
-  }));
-}
+type LegacyState = Omit<AppState, 'years'> & { years?: LegacyYears };
 
 function migrateState(persisted: unknown, _version: number): AppState {
   const state = persisted as LegacyState;
@@ -902,20 +804,3 @@ function mergeState(persisted: unknown, current: AppState): AppState {
   if (!state?.years) return { ...current, ...(state as object) } as AppState;
   return { ...current, ...state, years: normalizeYears(state.years) } as AppState;
 }
-
-function legacySuggestionToPending(s: LegacySuggestion): PendingAction {
-  return {
-    id: s.id ?? newId(),
-    action: {
-      kind: 'addTask',
-      type: s.type,
-      label: s.label,
-      target: s.target,
-      unit: s.unit,
-      ladderStart: s.ladderStart,
-      ladderEnd: s.ladderEnd,
-      ladderWeeks: s.ladderWeeks,
-    },
-  };
-}
-
