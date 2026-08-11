@@ -162,8 +162,8 @@ export function CoachChat({
       achieveByDate: goal.targetDate,
       weeksRemaining: weeksLeft,
       today: new Date(),
-      measurables: goal.measurables,
-      milestones: goal.milestones ?? [],
+      measurables: goal.items.filter((it) => !it.milestone),
+      milestones: goal.items.filter((it) => it.milestone),
       exchangeCount: goal.chat.filter((m) => m.sender === 'coach').length,
       motivation: goal.motivation,
     };

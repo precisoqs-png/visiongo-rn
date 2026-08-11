@@ -56,7 +56,7 @@ const fmtNum = formatNumber;
 // of a hardcoded finance one that reads oddly under an unrelated milestone.
 function stepPlaceholder(mg: Milestone): string {
   const unit = mg.unit?.trim();
-  if (mg.kind === 'numeric' && unit) {
+  if (mg.type === 'number' && unit) {
     return /^[$£€¥]$/.test(unit) ? `e.g. "${unit}50 per week"` : `e.g. "10 ${unit} per week"`;
   }
   return 'e.g. "One check-in per week"';
@@ -89,7 +89,7 @@ export function MilestoneSection({
   const [breakdownFor, setBreakdownFor] = useState<Milestone | null>(null);
   const [scheduleFor, setScheduleFor] = useState<{ step: Commitment; mgId: string } | null>(null);
 
-  const milestones = goal.milestones ?? [];
+  const milestones = goal.items.filter((it) => it.milestone);
 
   const handleAdd = (mg: Milestone) => {
     onAddMilestone(mg);
@@ -179,7 +179,7 @@ export function MilestoneSection({
           goalTargetDate={goal.targetDate}
           palette={p}
           onUpdate={onUpdateMilestone}
-          onDelete={() => confirmDelete(mg.title, () => onDeleteMilestone(mg.id))}
+          onDelete={() => confirmDelete(mg.label, () => onDeleteMilestone(mg.id))}
           onAddStep={(step) => onAddStep(step, mg.id)}
           onDeleteStep={(stepId, label) =>
             confirmDelete(label, () => onDeleteStep(stepId, mg.id))}
@@ -271,14 +271,14 @@ function MilestoneCard({
     <View style={[styles.card, { backgroundColor: p.surface }]}>
       <View style={styles.cardHead}>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.cardTitle, { color: p.text }]}>{mg.title}</Text>
+          <Text style={[styles.cardTitle, { color: p.text }]}>{mg.label}</Text>
           <Text style={[styles.cardMeta, { color: p.muted }]}>
-            {mg.kind === 'numeric' ? 'Numeric' : 'Effort'}
+            {mg.type === 'number' ? 'Numeric' : 'Effort'}
             {mg.deadline ? ` · by ${fmtDeadline(mg.deadline)}` : ''}
             {` · ${pct}%`}
           </Text>
         </View>
-        {mg.kind === 'effort' && (
+        {mg.type === 'commitment' && (
           <TouchableOpacity
             onPress={() => {
               const next = !mg.done;
@@ -337,7 +337,7 @@ function MilestoneCard({
         </View>
       )}
 
-      {mg.kind === 'numeric' && (
+      {mg.type === 'number' && (
         <View style={[styles.row, { marginBottom: 10 }]}>
           <TouchableOpacity
             style={[styles.stepper, { backgroundColor: p.line, opacity: (mg.current ?? 0) <= 0 ? 0.4 : 1 }]}
@@ -369,10 +369,10 @@ function MilestoneCard({
       </View>
 
       {/* Commitments */}
-      {mg.steps.length > 0 && (
+      {mg.commitments.length > 0 && (
         <View style={{ marginTop: 12 }}>
           <Text style={[styles.stepsEyebrow, { color: p.muted }]}>COMMITMENTS</Text>
-          {mg.steps.map((step) => (
+          {mg.commitments.map((step) => (
             step.ramp
               ? (
                 <BuildUpStepRow
@@ -429,7 +429,7 @@ function MilestoneCard({
             </TouchableOpacity>
           )}
 
-          {mg.kind === 'effort' && (
+          {mg.type === 'commitment' && (
             <TouchableOpacity
               style={[styles.ghostBtn, { borderColor: `${p.accent}66` }]}
               onPress={onAskCoach}

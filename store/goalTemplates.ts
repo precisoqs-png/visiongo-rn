@@ -194,7 +194,6 @@ export function instantiateTemplate(t: GoalTemplate, colorIndex: number): Goal {
     reminder: { on: false, frequency: 'Daily' },
     chat: [],
     pendingActions: [],
-    measurables: t.buildMeasurables(),
-    milestones: t.buildMilestones?.() ?? [],
+    items: [...t.buildMeasurables(), ...(t.buildMilestones?.() ?? [])],
   };
 }

@@ -39,9 +39,9 @@ export function BreakdownPrompt({ visible, milestone, palette: p, onPick, onSkip
               frame it as a one-time debt to pay off, the exact bug being fixed. */}
           <Text style={[styles.body, { color: p.muted }]}>
             {habit ? (
-              <>"{milestone.title}" repeats — want a push reminder to keep you honest about it?</>
+              <>"{milestone.label}" repeats — want a push reminder to keep you honest about it?</>
             ) : (
-              <>"{milestone.title}" needs {formatAmount(remaining, milestone.unit)} by{' '}
+              <>"{milestone.label}" needs {formatAmount(remaining, milestone.unit)} by{' '}
               {new Date(milestone.deadline as string).toLocaleDateString('en-US', {
                 month: 'short', day: 'numeric', year: 'numeric',
               })}

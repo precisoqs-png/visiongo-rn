@@ -140,7 +140,7 @@ export default function GoalDetailScreen() {
   const [coachSeed, setCoachSeed] = useState<string | null>(null);
   const askCoachAbout = (mg: Milestone) => {
     setCoachSeed(
-      `Help me with my milestone "${mg.title}". Ask me what my current baseline is, ` +
+      `Help me with my milestone "${mg.label}". Ask me what my current baseline is, ` +
       `then suggest one simple weekly commitment I can be reminded about — ` +
       `not a full training plan.`,
     );
@@ -234,7 +234,7 @@ export default function GoalDetailScreen() {
   // A goal with nothing on it yet defaults to AI-driven decomposition rather
   // than leaving the user to work out Measurables vs Milestones cold — the
   // manual forms below still work, this is just the offered fast path.
-  const isEmptyGoal = goal.measurables.length === 0 && (goal.milestones ?? []).length === 0;
+  const isEmptyGoal = goal.items.length === 0;
 
   const daysLeft = goal.targetDate
     ? Math.max(0, Math.round((localDate(goal.targetDate).getTime() - Date.now()) / 86400000))

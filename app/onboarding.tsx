@@ -96,8 +96,7 @@ export default function OnboardingScreen() {
           reminder: { on: false, frequency: 'Daily' },
           chat: [],
           pendingActions: [],
-          measurables: [],
-          milestones: [],
+          items: [],
         });
       }
       const effectiveMotto = motto.trim() || 'Dream it. Plan it. Live it.';
