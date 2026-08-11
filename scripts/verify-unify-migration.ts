@@ -15,7 +15,7 @@
  * Run: NODE_PATH=/opt/node22/lib/node_modules npx tsx scripts/verify-unify-migration.ts
  */
 import { normalizeYears } from '../store/migration';
-import { goalProgress, isCompleted, measurableFraction, commitmentStreak } from '../store/models';
+import { goalProgress, isCompleted, measurableFraction, commitmentStreak, commitmentProgress } from '../store/models';
 
 let failures = 0;
 function assert(cond: boolean, msg: string) {
@@ -94,6 +94,15 @@ const oldYears = [
                   { id: 'r2', value: 10, targetDate: '2026-01-15', done: false },
                 ],
               },
+              // s3: a commitment persisted before the reminder feature
+              // existed at all — no `schedule` key whatsoever (not even
+              // `{ on: false }`). Must backfill to DEFAULT_SCHEDULE without
+              // crashing or losing its own completion history.
+              {
+                id: 's3', label: 'Stretch after each run', cadence: 'weekly',
+                completions: ['2026-W02', '2026-W03'],
+                createdAt: '2026-01-01T00:00:00.000Z',
+              },
             ],
           },
         ],
@@ -131,6 +140,7 @@ assert(g3.items.length === 2, 'g3: 2 items survived (was 1 measurable + 1 milest
 
 const m1 = g1.items.find((it) => it.id === 'm1')!;
 assert(m1.type === 'check' && m1.done === true && !m1.milestone, 'm1 (check) carried over: type, done, not milestone-flagged');
+assert(m1.cadence === undefined && m1.schedule === undefined, 'm1 predates the reminder feature: cadence/schedule stay absent (not defaulted) after migration, per models.ts comment');
 
 const m2 = g1.items.find((it) => it.id === 'm2')!;
 assert(m2.current === 45 && m2.target === 150 && m2.unit === 'days', 'm2 (number) carried over: current/target/unit');
@@ -149,6 +159,16 @@ assert(commitmentStreak(mg1.commitments[0], new Date('2026-04-01')) === 3, 'mg1 
 const mg2 = g2.items.find((it) => it.id === 'mg2')!;
 assert(mg2.milestone === true && mg2.type === 'commitment', 'mg2 (effort milestone) -> milestone:true, type "commitment"');
 assert(mg2.commitments[0].ramp?.length === 2 && mg2.commitments[0].ramp[0].done === true, 'mg2 build-up (ramp) commitment carried over with week done-state');
+assert(mg2.commitments.length === 2, 'mg2 kept BOTH commitments (s2 ramp + s3 schedule-less) — no sibling dropped');
+
+const s3 = mg2.commitments.find((c) => c.id === 's3')!;
+assert(!!s3, 's3 (commitment with no schedule key at all pre-migration) survived');
+assert(s3.completions.length === 2 && s3.completions[0] === '2026-W02' && s3.completions[1] === '2026-W03', 's3 full completion history (both periods) survived intact — streak-relevant');
+assert(commitmentStreak(s3, new Date('2026-01-20')) === 2, 's3 streak computes correctly post-migration');
+assert(
+  s3.schedule && typeof s3.schedule.on === 'boolean' && typeof s3.schedule.hour === 'number',
+  's3 schedule backfilled to a complete StepSchedule (DEFAULT_SCHEDULE) despite predating the field entirely',
+);
 
 assert(isCompleted(g3), 'g3 (already-complete goal) still reads complete after migration');
 
@@ -168,8 +188,19 @@ assert(
 // for measurables) — i.e. exactly what goalProgress(g2) must still produce.
 
 const oldMg1Fraction = Math.min(Math.max(3000 / 10000, 0), 1); // numeric: current/target
-const oldMg2Fraction = 1 / 1; // effort, one step, ramp: 1/2 weeks done -> 0.5
-const oldMg2FractionCorrected = 1 / 2; // (fixing the line above: 1 ramp step, 1/2 weeks done)
+// effort milestone (mg2) now has two commitments (s2 ramp build-up + s3 flat
+// weekly against mg2's own deadline): its fraction is the average of
+// commitmentProgress across both — computed here via the real production
+// function (same one measurableFraction's 'commitment' branch calls) rather
+// than hand-re-derived, so this check tracks the actual formula instead of
+// drifting from it while still being an independent cross-check (built from
+// the OLD-shape fields, not read back off the migrated item).
+const oldS2Fraction = 1 / 2; // ramp: 1 of 2 weeks done, ramp short-circuits deadline math
+const oldS3Fraction = commitmentProgress(
+  { id: 's3', label: 'Stretch after each run', cadence: 'weekly', completions: ['2026-W02', '2026-W03'], createdAt: '2026-01-01T00:00:00.000Z', schedule: { on: false, weekday: 2, dayOfMonth: 1, hour: 9, minute: 0 } },
+  '2026-06-01',
+);
+const oldMg2FractionCorrected = (oldS2Fraction + oldS3Fraction) / 2;
 const expectedG2Progress = (oldMg1Fraction + oldMg2FractionCorrected) / 2;
 
 assert(
