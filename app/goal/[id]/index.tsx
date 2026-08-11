@@ -8,7 +8,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../../store/useThemeStore';
 import { useAppStore } from '../../../store/useAppStore';
-import { Measurable, BoardPosition, measurableFraction } from '../../../store/models';
+import { Measurable, TrackableItem, BoardPosition, measurableFraction } from '../../../store/models';
 import { GoalNote } from '../../../components/board/GoalNote';
 import {
   Point, clampCenter, computeRadialLayout, MIN_BUBBLE, MAX_BUBBLE, CENTER_SIZE,
@@ -129,16 +129,17 @@ export default function GoalCanvasScreen() {
 
   useEffect(() => {
     if (!goal) return;
-    const frac = new Map(goal.measurables.map((m) => [m.id, measurableFraction(m)]));
+    const measurables = goal.items.filter((it) => !it.milestone);
+    const frac = new Map<string, number>(measurables.map((m) => [m.id, measurableFraction(m)]));
     if (seenFracRef.current === null) {
       // First render of this screen for this goal — anything already
       // complete is a resting chip from the start, not a transition.
       seenFracRef.current = frac;
-      setSettledCompletedIds(goal.measurables.filter((m) => frac.get(m.id)! >= 1).map((m) => m.id));
+      setSettledCompletedIds(measurables.filter((m) => frac.get(m.id)! >= 1).map((m) => m.id));
       return;
     }
     const prev = seenFracRef.current;
-    const justCompleted = goal.measurables.filter(
+    const justCompleted = measurables.filter(
       (m) => frac.get(m.id)! >= 1 && (prev.get(m.id) ?? 0) < 1,
     );
     seenFracRef.current = frac;
@@ -160,7 +161,7 @@ export default function GoalCanvasScreen() {
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [goal?.measurables]);
+  }, [goal?.items]);
 
   // Reads the goal fresh from the store rather than trusting the `goal`
   // render closure — several bubbles can be mid-gesture at once, each
@@ -185,13 +186,13 @@ export default function GoalCanvasScreen() {
 
   const updateMeasurableInPlace = (m: Measurable) => {
     patchGoal((g) => ({
-      measurables: g.measurables.map((x) => (x.id === m.id ? m : x)),
+      items: g.items.map((x) => (x.id === m.id ? m : x)),
     }));
     setOpenMeasurable((cur) => (cur?.id === m.id ? m : cur));
   };
 
   const deleteMeasurableInPlace = (measurableId: string) => {
-    patchGoal((g) => ({ measurables: g.measurables.filter((x) => x.id !== measurableId) }));
+    patchGoal((g) => ({ items: g.items.filter((x) => x.id !== measurableId) }));
   };
 
   if (!hydrated || !goal) {
@@ -202,14 +203,18 @@ export default function GoalCanvasScreen() {
     );
   }
 
+  // Only plain (non-milestone) items ever render as canvas bubbles —
+  // milestone-flagged items live on the Milestones screen instead.
+  const goalMeasurables = goal.items.filter((it) => !it.milestone);
+
   // Measurables shown as regular canvas bubbles: not complete, and not
   // currently mid-flight to the completed column (those render as
   // CompletionFlight overlays instead — see below).
   const flightIds = new Set(Object.keys(measurableFlights));
-  const activeMeasurables = goal.measurables.filter(
+  const activeMeasurables = goalMeasurables.filter(
     (m) => measurableFraction(m) < 1 && !flightIds.has(m.id),
   );
-  const completedMeasurables = goal.measurables.filter(
+  const completedMeasurables = goalMeasurables.filter(
     (m) => settledCompletedIds.includes(m.id) && !flightIds.has(m.id),
   );
 
@@ -297,7 +302,7 @@ export default function GoalCanvasScreen() {
           );
         })}
 
-        {goal.measurables.length === 0 && (
+        {goalMeasurables.length === 0 && (
           <View style={[styles.emptyHint, { top: cy + CENTER_SIZE / 2 + 24 }]}>
             <Text style={[styles.emptyHintText, { color: p.muted }]}>
               No measurables yet — ask the Coach to add some, or open Milestones to add one.

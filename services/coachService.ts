@@ -180,18 +180,20 @@ function describeMeasurable(m: Measurable): string {
       const done = m.weeks.filter((w) => w.done).length;
       return `- "${m.label}" (weekly ladder) — ${done}/${m.weeks.length} weeks done, final target ${m.target} ${m.unit}`;
     }
+    default:
+      return `- "${m.label}"`;
   }
 }
 
 function describeMilestone(mg: Milestone): string {
-  const head = mg.kind === 'numeric'
-    ? `- MILESTONE "${mg.title}" (numeric) — ${mg.current ?? 0}/${mg.target ?? 0} ${mg.unit ?? ''}, ${milestonePercent(mg)}%`
-    : `- MILESTONE "${mg.title}" (effort) — ${milestonePercent(mg)}%${mg.done ? ', marked done' : ''}`;
+  const head = mg.type === 'number'
+    ? `- MILESTONE "${mg.label}" (numeric) — ${mg.current ?? 0}/${mg.target ?? 0} ${mg.unit ?? ''}, ${milestonePercent(mg)}%`
+    : `- MILESTONE "${mg.label}" (effort) — ${milestonePercent(mg)}%${mg.done ? ', marked done' : ''}`;
   const due = mg.deadline
     ? `, due ${new Date(mg.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
     : '';
-  const steps = mg.steps.length
-    ? mg.steps.map((s) =>
+  const steps = mg.commitments.length
+    ? mg.commitments.map((s) =>
         `    · commitment "${s.label}" — ${cadenceLabel(s)}, ${s.completions.length} check-ins` +
         `${isStepDoneThisPeriod(s) ? ', done this period' : ''}` +
         `${s.schedule.on ? ', reminder on' : ''}`).join('\n')
@@ -349,8 +351,8 @@ function toolUseToAction(
 
   const mgTitle = str(input.milestone_title);
   const mgMatch = mgTitle
-    ? milestones.find((mg) => mg.title.trim().toLowerCase() === mgTitle.toLowerCase()) ??
-      milestones.find((mg) => mg.title.toLowerCase().includes(mgTitle.toLowerCase()))
+    ? milestones.find((mg) => mg.label.trim().toLowerCase() === mgTitle.toLowerCase()) ??
+      milestones.find((mg) => mg.label.toLowerCase().includes(mgTitle.toLowerCase()))
     : undefined;
 
   const cadence = ((): Cadence | undefined => {
@@ -718,14 +720,14 @@ function matchEffortHandoff(text: string, ctx: CoachGoalContext): Milestone | un
   if (!/weekly target|baseline|accountable|break .* down/i.test(text)) return undefined;
   const lower = text.toLowerCase();
   return (ctx.milestones ?? []).find(
-    (mg) => mg.kind === 'effort' && lower.includes(mg.title.toLowerCase()),
+    (mg) => mg.type === 'commitment' && lower.includes(mg.label.toLowerCase()),
   );
 }
 
 // One simple recurring commitment, sized from any number the user mentioned —
 // deliberately not a training programme.
 function buildEffortStep(mg: Milestone, userReply: string): string {
-  const domain = detectDomain(mg.title);
+  const domain = detectDomain(mg.label);
   const n = extractNumber(userReply, 0);
   const [amount, unit] = ((): [number, string] => {
     switch (domain) {
@@ -740,9 +742,9 @@ function buildEffortStep(mg: Milestone, userReply: string): string {
     ? `You're at ${n} now, so let's commit to a bit above that.`
     : `You didn't give me a baseline, so I've kept this gentle — edit the number to fit.`;
   return [
-    `Let's keep "${mg.title}" simple: one weekly commitment you either hit or you don't. ${baseline}`,
+    `Let's keep "${mg.label}" simple: one weekly commitment you either hit or you don't. ${baseline}`,
     '',
-    `STEP|${mg.title}|${label}|weekly|${amount}|${unit}`,
+    `STEP|${mg.label}|${label}|weekly|${amount}|${unit}`,
     '',
     `Tap to add it, then tap the bell on the step to pick the day and time you want me to ask "have you completed ${label}?".`,
   ].join('\n');

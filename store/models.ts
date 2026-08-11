@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 
-export type MeasurableType = 'check' | 'number' | 'ladder';
+export type MeasurableType = 'check' | 'number' | 'ladder' | 'commitment';
 
 export interface LadderWeek {
   id: string;
@@ -9,90 +9,7 @@ export interface LadderWeek {
   done: boolean;
 }
 
-export interface Measurable {
-  id: string;
-  type: MeasurableType;
-  label: string;
-  // check
-  done: boolean;
-  // number
-  current: number;
-  target: number;
-  unit: string;
-  // How much one tap of +/- moves `current`. Chosen per measurable so a
-  // "150 days" step ticks by 1 and a "10,000 £ saved" step can tick by 500.
-  step: number;
-  // ladder
-  weeks: LadderWeek[];
-  // ladder only — the goal's targetDate the week dates above were actually
-  // built against (buildLadderWeeks paces every week back from it). Set
-  // whenever the ladder is created or resized; left unset for ladders built
-  // before this existed, so old data is never retroactively flagged. See
-  // isMeasurableDeadlineOutdated.
-  sizedForGoalDate?: string;
-  // Optional reminder — same shape as a Commitment's cadence + schedule, so
-  // it reuses StepScheduleSheet and the notification-scheduling logic
-  // unchanged rather than duplicating either. Absent/schedule.on=false means
-  // no reminder; every measurable predating this feature has neither field.
-  cadence?: Cadence;
-  intervalDays?: number;
-  schedule?: StepSchedule;
-}
-
-// Data persisted before per-measurable steps existed has no `step`, and a
-// zero/negative step would freeze the +/- buttons — always read it via this.
-export function measurableStep(m: Measurable): number {
-  return typeof m.step === 'number' && m.step > 0 ? m.step : 1;
-}
-
-/**
- * True when a ladder Measurable's week dates were paced against the goal's
- * PRIOR targetDate and that date has since changed. Unlike a Milestone (which
- * can have its own independent deadline), a ladder's weeks are always paced
- * off the parent goal's date, so there is no "the user chose differently"
- * case to protect — any mismatch means the weekly dates are stale.
- */
-export function isMeasurableDeadlineOutdated(m: Measurable, goalTargetDate?: string): boolean {
-  return m.type === 'ladder' && m.sizedForGoalDate != null && m.sizedForGoalDate !== goalTargetDate;
-}
-
-// Snap a value onto the measurable's step grid. Steps may be fractional
-// (0.5 kg), so round the multiple rather than the value to avoid float noise.
-export function snapToStep(value: number, step: number): number {
-  if (!(step > 0)) return value;
-  const snapped = Math.round(value / step) * step;
-  return Math.round(snapped * 1000) / 1000;
-}
-
-// Next/previous value for the +/- controls, clamped to [0, target].
-export function steppedValue(m: Measurable, direction: 1 | -1): number {
-  const step = measurableStep(m);
-  const raw = m.current + direction * step;
-  const snapped = snapToStep(raw, step);
-  // Snapping can round back onto `current` when the stored value is off-grid
-  // (e.g. 145 with a step of 6) — nudge past it so a tap always moves.
-  const moved = snapped === m.current ? m.current + direction * step : snapped;
-  return Math.min(Math.max(moved, 0), Math.max(m.target, 0));
-}
-
-export function measurableFraction(m: Measurable): number {
-  switch (m.type) {
-    case 'check':
-      return m.done ? 1 : 0;
-    case 'number':
-      if (m.target <= 0) return 0;
-      return Math.min(Math.max(m.current / m.target, 0), 1);
-    case 'ladder':
-      if (m.weeks.length === 0) return 0;
-      return m.weeks.filter((w) => w.done).length / m.weeks.length;
-  }
-}
-
-// ── Milestones and commitments ────────────────────────────────
-//
-// A goal breaks down into Milestones ("Save $10,000", "Run a marathon"), and
-// each Milestone carries Commitments — one concrete recurring commitment
-// ("Save $1,000 per month") that can drive a push reminder.
+// ── Commitments (recurring, cadence-driven tracking) ────────────
 
 export type Cadence = 'weekly' | 'monthly' | 'custom';
 
@@ -122,43 +39,119 @@ export interface Commitment {
   // Optional progressive build-up — the target increases week by week (5 -> 10
   // km building to week 5) instead of repeating one flat amount. Reuses the
   // same weekly-target shape as ladder measurables (built with
-  // buildLadderWeeks), so a build-up Commitment and a ladder Measurable
-  // behave identically week to week; only the container differs. Always
-  // weekly cadence.
+  // buildLadderWeeks), so a build-up Commitment and a ladder item behave
+  // identically week to week; only the container differs. Always weekly
+  // cadence.
   ramp?: LadderWeek[];
 }
 
+// ── The unified trackable item ───────────────────────────────────
+//
+// VisionGo used to have two competing sibling types on a Goal: a flat
+// "Measurable" (check/number/ladder, no sub-steps) and a "Milestone" (a
+// sub-goal owning recurring Commitments). Users could not tell a numeric
+// Measurable apart from a numeric Milestone in their mental model — both are
+// just "a moment I'm tracking toward". TrackableItem merges them: ONE object
+// represents both the moment (what "done" looks like: check/number/ladder)
+// AND, optionally, the recurring commitment(s) that drive it there.
+//
+// Design: `type` still picks the moment's own shape (unchanged from
+// Measurable) — 'commitment' is new, for what used to be an "effort"
+// Milestone with no single current/target of its own, whose progress comes
+// entirely from its `commitments`. A 'number' item MAY also carry
+// `commitments` (this is what a numeric Milestone was: checking off a
+// Commitment bumps `current` by the step's amount, same math as before) —
+// the commitments don't change how a 'number' item's OWN fraction is
+// computed (current/target still drives it), they're just the mechanism
+// that moves `current`. `milestone: true` marks anything that used to be a
+// Milestone (numeric or effort) — it exists purely to drive UI/behavior that
+// only ever applied to Milestones (checkpoint dots, its own deadline +
+// outdated-flagging, breakdown suggestions, the "Add milestone" vs "Add"
+// coach phrasing) and is never set on a plain check/number/ladder item.
+export interface TrackableItem {
+  id: string;
+  type: MeasurableType;
+  label: string;
+  // check
+  done: boolean;
+  // number
+  current: number;
+  target: number;
+  unit: string;
+  // How much one tap of +/- moves `current`. Chosen per item so a
+  // "150 days" step ticks by 1 and a "10,000 £ saved" step can tick by 500.
+  step: number;
+  // ladder
+  weeks: LadderWeek[];
+  // ladder only — the goal's targetDate the week dates above were actually
+  // built against (buildLadderWeeks paces every week back from it). Set
+  // whenever the ladder is created or resized; left unset for ladders built
+  // before this existed, so old data is never retroactively flagged. See
+  // isItemDeadlineOutdated.
+  sizedForGoalDate?: string;
+  // Optional reminder for the item's OWN check/number/ladder tracking —
+  // absent/schedule.on=false means no reminder.
+  cadence?: Cadence;
+  intervalDays?: number;
+  schedule?: StepSchedule;
+  // Own deadline (formerly Milestone.deadline) — independent of the parent
+  // goal's targetDate unless `sizedForGoalDate` says it was inherited.
+  deadline?: string;
+  // True for anything migrated from (or created as) what used to be a
+  // Milestone. See the interface comment above for what this drives.
+  milestone?: boolean;
+  // Recurring commitments attached to this item — empty for a plain
+  // check/number/ladder item, one-or-more for a former Milestone. See the
+  // interface comment above for how these interact with `current`/`target`.
+  commitments: Commitment[];
+}
+
+// Back-compat type aliases — every call site written against the old
+// two-type split still names `Measurable`/`Milestone`; both now resolve to
+// the same unified shape so those imports keep compiling unchanged.
+export type Measurable = TrackableItem;
+export type Milestone = TrackableItem;
 export type MilestoneKind = 'numeric' | 'effort';
 
-export interface Milestone {
-  id: string;
-  title: string;
-  kind: MilestoneKind;
-  // numeric only
-  target?: number;
-  current?: number;
-  unit?: string;
-  step?: number;
-  deadline?: string;      // ISO date string
-  // Set only when `deadline` was inherited from (or explicitly re-synced to)
-  // the parent Goal's own targetDate, so the milestone's sizing can be
-  // flagged as outdated if that parent date later changes. Left unset when
-  // the user picked a deliberately different date for this milestone —
-  // that choice is never second-guessed.
-  sizedForGoalDate?: string;
-  // effort goals are simply marked done; numeric ones derive from current/target
-  done: boolean;
-  steps: Commitment[];
+// Data persisted before per-item steps existed has no `step`, and a
+// zero/negative step would freeze the +/- buttons — always read it via this.
+export function measurableStep(m: TrackableItem): number {
+  return typeof m.step === 'number' && m.step > 0 ? m.step : 1;
 }
 
 /**
- * True when this milestone's deadline was sized against the parent goal's
- * PRIOR targetDate and that date has since changed (or been cleared/added).
- * A milestone the user gave its own independent deadline is never flagged.
+ * True when a ladder item's week dates were paced against the goal's
+ * PRIOR targetDate and that date has since changed, OR (for a
+ * milestone-flagged item) when its own deadline was inherited from the
+ * goal's date and that has since changed. An item the user gave its own
+ * independent deadline (sizedForGoalDate unset) is never flagged.
  */
-export function isMilestoneDeadlineOutdated(mg: Milestone, goalTargetDate?: string): boolean {
-  return mg.sizedForGoalDate != null && mg.sizedForGoalDate !== goalTargetDate;
+export function isItemDeadlineOutdated(m: TrackableItem, goalTargetDate?: string): boolean {
+  return m.sizedForGoalDate != null && m.sizedForGoalDate !== goalTargetDate;
 }
+// Back-compat aliases for the old, type-specific names.
+export const isMeasurableDeadlineOutdated = isItemDeadlineOutdated;
+export const isMilestoneDeadlineOutdated = isItemDeadlineOutdated;
+
+// Snap a value onto the item's step grid. Steps may be fractional
+// (0.5 kg), so round the multiple rather than the value to avoid float noise.
+export function snapToStep(value: number, step: number): number {
+  if (!(step > 0)) return value;
+  const snapped = Math.round(value / step) * step;
+  return Math.round(snapped * 1000) / 1000;
+}
+
+// Next/previous value for the +/- controls, clamped to [0, target].
+export function steppedValue(m: TrackableItem, direction: 1 | -1): number {
+  const step = measurableStep(m);
+  const raw = m.current + direction * step;
+  const snapped = snapToStep(raw, step);
+  // Snapping can round back onto `current` when the stored value is off-grid
+  // (e.g. 145 with a step of 6) — nudge past it so a tap always moves.
+  const moved = snapped === m.current ? m.current + direction * step : snapped;
+  return Math.min(Math.max(moved, 0), Math.max(m.target, 0));
+}
+export const steppedMilestoneValue = steppedValue;
 
 export const DEFAULT_SCHEDULE: StepSchedule = {
   on: false, weekday: 2, dayOfMonth: 1, hour: 9, minute: 0,
@@ -174,16 +167,6 @@ export function newCommitment(
     ...init,
     schedule: { ...DEFAULT_SCHEDULE, ...(init.schedule ?? {}) },
   };
-}
-
-export function newMilestone(
-  init: Partial<Milestone> & { title: string; kind: MilestoneKind },
-): Milestone {
-  return { id: newId(), done: false, steps: [], ...init };
-}
-
-export function milestoneStep(mg: Milestone): number {
-  return typeof mg.step === 'number' && mg.step > 0 ? mg.step : 1;
 }
 
 // ── Cadence periods ───────────────────────────────────────────
@@ -213,12 +196,11 @@ export function cadenceLabel(step: Commitment): string {
   }
 }
 
-// The single source of truth for displaying a Measurable/Milestone/
-// Commitment value — "1,000" for whole numbers, "3.4" for anything
-// with a fractional part. Every call site (cadence labels, breakdown
-// suggestions, coach confirmation chips, measurable/milestone cards) used to
-// carry its own slightly different copy of this; formatAmount below adds
-// unit-aware wrapping on top of it.
+// The single source of truth for displaying a TrackableItem/Commitment
+// value — "1,000" for whole numbers, "3.4" for anything with a fractional
+// part. Every call site (cadence labels, breakdown suggestions, coach
+// confirmation chips, item cards) used to carry its own slightly different
+// copy of this; formatAmount below adds unit-aware wrapping on top of it.
 export function formatNumber(v: number): string {
   return v % 1 === 0 ? v.toLocaleString('en-US') : v.toFixed(1);
 }
@@ -302,8 +284,8 @@ export function commitmentStreak(step: Commitment, when: Date = new Date()): num
  * When the CURRENT period's commitment is due, for a flat (non-build-up) step
  * — the end of this ISO week, this calendar month, or this custom window.
  * Lets a recurring Commitment slot into the same Overdue/This Week/This
- * Month/Upcoming buckets the Tasks tab already groups measurable tasks by,
- * even though it has no single fixed due date the way a ladder week does.
+ * Month/Upcoming buckets the Tasks tab already groups tasks by, even though
+ * it has no single fixed due date the way a ladder week does.
  */
 export function currentStepPeriodDueDate(step: Commitment, when: Date = new Date()): Date {
   switch (step.cadence) {
@@ -370,15 +352,15 @@ export function formatAmount(v: number, unit?: string): string {
 const fmtAmount = formatAmount;
 
 // Explicit recurrence language in the title — "each morning", "every day",
-// "daily", "each week", "weekly" — marks a milestone as a repeating HABIT
+// "daily", "each week", "weekly" — marks an item as a repeating HABIT
 // rather than a one-time cumulative sum. For a habit, `target` is already the
 // per-occurrence amount ("30 min each morning" means 30 min EVERY morning,
 // not 30 min total to divide across the weeks remaining).
 const DAILY_HABIT_CUE = /\b(each|every)\s+(day|morning|evening|night)\b|\bdaily\b/i;
 const WEEKLY_HABIT_CUE = /\b(each|every)\s+week\b|\bweekly\b/i;
 
-export function isRecurringHabit(mg: Milestone): boolean {
-  return mg.kind === 'numeric' && (DAILY_HABIT_CUE.test(mg.title) || WEEKLY_HABIT_CUE.test(mg.title));
+export function isRecurringHabit(mg: TrackableItem): boolean {
+  return mg.milestone === true && mg.type === 'number' && (DAILY_HABIT_CUE.test(mg.label) || WEEKLY_HABIT_CUE.test(mg.label));
 }
 
 /**
@@ -390,8 +372,8 @@ export function isRecurringHabit(mg: Milestone): boolean {
  * problem — the target already IS the per-occurrence amount, so it is routed
  * to suggestHabitCadence instead of being divided by the weeks remaining.
  */
-export function suggestBreakdowns(mg: Milestone, today: Date = new Date()): BreakdownOption[] {
-  if (mg.kind !== 'numeric' || !mg.target || !mg.deadline) return [];
+export function suggestBreakdowns(mg: TrackableItem, today: Date = new Date()): BreakdownOption[] {
+  if (mg.type !== 'number' || !mg.target || !mg.deadline) return [];
   const remaining = Math.max(0, mg.target - (mg.current ?? 0));
   if (remaining <= 0) return [];
 
@@ -399,7 +381,7 @@ export function suggestBreakdowns(mg: Milestone, today: Date = new Date()): Brea
     return suggestHabitCadence(mg, today);
   }
 
-  const verb = /save|fund|budget|invest/i.test(mg.title) ? 'Save' : 'Add';
+  const verb = /save|fund|budget|invest/i.test(mg.label) ? 'Save' : 'Add';
   const out: BreakdownOption[] = [];
   for (const cadence of ['weekly', 'monthly'] as const) {
     const periods = periodsUntil(mg.deadline, cadence, 7, today);
@@ -422,9 +404,9 @@ export function suggestBreakdowns(mg: Milestone, today: Date = new Date()): Brea
 // named in the title — never divided by the weeks remaining, since the
 // "amount" is a per-occurrence dose (30 min of no-phone time every single
 // morning), not a cumulative sum being paid off over time.
-function suggestHabitCadence(mg: Milestone, today: Date): BreakdownOption[] {
+function suggestHabitCadence(mg: TrackableItem, today: Date): BreakdownOption[] {
   const target = mg.target as number;
-  const daily = DAILY_HABIT_CUE.test(mg.title);
+  const daily = DAILY_HABIT_CUE.test(mg.label);
   const cadence: Cadence = daily ? 'custom' : 'weekly';
   const intervalDays = daily ? 1 : undefined;
   const periods = periodsUntil(mg.deadline as string, cadence, intervalDays ?? 7, today);
@@ -454,27 +436,39 @@ export function commitmentProgress(step: Commitment, deadline?: string): number 
   return Math.min(1, step.completions.length / expected);
 }
 
-export function milestoneFraction(mg: Milestone): number {
-  if (mg.done) return 1;
-  if (mg.kind === 'numeric' && (mg.target ?? 0) > 0) {
-    return Math.min(Math.max((mg.current ?? 0) / (mg.target as number), 0), 1);
+// Fraction complete (0..1) for one TrackableItem, folding in every former
+// Measurable AND Milestone case:
+//  - `done` is an explicit override checked first (a manually-marked-done
+//    effort milestone), same as old milestoneFraction.
+//  - 'check' / 'number' / 'ladder' read exactly as the old measurableFraction
+//    did — a 'number' item's commitments (if any) only ever move `current`,
+//    they don't change how the fraction is computed.
+//  - 'commitment' (a former "effort" Milestone) averages commitmentProgress
+//    across every attached commitment, same as old milestoneFraction's
+//    effort branch.
+export function measurableFraction(m: TrackableItem): number {
+  if (m.done) return 1;
+  switch (m.type) {
+    case 'check':
+      return m.done ? 1 : 0;
+    case 'number':
+      if (m.target <= 0) return 0;
+      return Math.min(Math.max(m.current / m.target, 0), 1);
+    case 'ladder':
+      if (m.weeks.length === 0) return 0;
+      return m.weeks.filter((w) => w.done).length / m.weeks.length;
+    case 'commitment': {
+      if (m.commitments.length === 0) return 0;
+      const sum = m.commitments.reduce((acc, s) => acc + commitmentProgress(s, m.deadline), 0);
+      return Math.min(1, sum / m.commitments.length);
+    }
   }
-  // Effort goals move as their recurring commitments get checked off.
-  if (mg.steps.length === 0) return 0;
-  const sum = mg.steps.reduce((acc, s) => acc + commitmentProgress(s, mg.deadline), 0);
-  return Math.min(1, sum / mg.steps.length);
 }
+// Back-compat alias used by the milestone-flavored call sites.
+export const milestoneFraction = measurableFraction;
 
-export function milestonePercent(mg: Milestone): number {
-  return Math.round(milestoneFraction(mg) * 100);
-}
-
-export function steppedMilestoneValue(mg: Milestone, direction: 1 | -1): number {
-  const step = milestoneStep(mg);
-  const raw = (mg.current ?? 0) + direction * step;
-  const snapped = snapToStep(raw, step);
-  const moved = snapped === (mg.current ?? 0) ? (mg.current ?? 0) + direction * step : snapped;
-  return Math.min(Math.max(moved, 0), Math.max(mg.target ?? 0, 0));
+export function milestonePercent(mg: TrackableItem): number {
+  return Math.round(measurableFraction(mg) * 100);
 }
 
 export type ReminderFrequency = 'Daily' | 'Weekly' | 'Monthly';
@@ -514,19 +508,19 @@ export interface CoachAction {
   ladderStart?: number;
   ladderEnd?: number;
   ladderWeeks?: number;
-  // editTask / removeTask / setTarget — which existing measurable it hits.
+  // editTask / removeTask / setTarget — which existing item it hits.
   // `measurableLabel` is what the coach called it, kept for display and as a
-  // fallback match if the measurable was edited after the action was proposed.
+  // fallback match if the item was edited after the action was proposed.
   measurableId?: string;
   measurableLabel?: string;
   // addMilestone
   milestoneKind?: MilestoneKind;
   deadline?: string;
-  // addCommitment — attaches to a milestone, recurring at `cadence`
+  // addCommitment — attaches to a milestone-flagged item, recurring at `cadence`
   cadence?: Cadence;
   intervalDays?: number;
   amount?: number;
-  // addCommitment / removeMilestone — which milestone it hits
+  // addCommitment / removeMilestone — which item it hits
   milestoneId?: string;
   milestoneLabel?: string;
 }
@@ -575,33 +569,35 @@ export function describeAction(a: CoachAction, goal: Goal): string {
           ? `every ${a.intervalDays ?? 7} days`
           : 'weekly';
       const target = resolveMilestone(a, goal);
-      const under = target?.title ?? a.milestoneLabel;
+      const under = target?.label ?? a.milestoneLabel;
       return `Add ${every} step "${a.label}"${under ? ` under "${under}"` : ''}`;
     }
     case 'removeMilestone': {
       const target = resolveMilestone(a, goal);
-      return `Remove milestone "${target?.title ?? a.milestoneLabel}"`;
+      return `Remove milestone "${target?.label ?? a.milestoneLabel}"`;
     }
   }
 }
 
-// Match an action to the measurable it refers to: by id when the coach echoed
-// one back, otherwise by a case-insensitive label match.
-export function resolveMeasurable(a: CoachAction, goal: Goal): Measurable | undefined {
+// Match an action to the plain (non-milestone) item it refers to: by id when
+// the coach echoed one back, otherwise by a case-insensitive label match.
+export function resolveMeasurable(a: CoachAction, goal: Goal): TrackableItem | undefined {
+  const list = goal.items.filter((it) => !it.milestone);
   if (a.measurableId) {
-    const byId = goal.measurables.find((m) => m.id === a.measurableId);
+    const byId = list.find((m) => m.id === a.measurableId);
     if (byId) return byId;
   }
   const wanted = (a.measurableLabel ?? a.label ?? '').trim().toLowerCase();
   if (!wanted) return undefined;
   return (
-    goal.measurables.find((m) => m.label.trim().toLowerCase() === wanted) ??
-    goal.measurables.find((m) => m.label.toLowerCase().includes(wanted))
+    list.find((m) => m.label.trim().toLowerCase() === wanted) ??
+    list.find((m) => m.label.toLowerCase().includes(wanted))
   );
 }
 
-export function resolveMilestone(a: CoachAction, goal: Goal): Milestone | undefined {
-  const list = goal.milestones ?? [];
+// Match an action to the milestone-flagged item it refers to.
+export function resolveMilestone(a: CoachAction, goal: Goal): TrackableItem | undefined {
+  const list = goal.items.filter((it) => it.milestone);
   if (a.milestoneId) {
     const byId = list.find((mg) => mg.id === a.milestoneId);
     if (byId) return byId;
@@ -609,8 +605,8 @@ export function resolveMilestone(a: CoachAction, goal: Goal): Milestone | undefi
   const wanted = (a.milestoneLabel ?? '').trim().toLowerCase();
   if (!wanted) return undefined;
   return (
-    list.find((mg) => mg.title.trim().toLowerCase() === wanted) ??
-    list.find((mg) => mg.title.toLowerCase().includes(wanted))
+    list.find((mg) => mg.label.trim().toLowerCase() === wanted) ??
+    list.find((mg) => mg.label.toLowerCase().includes(wanted))
   );
 }
 
@@ -629,15 +625,16 @@ export interface Goal {
   reminder: Reminder;
   chat: ChatMessage[];
   pendingActions: PendingAction[];
-  measurables: Measurable[];
-  milestones: Milestone[];
+  // Every trackable item on this goal — formerly the two sibling arrays
+  // `measurables` and `milestones`, now one unified list (see TrackableItem).
+  items: TrackableItem[];
   boardPosition?: BoardPosition;
   // Optional freeform "why this matters" note — surfaced under the title on
   // the goal detail screen and passed to the coach for context. Absent on
   // every goal created before this existed; never backfilled.
   motivation?: string;
-  // Per-measurable bubble position on the goal's own bubble canvas, keyed by
-  // Measurable.id — same normalized (0..1) shape as a goal's own
+  // Per-item bubble position on the goal's own bubble canvas, keyed by
+  // TrackableItem.id — same normalized (0..1) shape as a goal's own
   // boardPosition on the main board. Absent entries auto-place on a ring
   // around the central goal bubble.
   measurableBubblePositions?: Record<string, BoardPosition>;
@@ -653,18 +650,14 @@ export interface Goal {
   completionCelebrated?: boolean;
 }
 
-// The bubble/bar fill blends every tracked item — measurables AND
-// milestones — into one average, so it can never read 100% while
-// isCompleted() below still says the goal isn't done. Milestones remain
-// discrete checkpoints surfaced separately via milestoneCheckpoints (dots
-// on GoalNote), but they also count toward the fill now, same as a
-// measurable would.
+// The bubble/bar fill blends every tracked item into one average, so it can
+// never read 100% while isCompleted() below still says the goal isn't done.
+// Milestone-flagged items remain discrete checkpoints surfaced separately via
+// milestoneCheckpoints (dots on GoalNote), but they also count toward the
+// fill, same as a plain item would. (Preserves the PR #28 blended-progress
+// behavior exactly — see isCompleted below.)
 export function goalProgress(g: Goal): number {
-  const milestones = g.milestones ?? [];
-  const fractions = [
-    ...g.measurables.map(measurableFraction),
-    ...milestones.map(milestoneFraction),
-  ];
+  const fractions = g.items.map(measurableFraction);
   if (fractions.length === 0) return 0;
   return fractions.reduce((acc, f) => acc + f, 0) / fractions.length;
 }
@@ -674,22 +667,18 @@ export function goalProgressPercent(g: Goal): number {
 }
 
 // Checkpoint summary for the discrete milestone markers shown alongside a
-// goal's fill (dots on GoalNote) — independent of goalProgress above.
+// goal's fill (dots on GoalNote) — independent of goalProgress above. Only
+// counts milestone-flagged items, matching the old milestones-only dots.
 export function milestoneCheckpoints(g: Goal): { done: number; total: number } {
-  const milestones = g.milestones ?? [];
-  return { done: milestones.filter((mg) => milestoneFraction(mg) >= 1).length, total: milestones.length };
+  const milestones = g.items.filter((it) => it.milestone);
+  return { done: milestones.filter((mg) => measurableFraction(mg) >= 1).length, total: milestones.length };
 }
 
-// A goal is complete only when EVERY measurable and EVERY milestone is fully
-// done — independent of goalProgress, which (per above) may ignore
-// milestones entirely once measurables exist.
+// A goal is complete only when EVERY item is fully done — independent of
+// goalProgress, which (per above) is an average, not a min.
 export function isCompleted(g: Goal): boolean {
-  const tracked = g.measurables.length + (g.milestones?.length ?? 0);
-  if (tracked === 0) return false;
-  return (
-    g.measurables.every((m) => measurableFraction(m) >= 1) &&
-    (g.milestones ?? []).every((mg) => milestoneFraction(mg) >= 1)
-  );
+  if (g.items.length === 0) return false;
+  return g.items.every((m) => measurableFraction(m) >= 1);
 }
 
 export interface YearData {
@@ -713,11 +702,11 @@ export function newId(): string {
   return Crypto.randomUUID();
 }
 
-// Single place where a Measurable's defaults live, so every creation path
-// (templates, the add form, coach actions) agrees on them.
+// Single place where a plain (non-milestone) item's defaults live, so every
+// creation path (templates, the add form, coach actions) agrees on them.
 export function newMeasurable(
-  init: Partial<Measurable> & { type: MeasurableType; label: string },
-): Measurable {
+  init: Partial<TrackableItem> & { type: MeasurableType; label: string },
+): TrackableItem {
   return {
     id: newId(),
     done: false,
@@ -726,8 +715,38 @@ export function newMeasurable(
     unit: '',
     step: 1,
     weeks: [],
+    commitments: [],
     ...init,
   };
+}
+
+// Defaults for a milestone-flagged item (formerly newMilestone). Accepts the
+// old `title`/`kind`/`steps` field names too so every existing call site
+// (coach actions, templates) keeps compiling unchanged.
+export function newMilestone(
+  init: { label?: string; title?: string; kind?: MilestoneKind; steps?: Commitment[] } & Partial<Omit<TrackableItem, 'commitments'>>,
+): TrackableItem {
+  const { title, kind, steps, label: initLabel, ...rest } = init;
+  const label = initLabel ?? title ?? '';
+  const type: MeasurableType = kind === 'numeric' || init.target != null ? 'number' : 'commitment';
+  return {
+    id: newId(),
+    type,
+    label,
+    done: false,
+    current: init.target != null ? 0 : 0,
+    target: 0,
+    unit: '',
+    step: 1,
+    weeks: [],
+    commitments: steps ?? [],
+    milestone: true,
+    ...rest,
+  };
+}
+
+export function milestoneStep(mg: TrackableItem): number {
+  return measurableStep(mg);
 }
 
 export function buildLadderWeeks(
@@ -753,7 +772,8 @@ export function buildLadderWeeks(
   return weeks;
 }
 
-// A progressive build-up for a Commitment is exactly a ladder measurable's
-// weekly schedule (same shape, same math) attached to a Milestone instead of
-// standing alone as a Measurable — this is that reuse, named for the call site.
+// A progressive build-up for a Commitment is exactly a ladder item's
+// weekly schedule (same shape, same math) attached to a milestone-flagged
+// item's commitment instead of standing alone — this is that reuse, named
+// for the call site.
 export const buildCommitmentRamp = buildLadderWeeks;

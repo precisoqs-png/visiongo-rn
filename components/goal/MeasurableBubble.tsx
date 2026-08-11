@@ -270,6 +270,10 @@ export function tickMeasurable(m: Measurable): Measurable {
       const weeks = m.weeks.map((w, i) => (i === idx ? { ...w, done: true } : w));
       return { ...m, weeks };
     }
+    default:
+      // Milestone-flagged 'commitment' items never render as canvas bubbles
+      // (only plain items do), so there is nothing meaningful to "tick" here.
+      return m;
   }
 }
 

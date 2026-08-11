@@ -142,7 +142,7 @@ export async function syncWeeklyTargetNotifications(goal: Goal): Promise<void> {
     if (!goal.reminder.on) return;
 
     const now = Date.now();
-    for (const m of goal.measurables) {
+    for (const m of goal.items) {
       if (m.type !== 'ladder') continue;
       for (const week of m.weeks) {
         if (week.done) continue;
@@ -281,7 +281,7 @@ export async function scheduleCommitment(
       await Notifications.scheduleNotificationAsync({
         identifier: stepIdentifier(goal.id, step.id, i),
         content: {
-          title: `${goal.title} · ${mg.title}`,
+          title: `${goal.title} · ${mg.label}`,
           body: stepReminderBody(mg, step),
         },
         trigger: triggers[i],
@@ -307,7 +307,7 @@ async function scheduleBuildUpNotifications(goal: Goal, mg: Milestone, step: Com
     await Notifications.scheduleNotificationAsync({
       identifier: stepIdentifier(goal.id, step.id, occurrence),
       content: {
-        title: `${goal.title} · ${mg.title}`,
+        title: `${goal.title} · ${mg.label}`,
         body: `Have you hit ${formatNumber(week.value)}${step.unit ? ` ${step.unit}` : ''} this week? (${step.label})`,
       },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: due },
@@ -327,8 +327,8 @@ export async function syncCommitmentNotifications(goal: Goal): Promise<void> {
   if (!SUPPORTED) return;
   try {
     await cancelCommitmentNotifications(goal.id);
-    for (const mg of goal.milestones ?? []) {
-      for (const step of mg.steps) {
+    for (const mg of goal.items.filter((it) => it.milestone)) {
+      for (const step of mg.commitments) {
         if (!step.schedule.on) continue;
         await scheduleCommitment(goal, mg, step);
       }
@@ -407,7 +407,7 @@ export async function syncMeasurableReminders(goal: Goal): Promise<void> {
   if (!SUPPORTED) return;
   try {
     await cancelMeasurableReminders(goal.id);
-    for (const m of goal.measurables) {
+    for (const m of goal.items) {
       if (m.schedule?.on) await scheduleMeasurableReminder(goal, m);
     }
   } catch (e) {

@@ -158,12 +158,12 @@ export default function MeasurablesListScreen() {
             Quick checklist items you track directly on this goal — the same ones shown as
             bubbles on the canvas. Add, edit, or remove them here.
           </Text>
-          {goal.measurables.length === 0 ? (
+          {goal.items.filter((it) => !it.milestone).length === 0 ? (
             <Text style={[styles.emptyHint, { color: p.muted }]}>
               No measurables yet. Add one below or ask your coach.
             </Text>
           ) : (
-            goal.measurables.map((m) => (
+            goal.items.filter((it) => !it.milestone).map((m) => (
               <MeasurableCard
                 key={m.id}
                 measurable={m}
