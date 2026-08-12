@@ -11,19 +11,24 @@ interface Props {
   onAdd: (m: TrackableItem) => void;
 }
 
-// Manual "add a milestone" form — same idea as AddMeasurableForm's manual
-// path, but producing a milestone-flagged item (own deadline, no upfront
-// numeric/effort split: a filled-in Target means 'number', blank means
-// 'commitment' driven entirely by whatever Commitments get attached after).
+// Manual "add a milestone" form. The default/primary path is "name your
+// win": a title and an optional target date, producing a milestone-flagged
+// item with no current/target of its own (type 'commitment', no
+// commitments attached yet — a plain reached/not-reached checkpoint until
+// the user attaches a recurring commitment afterward). A numeric milestone
+// (own target/unit/step, the old always-shown fields) is still available,
+// but only via the "Add a number target" expansion — never the default.
 export function AddMilestoneItemForm({ palette: p, goalTargetDate, onAdd }: Props) {
   const [label, setLabel] = useState('');
-  const [targetStr, setTargetStr] = useState('');
-  const [unit, setUnit] = useState('');
-  const [stepStr, setStepStr] = useState('');
   const [deadline, setDeadline] = useState<string | undefined>(goalTargetDate);
   const [showPicker, setShowPicker] = useState(false);
 
-  const hasTarget = targetStr.trim().length > 0;
+  const [numericOpen, setNumericOpen] = useState(false);
+  const [targetStr, setTargetStr] = useState('');
+  const [unit, setUnit] = useState('');
+  const [stepStr, setStepStr] = useState('');
+
+  const hasTarget = numericOpen && targetStr.trim().length > 0;
 
   const commit = () => {
     const t = label.trim();
@@ -42,7 +47,7 @@ export function AddMilestoneItemForm({ palette: p, goalTargetDate, onAdd }: Prop
       sizedForGoalDate: deadline === goalTargetDate ? goalTargetDate : undefined,
     });
     onAdd(m);
-    setLabel(''); setTargetStr(''); setUnit(''); setStepStr('');
+    setLabel(''); setTargetStr(''); setUnit(''); setStepStr(''); setNumericOpen(false);
   };
 
   return (
@@ -51,53 +56,69 @@ export function AddMilestoneItemForm({ palette: p, goalTargetDate, onAdd }: Prop
 
       <TextInput
         style={[styles.input, { backgroundColor: p.surface, color: p.text, borderColor: p.line }]}
-        placeholder="Milestone — e.g. Save $10,000"
+        placeholder="Name your win — e.g. Run a marathon"
         placeholderTextColor={p.muted}
         value={label}
         onChangeText={setLabel}
       />
-
-      <View style={styles.inputRow}>
-        <TextInput
-          style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
-          placeholder="Target (optional)"
-          placeholderTextColor={p.muted}
-          keyboardType="numeric"
-          value={targetStr}
-          onChangeText={setTargetStr}
-        />
-        <TextInput
-          style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1.4 }]}
-          placeholder="Unit ($, km)"
-          placeholderTextColor={p.muted}
-          value={unit}
-          onChangeText={setUnit}
-          editable={hasTarget}
-        />
-        <TextInput
-          style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
-          placeholder="Step"
-          placeholderTextColor={p.muted}
-          keyboardType="numeric"
-          value={stepStr}
-          onChangeText={setStepStr}
-          editable={hasTarget}
-        />
-      </View>
-      <Text style={[styles.fieldHint, { color: p.muted }]}>
-        {hasTarget
-          ? 'A number to hit, with a deadline below — attach a recurring commitment after adding it.'
-          : 'No number to hit? Leave Target blank and attach a recurring commitment after adding it.'}
-      </Text>
 
       <TouchableOpacity style={[styles.dateRow, { borderColor: p.line }]} onPress={() => setShowPicker(true)}>
         <Ionicons name="calendar-outline" size={14} color={p.muted} />
         <Text style={[styles.dateText, { color: deadline ? p.text : p.muted }]}>
           {deadline
             ? new Date(deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-            : 'Deadline (optional)'}
+            : 'Target date (optional)'}
         </Text>
       </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.numericToggle}
+        onPress={() => setNumericOpen((o) => !o)}
+        activeOpacity={0.7}
+      >
+        <Ionicons name={numericOpen ? 'chevron-down' : 'chevron-forward'} size={12} color={p.muted} />
+        <Text style={[styles.numericToggleText, { color: p.muted }]}>
+          Add a number target (optional)
+        </Text>
+      </TouchableOpacity>
+
+      {numericOpen && (
+        <>
+          <View style={styles.inputRow}>
+            <TextInput
+              style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
+              placeholder="Target"
+              placeholderTextColor={p.muted}
+              keyboardType="numeric"
+              value={targetStr}
+              onChangeText={setTargetStr}
+            />
+            <TextInput
+              style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1.4 }]}
+              placeholder="Unit ($, km)"
+              placeholderTextColor={p.muted}
+              value={unit}
+              onChangeText={setUnit}
+            />
+            <TextInput
+              style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
+              placeholder="Step"
+              placeholderTextColor={p.muted}
+              keyboardType="numeric"
+              value={stepStr}
+              onChangeText={setStepStr}
+            />
+          </View>
+          <Text style={[styles.fieldHint, { color: p.muted }]}>
+            A number to hit instead of a plain reached/not-reached toggle.
+          </Text>
+        </>
+      )}
+      {!numericOpen && (
+        <Text style={[styles.fieldHint, { color: p.muted }]}>
+          A simple reached/not-reached checkpoint — attach a recurring commitment after adding it.
+        </Text>
+      )}
 
       <TouchableOpacity
         style={[styles.addBtn, { backgroundColor: label.trim() ? p.ink : p.muted }]}
@@ -128,6 +149,8 @@ const styles = StyleSheet.create({
   fieldHint: { fontSize: 11, marginTop: -4, marginBottom: 10, lineHeight: 15 },
   dateRow: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: 10, padding: 11, marginBottom: 10 },
   dateText: { fontSize: 13, fontWeight: '500' },
+  numericToggle: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8 },
+  numericToggleText: { fontSize: 12, fontWeight: '600' },
   addBtn: { borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
   addBtnText: { fontSize: 15, fontWeight: '600' },
 });
