@@ -36,6 +36,9 @@ credentials.json
 *.swp
 .vscode/
 
+# Claude Code agent worktrees
+.claude/
+
 # TypeScript
 *.tsbuildinfo
 
