@@ -92,13 +92,29 @@ export function MeasurableCard({
 
   return (
     <View style={[styles.card, { backgroundColor: p.surface }]}>
-      {m.type === 'check' && <CheckRow m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} onOpenSchedule={onOpenSchedule} />}
-      {m.type === 'number' && <NumberRow m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} />}
-      {m.type === 'ladder' && (
-        <LadderRows m={m} goalTargetDate={goalTargetDate} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} />
-      )}
-      {m.type === 'commitment' && (
-        <CommitmentTypeRow m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} onAskCoach={onAskCoach} />
+      {/* A milestone-flagged item always renders as a plain "big win"
+          checkpoint — title + done/not-done toggle — regardless of its
+          underlying `type`, instead of the type-specific stepper/ladder
+          rows below. Those rows are exactly what measurables.tsx renders
+          (it only ever shows `milestone: false` items), so this branch
+          leaves that rendering completely untouched. */}
+      {m.milestone ? (
+        <MilestoneCheckpointRow
+          m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete}
+          onOpenSchedule={onOpenSchedule}
+          onAskCoach={m.type === 'commitment' ? onAskCoach : undefined}
+        />
+      ) : (
+        <>
+          {m.type === 'check' && <CheckRow m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} onOpenSchedule={onOpenSchedule} />}
+          {m.type === 'number' && <NumberRow m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} />}
+          {m.type === 'ladder' && (
+            <LadderRows m={m} goalTargetDate={goalTargetDate} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} />
+          )}
+          {m.type === 'commitment' && (
+            <CommitmentTypeRow m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} onAskCoach={onAskCoach} />
+          )}
+        </>
       )}
 
       {m.milestone && m.deadline && (
@@ -153,6 +169,57 @@ export function MeasurableCard({
           },
         ]}
       />
+    </View>
+  );
+}
+
+// A milestone-flagged item's primary presentation: a clean "big win"
+// checkpoint, not a numeric tracker. `done` is the same manual-override
+// field measurableFraction checks first for ANY type (see models.ts) — this
+// is the one place that override gets flipped for a milestone, so toggling
+// it here flows straight into goalProgress/isCompleted/celebration exactly
+// like the pre-existing 'check' and 'commitment' done-toggles do. No new,
+// disconnected completion flag.
+function MilestoneCheckpointRow({ m, p, noteColor, onUpdate, onDelete, onOpenSchedule, onAskCoach }: {
+  m: Measurable; p: Palette; noteColor: string; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void;
+  onOpenSchedule?: (m: Measurable) => void; onAskCoach?: (m: Measurable) => void;
+}) {
+  const { scale, pulse } = useCompletionPulse();
+  return (
+    <View>
+      <View style={styles.row}>
+        <Animated.View style={{ transform: [{ scale }] }}>
+          <TouchableOpacity
+            onPress={() => { const next = !m.done; onUpdate({ ...m, done: next }); pulse(next); }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel={m.done ? 'Mark not reached' : 'Mark reached'}
+          >
+            <Ionicons name={m.done ? 'checkmark-circle' : 'ellipse-outline'} size={26} color={m.done ? noteColor : p.muted} />
+          </TouchableOpacity>
+        </Animated.View>
+        <Text
+          style={[
+            styles.milestoneLabel,
+            { color: m.done ? p.muted : p.text },
+            m.done && { textDecorationLine: 'line-through' },
+          ]}
+        >
+          {m.label}
+        </Text>
+        <ScheduleBell m={m} p={p} onOpenSchedule={onOpenSchedule} />
+        <TouchableOpacity onPress={() => onDelete(m.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.deleteCircle}>
+          <Ionicons name="close" size={12} color={p.muted} />
+        </TouchableOpacity>
+      </View>
+      <Text style={[styles.milestoneStatus, { color: m.done ? noteColor : p.muted }]}>
+        {m.done ? 'Reached' : 'Not reached yet'}
+      </Text>
+      {onAskCoach && (
+        <TouchableOpacity style={[styles.askCoachBtn, { borderColor: `${p.accent}66` }]} onPress={() => onAskCoach(m)}>
+          <Ionicons name="sparkles-outline" size={12} color={p.accent} />
+          <Text style={[styles.askCoachText, { color: p.accent }]}>Ask coach</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -433,6 +500,8 @@ const styles = StyleSheet.create({
   deleteCircle: { width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(128,128,128,0.15)', alignItems: 'center', justifyContent: 'center' },
   checkLabel: { flex: 1, fontSize: 15 },
   numLabel: { flex: 1, fontSize: 15, fontWeight: '600' },
+  milestoneLabel: { flex: 1, fontSize: 16, fontWeight: '700' },
+  milestoneStatus: { fontSize: 12, fontWeight: '600', marginLeft: 36, marginTop: 2 },
   stepper: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   stepperVal: { fontSize: 15, fontWeight: '700' },
   stepHint: { fontSize: 11, marginLeft: 'auto' },
