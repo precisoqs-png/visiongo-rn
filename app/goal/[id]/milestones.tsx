@@ -11,9 +11,13 @@ import { useThemeStore } from '../../../store/useThemeStore';
 import { useAppStore } from '../../../store/useAppStore';
 import { GOAL_NOTE_COLORS, hexAlpha, FONTS } from '../../../theme/themes';
 import {
-  goalProgress, goalProgressPercent, isCompleted, Commitment, Milestone,
+  goalProgress, goalProgressPercent, isCompleted, Commitment, TrackableItem,
+  Cadence, StepSchedule, DEFAULT_SCHEDULE,
 } from '../../../store/models';
-import { MilestoneSection } from '../../../components/goal/MilestoneSection';
+import { MeasurableCard } from '../../../components/goal/MeasurableCard';
+import { AddMilestoneItemForm } from '../../../components/goal/AddMilestoneItemForm';
+import { InfoPopover } from '../../../components/shared/InfoPopover';
+import { StepScheduleSheet, ReminderTarget } from '../../../components/goal/StepScheduleSheet';
 import { CoachChat } from '../../../components/goal/CoachChat';
 import { CalendarPicker } from '../../../components/shared/CalendarPicker';
 import {
@@ -23,7 +27,7 @@ import {
   cancelWeeklyTargetNotifications,
   syncWeeklyTargetNotifications,
   syncCommitmentNotifications,
-  cancelCommitmentNotification,
+  syncMeasurableReminders,
   cancelEverythingForGoal,
   alertNotificationsUnavailable,
 } from '../../../services/notificationService';
@@ -41,14 +45,15 @@ export default function GoalDetailScreen() {
 
   const updateGoal = useAppStore((s) => s.updateGoal);
   const deleteGoal = useAppStore((s) => s.deleteGoal);
-  const addMilestone = useAppStore((s) => s.addMilestone);
-  const updateMilestone = useAppStore((s) => s.updateMilestone);
-  const deleteMilestone = useAppStore((s) => s.deleteMilestone);
-  const addCommitment = useAppStore((s) => s.addCommitment);
-  const updateCommitment = useAppStore((s) => s.updateCommitment);
-  const deleteCommitment = useAppStore((s) => s.deleteCommitment);
-  const toggleStepCheckIn = useAppStore((s) => s.toggleStepCheckIn);
-  const toggleRampWeek = useAppStore((s) => s.toggleRampWeek);
+  // Unified generic item CRUD — the same actions measurables.tsx uses. Despite
+  // the name, these operate on goal.items by id regardless of the
+  // `milestone` flag; see store/useAppStore.ts. Commitment-level edits
+  // (check-in, add/delete a commitment, toggle a ramp week) are computed
+  // locally into a full updated item and saved through updateMeasurable too
+  // — see components/goal/CommitmentsBlock.tsx.
+  const addMeasurable = useAppStore((s) => s.addMeasurable);
+  const updateMeasurable = useAppStore((s) => s.updateMeasurable);
+  const deleteMeasurable = useAppStore((s) => s.deleteMeasurable);
 
   const goal = useAppStore((s) =>
     s.years.find((y) => y.year === s.selectedYear)?.goals.find((g) => g.id === id),
@@ -110,8 +115,9 @@ export default function GoalDetailScreen() {
     }
   };
 
-  // Same for accountable-step reminders. Each step owns its own schedule, so
-  // this runs on every milestone edit rather than off the goal-level bell.
+  // Same for accountable-step reminders. Each commitment owns its own
+  // schedule, so this runs on every item edit rather than off the
+  // goal-level bell.
   const resyncStepNotifications = () => {
     const fresh = useAppStore.getState().getGoal(id!);
     if (fresh && useAppStore.getState().notificationsMasterOn) {
@@ -119,26 +125,92 @@ export default function GoalDetailScreen() {
     }
   };
 
-  // Turning a step reminder on is the first thing that needs permission, so ask
-  // here rather than at goal level.
-  const saveStep = async (step: Commitment, mgId: string) => {
-    if (step.schedule.on) {
+  // Item's OWN reminder (check/number/ladder cadence) — same sheet + pattern
+  // measurables.tsx uses, driven from here since only one sheet is open at a
+  // time.
+  const [scheduleForItem, setScheduleForItem] = useState<TrackableItem | null>(null);
+
+  const resyncMeasurableNotifications = () => {
+    const fresh = useAppStore.getState().getGoal(id!);
+    if (fresh && useAppStore.getState().notificationsMasterOn) {
+      void syncMeasurableReminders(fresh);
+    }
+  };
+
+  const saveItemSchedule = async (
+    patch: { cadence: Cadence; intervalDays?: number; schedule: StepSchedule },
+  ) => {
+    const m = scheduleForItem;
+    if (!m) return;
+    if (patch.schedule.on) {
       const granted = await requestNotificationPermission();
       if (!granted) {
         alertNotificationsUnavailable();
-        // Keep the schedule the user configured, just not switched on.
-        updateCommitment({ ...step, schedule: { ...step.schedule, on: false } }, mgId, id!);
+        updateMeasurable({ ...m, ...patch, schedule: { ...patch.schedule, on: false } }, id!);
+        setScheduleForItem(null);
         return;
       }
     }
-    updateCommitment(step, mgId, id!);
+    updateMeasurable({ ...m, ...patch }, id!);
+    setScheduleForItem(null);
+    resyncMeasurableNotifications();
+  };
+
+  const turnOffItemReminder = () => {
+    const m = scheduleForItem;
+    if (!m) return;
+    updateMeasurable({ ...m, schedule: { ...(m.schedule ?? DEFAULT_SCHEDULE), on: false } }, id!);
+    setScheduleForItem(null);
+    resyncMeasurableNotifications();
+  };
+
+  // A specific Commitment's own reminder, nested inside a milestone-flagged
+  // item — kept separate from scheduleForItem since it patches one entry of
+  // `item.commitments`, not the item itself.
+  const [scheduleForCommitment, setScheduleForCommitment] = useState<{ item: TrackableItem; step: Commitment } | null>(null);
+
+  const saveCommitmentSchedule = async (
+    patch: { cadence: Cadence; intervalDays?: number; schedule: StepSchedule },
+  ) => {
+    const target = scheduleForCommitment;
+    if (!target) return;
+    const apply = (schedule: StepSchedule) => updateMeasurable({
+      ...target.item,
+      commitments: target.item.commitments.map((s) => (
+        s.id === target.step.id ? { ...s, cadence: patch.cadence, intervalDays: patch.intervalDays, schedule } : s
+      )),
+    }, id!);
+    if (patch.schedule.on) {
+      const granted = await requestNotificationPermission();
+      if (!granted) {
+        alertNotificationsUnavailable();
+        apply({ ...patch.schedule, on: false });
+        setScheduleForCommitment(null);
+        return;
+      }
+    }
+    apply(patch.schedule);
+    setScheduleForCommitment(null);
+    resyncStepNotifications();
+  };
+
+  const turnOffCommitmentReminder = () => {
+    const target = scheduleForCommitment;
+    if (!target) return;
+    updateMeasurable({
+      ...target.item,
+      commitments: target.item.commitments.map((s) => (
+        s.id === target.step.id ? { ...s, schedule: { ...s.schedule, on: false } } : s
+      )),
+    }, id!);
+    setScheduleForCommitment(null);
     resyncStepNotifications();
   };
 
   // Hands an effort milestone to the coach: seeds a message the coach answers
   // with a baseline question and one simple weekly target.
   const [coachSeed, setCoachSeed] = useState<string | null>(null);
-  const askCoachAbout = (mg: Milestone) => {
+  const askCoachAbout = (mg: TrackableItem) => {
     setCoachSeed(
       `Help me with my milestone "${mg.label}". Ask me what my current baseline is, ` +
       `then suggest one simple weekly commitment I can be reminded about — ` +
@@ -235,6 +307,9 @@ export default function GoalDetailScreen() {
   // than leaving the user to work out Measurables vs Milestones cold — the
   // manual forms below still work, this is just the offered fast path.
   const isEmptyGoal = goal.items.length === 0;
+  // This screen only ever shows milestone-flagged items — plain measurables
+  // live on the goal's bubble canvas / measurables.tsx instead.
+  const milestoneItems = goal.items.filter((it) => it.milestone);
 
   const daysLeft = goal.targetDate
     ? Math.max(0, Math.round((localDate(goal.targetDate).getTime() - Date.now()) / 86400000))
@@ -401,34 +476,52 @@ export default function GoalDetailScreen() {
         )}
 
         <View style={styles.section}>
-          <MilestoneSection
-            goal={goal}
+          <View style={styles.eyebrowRow}>
+            <Text style={[styles.eyebrow, { color: p.muted }]}>MILESTONES</Text>
+            <InfoPopover
+              palette={p}
+              title="Measurables vs Milestones"
+              body={
+                'Milestones are sub-goals — "Save $10,000", "Run a marathon" — that can carry ' +
+                "their own deadline and recurring Commitments you get reminded about on a " +
+                'schedule (weekly, monthly, or custom). Reach for a Milestone when a piece of ' +
+                'the goal deserves its own repeatable action, not just a one-time tick.\n\n' +
+                'Measurables (on the goal\'s bubble canvas) are quick, directly-trackable items — ' +
+                'a checkbox, a running number, or a weekly ladder — with no sub-goal of their own.'
+              }
+            />
+          </View>
+          <Text style={[styles.layerHint, { color: p.muted }]}>
+            Sub-goals with their own deadline and recurring commitments. Tap a commitment
+            count to expand it; tap the bell to set a reminder.
+          </Text>
+          {milestoneItems.length === 0 ? (
+            <Text style={[styles.emptyHint, { color: p.muted }]}>
+              No milestones yet. Add one below or ask your coach.
+            </Text>
+          ) : (
+            milestoneItems.map((m) => (
+              <MeasurableCard
+                key={m.id}
+                measurable={m}
+                goalTargetDate={goal.targetDate}
+                palette={p}
+                noteColor={noteColor}
+                onUpdate={(m) => { updateMeasurable(m, goal.id); resyncStepNotifications(); resyncWeekNotifications(); }}
+                onDelete={(mid) => { deleteMeasurable(mid, goal.id); resyncStepNotifications(); }}
+                onOpenSchedule={(m) => setScheduleForItem(m)}
+                onOpenCommitmentSchedule={(item, step) => setScheduleForCommitment({ item, step })}
+                onAskCoach={askCoachAbout}
+              />
+            ))
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <AddMilestoneItemForm
             palette={p}
-            onAddMilestone={(mg) => addMilestone(mg, goal.id)}
-            onUpdateMilestone={(mg) => updateMilestone(mg, goal.id)}
-            onDeleteMilestone={(mgId) => {
-              deleteMilestone(mgId, goal.id);
-              resyncStepNotifications();
-            }}
-            onAddStep={(step, mgId) => {
-              addCommitment(step, mgId, goal.id);
-              resyncStepNotifications();
-            }}
-            onUpdateStep={(step, mgId) => { void saveStep(step, mgId); }}
-            onDeleteStep={(stepId, mgId) => {
-              deleteCommitment(stepId, mgId, goal.id);
-              void cancelCommitmentNotification(goal.id, stepId);
-            }}
-            onToggleCheckIn={(stepId, mgId) => {
-              toggleStepCheckIn(stepId, mgId, goal.id);
-              // A checked-off ramp week must not still ping a reminder for it.
-              resyncStepNotifications();
-            }}
-            onToggleRampWeek={(stepId, weekId, mgId) => {
-              toggleRampWeek(stepId, weekId, mgId, goal.id);
-              resyncStepNotifications();
-            }}
-            onAskCoach={askCoachAbout}
+            goalTargetDate={goal.targetDate}
+            onAdd={(m) => addMeasurable(m, goal.id)}
           />
         </View>
 
@@ -459,6 +552,27 @@ export default function GoalDetailScreen() {
           setShowDatePicker(false);
         }}
         onDismiss={() => setShowDatePicker(false)}
+      />
+
+      {/* Reminder sheet for an item's OWN cadence — same component + logic
+          as a Measurable's, on measurables.tsx. */}
+      <StepScheduleSheet
+        visible={!!scheduleForItem}
+        step={scheduleForItem}
+        palette={p}
+        onSave={(patch) => { void saveItemSchedule(patch); }}
+        onTurnOff={turnOffItemReminder}
+        onDismiss={() => setScheduleForItem(null)}
+      />
+
+      {/* Reminder sheet for one Commitment nested inside a milestone item. */}
+      <StepScheduleSheet
+        visible={!!scheduleForCommitment}
+        step={scheduleForCommitment?.step ?? null}
+        palette={p}
+        onSave={(patch) => { void saveCommitmentSchedule(patch); }}
+        onTurnOff={turnOffCommitmentReminder}
+        onDismiss={() => setScheduleForCommitment(null)}
       />
     </LinearGradient>
   );
