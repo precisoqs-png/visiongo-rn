@@ -7,11 +7,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as FileSystem from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import { useThemeStore } from '../../store/useThemeStore';
 import { useAppStore } from '../../store/useAppStore';
 import { validateBackupShape } from '../../store/migration';
+import { exportBackup } from '../../services/backupService';
 import { THEMES, THEME_ORDER, ThemeKey, GOAL_NOTE_COLORS, FONTS, hexAlpha } from '../../theme/themes';
 import { ReminderFrequency } from '../../store/models';
 import {
@@ -39,47 +39,6 @@ export default function SettingsScreen() {
   const [canUndoImport, setCanUndoImport] = useState(false);
 
   const [showNotifications, setShowNotifications] = useState(false);
-
-  async function handleExport() {
-    try {
-      // Whole persisted state, JSON-serialized (JSON.stringify drops the
-      // store's action functions on its own, so this matches exactly what
-      // zustand's persist middleware would have written to disk).
-      const state = useAppStore.getState();
-      const payload = {
-        years: state.years,
-        selectedYear: state.selectedYear,
-        hasCompletedOnboarding: state.hasCompletedOnboarding,
-        exportedAt: new Date().toISOString(),
-      };
-      const json = JSON.stringify(payload, null, 2);
-
-      if (Platform.OS === 'web') {
-        // No expo-sharing on web — fall back to a browser download.
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `visiongo-backup-${new Date().toISOString().slice(0, 10)}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        return;
-      }
-
-      const fileUri = `${FileSystem.cacheDirectory}visiongo-backup-${Date.now()}.json`;
-      await FileSystem.writeAsStringAsync(fileUri, json, { encoding: FileSystem.EncodingType.UTF8 });
-
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(fileUri, { mimeType: 'application/json', dialogTitle: 'Save VisionGo backup' });
-      } else {
-        Alert.alert('Backup saved', `Saved to: ${fileUri}`);
-      }
-    } catch (err) {
-      Alert.alert('Export failed', 'Could not create the backup file. Please try again.');
-    }
-  }
 
   function applyImportedJson(text: string) {
     let parsed: unknown;
@@ -141,30 +100,43 @@ export default function SettingsScreen() {
     }
   }
 
+  function doStartFresh() {
+    resetOnboarding();
+    router.replace('/onboarding');
+  }
+
+  // Re-onboarding replaces the goal list for the walked-through year, so
+  // this is meaningfully destructive — offer a one-tap backup before
+  // confirming instead of relying on the user to have found Export Backup
+  // above on their own first.
   function handleStartFresh() {
     if (Platform.OS === 'web') {
       // Alert.alert is a no-op on web — use the browser's built-in confirm dialog
       if ((window as any).confirm(
-        'Start Fresh? This will clear your onboarding flag and take you back to setup.'
+        'Start Fresh? This will clear your onboarding flag and take you back to setup. ' +
+        'Export a backup first if you want to keep your current goals — click Cancel, then Export Backup above.'
       )) {
-        resetOnboarding();
-        router.replace('/onboarding');
+        doStartFresh();
       }
       return;
     }
     Alert.alert(
       'Start Fresh?',
-      'This will clear your onboarding flag and take you back to setup. Your existing goals will remain unless you re-complete onboarding with new ones.',
+      'This will clear your onboarding flag and take you back to setup. Your existing goals will remain ' +
+      'unless you re-complete onboarding with new ones — exporting a backup first is a good idea either way.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Reset',
-          style: 'destructive',
-          onPress: () => {
-            resetOnboarding();
-            router.replace('/onboarding');
+          text: 'Export first',
+          onPress: async () => {
+            await exportBackup();
+            Alert.alert('Backup saved', 'Ready to start fresh?', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Start Fresh', style: 'destructive', onPress: doStartFresh },
+            ]);
           },
         },
+        { text: 'Start Fresh', style: 'destructive', onPress: doStartFresh },
       ]
     );
   }
@@ -229,7 +201,7 @@ export default function SettingsScreen() {
         <SectionLabel label="BACKUP" palette={p} />
         <TouchableOpacity
           style={[styles.settingsRow, { backgroundColor: p.surface }]}
-          onPress={handleExport}
+          onPress={exportBackup}
           activeOpacity={0.75}
         >
           <Text style={[styles.settingsRowText, { color: p.text }]}>Export Backup</Text>

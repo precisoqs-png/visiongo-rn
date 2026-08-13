@@ -49,6 +49,12 @@ interface AppState {
   // Daily coach usage — { date: 'YYYY-MM-DD', count: number }
   coachUsage: { date: string; count: number };
 
+  // ISO timestamp of the last time the user was shown the "back up your
+  // data" nudge, or null if never — drives BackupPrompt's onboarding +
+  // periodic reminder without re-showing it every launch.
+  lastBackupPromptAt: string | null;
+  setLastBackupPromptAt: (iso: string) => void;
+
   selectYear: (year: number) => void;
   currentYearData: () => YearData | undefined;
   setMotto: (motto: string) => void;
@@ -165,6 +171,7 @@ export const useAppStore = create<AppState>()(
       boardLayout: 'radial',
       boardViewMode: 'wholeYear',
       coachUsage: { date: '', count: 0 },
+      lastBackupPromptAt: null,
 
       currentYearData: () => get().years.find((y) => y.year === get().selectedYear),
 
@@ -603,6 +610,8 @@ export const useAppStore = create<AppState>()(
           return false;
         }
       },
+
+      setLastBackupPromptAt: (iso) => set({ lastBackupPromptAt: iso }),
 
       setBoardLayout: (l) => set({ boardLayout: l }),
       setBoardViewMode: (m) => set({ boardViewMode: m }),

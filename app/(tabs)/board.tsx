@@ -15,6 +15,7 @@ import { MonthBoard } from '../../components/board/MonthBoard';
 import { TemplatePicker } from '../../components/board/TemplatePicker';
 import { GoalActionSheet } from '../../components/board/GoalActionSheet';
 import { SegmentedControl } from '../../components/shared/SegmentedControl';
+import { BackupPrompt } from '../../components/BackupPrompt';
 import { FONTS } from '../../theme/themes';
 
 export default function BoardScreen() {
@@ -172,6 +173,8 @@ export default function BoardScreen() {
         onDismiss={() => setActionGoal(null)}
         palette={p}
       />
+
+      <BackupPrompt />
     </LinearGradient>
   );
 }
