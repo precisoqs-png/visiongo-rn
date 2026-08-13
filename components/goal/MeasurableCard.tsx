@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native
 import { Ionicons } from '@expo/vector-icons';
 import {
   Measurable, Commitment, Goal, measurableFraction, measurableStep, steppedValue, formatNumber,
-  isMeasurableDeadlineOutdated, buildLadderWeeks, milestonePercent,
+  isMeasurableDeadlineOutdated, buildLadderWeeks, milestonePercent, newCommitment,
 } from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
 import { useCompletionPulse } from '../shared/useCompletionPulse';
@@ -60,31 +60,81 @@ function ScheduleBell({ m, p, onOpenSchedule }: { m: Measurable; p: Palette; onO
   );
 }
 
-// Row-level shortcut to the item's PRIMARY commitment's reminder, so "is a
-// reminder set for this?" and "open it" are both available without
-// expanding CommitmentsBlock. One schedule per row is the right granularity
-// per product decision — a build-up ladder's ~12 weeks each already get
+// Row-level shortcut to the item's commitment reminder, so "is a reminder
+// set for this?" and "open/create it" are both available without expanding
+// CommitmentsBlock. One schedule per row is the right granularity per
+// product decision — a build-up ladder's ~12 weeks each already get
 // per-week check-ins inside CommitmentsBlock/BuildUpStepRow, not per-week
-// reminders, and that's deliberately untouched here. An item with more than
-// one commitment (only reachable via the coach's add_commitment tool today)
-// still only gets one row-level bell; it surfaces commitments[0] as "the"
-// reminder for the row, and the full list (including #2+) stays reachable
-// by expanding CommitmentsBlock same as before — this is a shortcut to the
-// primary one, not a replacement for the expanded view.
-function CommitmentScheduleBell({ m, p, onOpenCommitmentSchedule }: {
-  m: Measurable; p: Palette; onOpenCommitmentSchedule?: (m: Measurable, step: Commitment) => void;
+// reminders, and that's deliberately untouched here.
+//
+// Three cases, all handled here rather than punting to CommitmentsBlock:
+//  - Zero commitments (the COMMON case for a freshly created child
+//    Measurable — every mkNumber/mkBuildUpMilestone-built item starts with
+//    either none or exactly one): render the bell anyway and let tapping it
+//    CREATE a first commitment (reusing newCommitment with the same
+//    "Same each time"/weekly default CommitmentForm starts on) and
+//    immediately open its schedule sheet. Without this, the row bell would
+//    be absent for exactly the case a user is most likely to want it —
+//    "settable from the row without expanding" only holds if it works for
+//    a brand-new item, not just one that already has a commitment.
+//  - Exactly one commitment: the unambiguous case — the bell reflects and
+//    edits that commitment's own schedule.
+//  - Two or more commitments: this is an ORDINARY user-reachable state, not
+//    a coach-only edge case — CommitmentsBlock's own "+ Commitment" pill
+//    (CommitmentForm/addStep) is a plain in-app button any user can press
+//    repeatedly; the gate that reveals it (`commitments.length > 0 ||
+//    parentId != null`) is not capped at one. A single row-level bell
+//    cannot honestly represent 2+ independent schedules (which one is "the"
+//    reminder? what does tapping it edit?) — hard-targeting commitments[0]
+//    here previously meant the bell could read "off" while a DIFFERENT
+//    commitment's push was genuinely scheduled, and deleting commitments[0]
+//    would silently re-point the bell at a commitment with an unrelated
+//    on/off state. So for 2+, no row bell renders at all — the multi-
+//    commitment case is left to CommitmentsBlock's own expanded view, which
+//    already renders one correctly-targeted bell per commitment.
+function CommitmentScheduleBell({ m, p, onUpdate, onOpenCommitmentSchedule }: {
+  m: Measurable; p: Palette; onUpdate: (m: Measurable) => void;
+  onOpenCommitmentSchedule?: (m: Measurable, step: Commitment) => void;
 }) {
-  if (!onOpenCommitmentSchedule || m.commitments.length === 0) return null;
+  if (!onOpenCommitmentSchedule) return null;
+
+  if (m.commitments.length === 0) {
+    const createAndOpen = () => {
+      const step = newCommitment({ label: m.label, cadence: 'weekly' });
+      const next = { ...m, commitments: [step] };
+      onUpdate(next);
+      onOpenCommitmentSchedule(next, step);
+    };
+    return (
+      <TouchableOpacity
+        onPress={createAndOpen}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityLabel={`Add a reminder for ${m.label}`}
+        style={styles.bellTarget}
+      >
+        <Ionicons name="notifications-circle-outline" size={17} color={p.muted} />
+      </TouchableOpacity>
+    );
+  }
+
+  if (m.commitments.length > 1) return null;
+
   const primary = m.commitments[0];
   const on = !!primary.schedule.on;
   return (
     <TouchableOpacity
       onPress={() => onOpenCommitmentSchedule(m, primary)}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-      accessibilityLabel={`Edit reminder for ${primary.label}`}
+      // "commitment reminder" (not just "reminder", which ScheduleBell above
+      // already uses for the item's OWN reminder) — the two bells render
+      // adjacently in the same row and must read as distinct controls to
+      // accessibility tooling too, not just visually. See the distinct icon
+      // (notifications-circle vs notifications) for the sighted version of
+      // the same distinction.
+      accessibilityLabel={`Edit commitment reminder for ${primary.label}`}
       style={[styles.bellTarget, on && { backgroundColor: `${p.accent}1f` }]}
     >
-      <Ionicons name={on ? 'notifications' : 'notifications-outline'} size={17} color={on ? p.accent : p.muted} />
+      <Ionicons name={on ? 'notifications-circle' : 'notifications-circle-outline'} size={17} color={on ? p.accent : p.muted} />
     </TouchableOpacity>
   );
 }
@@ -234,7 +284,7 @@ function CommitmentTypeRow({ m, goal, p, noteColor, onUpdate, onDelete, frac, on
         <Text style={[styles.numLabel, { color: m.done ? p.muted : p.text }]}>{m.label}</Text>
         <Text style={[styles.ladderPct, { color: noteColor }]}>{pct}%</Text>
         <ScheduleBell m={m} p={p} onOpenSchedule={onOpenSchedule} />
-        <CommitmentScheduleBell m={m} p={p} onOpenCommitmentSchedule={onOpenCommitmentSchedule} />
+        <CommitmentScheduleBell m={m} p={p} onUpdate={onUpdate} onOpenCommitmentSchedule={onOpenCommitmentSchedule} />
         <TouchableOpacity onPress={() => onDelete(m.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.deleteCircle}>
           <Ionicons name="close" size={12} color={p.muted} />
         </TouchableOpacity>
@@ -295,7 +345,7 @@ function CheckRow({ m, p, noteColor, onUpdate, onDelete, onOpenSchedule, onOpenC
         {m.label}
       </Text>
       <ScheduleBell m={m} p={p} onOpenSchedule={onOpenSchedule} />
-      <CommitmentScheduleBell m={m} p={p} onOpenCommitmentSchedule={onOpenCommitmentSchedule} />
+      <CommitmentScheduleBell m={m} p={p} onUpdate={onUpdate} onOpenCommitmentSchedule={onOpenCommitmentSchedule} />
       <TouchableOpacity
         onPress={() => onDelete(m.id)}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -324,7 +374,7 @@ function NumberRow({ m, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule, 
       <View style={[styles.row, { marginBottom: 10 }]}>
         <Text style={[styles.numLabel, { color: p.text }]}>{m.label}</Text>
         <ScheduleBell m={m} p={p} onOpenSchedule={onOpenSchedule} />
-        <CommitmentScheduleBell m={m} p={p} onOpenCommitmentSchedule={onOpenCommitmentSchedule} />
+        <CommitmentScheduleBell m={m} p={p} onUpdate={onUpdate} onOpenCommitmentSchedule={onOpenCommitmentSchedule} />
         <TouchableOpacity
           onPress={() => onDelete(m.id)}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -400,7 +450,7 @@ function LadderRows({ m, goalTargetDate, p, noteColor, onUpdate, onDelete, frac,
           {doneCount}/{m.weeks.length} wks
         </Text>
         <ScheduleBell m={m} p={p} onOpenSchedule={onOpenSchedule} />
-        <CommitmentScheduleBell m={m} p={p} onOpenCommitmentSchedule={onOpenCommitmentSchedule} />
+        <CommitmentScheduleBell m={m} p={p} onUpdate={onUpdate} onOpenCommitmentSchedule={onOpenCommitmentSchedule} />
         <TouchableOpacity
           onPress={() => onDelete(m.id)}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}

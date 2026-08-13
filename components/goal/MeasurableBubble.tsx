@@ -264,7 +264,14 @@ export function MeasurableBubble({
         <ProgressRing
           size={size}
           progress={frac}
-          trackColor={hexAlpha(noteColor, 0.25)}
+          // 0.4 rather than the original 0.25 — round 6 traded a solid 1.5px
+          // `noteColor` border for this ring's "track" at rest (frac=0), and
+          // a reviewer flagged it reading fainter/thicker than the old
+          // border. Bumped to 0.4 to bring the resting/childless-Milestone-
+          // at-0% state closer to the old border's visual weight; the filled
+          // arc itself stays full-opacity `noteColor` (unaffected), so this
+          // doesn't cut into progress-arc contrast when partially filled.
+          trackColor={hexAlpha(noteColor, 0.4)}
           fillColor={noteColor}
           strokeWidth={ringStroke}
         />
