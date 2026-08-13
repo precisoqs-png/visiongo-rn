@@ -7,6 +7,7 @@ import { Point, clampCenter } from '../board/RadialBoard';
 import { Palette, hexAlpha } from '../../theme/themes';
 import { useCompletionPulse } from '../shared/useCompletionPulse';
 import { useCompletionBurst } from '../shared/useCompletionBurst';
+import { ProgressRing } from '../shared/ProgressRing';
 
 // A press-and-hold that stays put ticks the measurable off; moving past this
 // many px before the hold timer fires cancels the tick and starts a drag
@@ -192,6 +193,11 @@ export function MeasurableBubble({
   ).current;
 
   const fillHeight = size * frac;
+  // Ring stroke width scales with bubble size so it stays legible on both
+  // the small canvas thumbnails and a large detail-view bubble, clamped so
+  // it never gets thin enough to disappear or thick enough to swallow a
+  // small bubble's interior.
+  const ringStroke = Math.min(5, Math.max(2, size * 0.045));
 
   return (
     <Animated.View
@@ -216,7 +222,7 @@ export function MeasurableBubble({
           {
             width: size, height: size, borderRadius: size / 2,
             backgroundColor: hexAlpha(noteColor, 0.16),
-            borderColor: noteColor, borderWidth: 1.5, overflow: 'hidden',
+            overflow: 'hidden',
           },
         ]}
       >
@@ -241,6 +247,27 @@ export function MeasurableBubble({
             </Text>
           )}
         </View>
+      </View>
+      {/* Progress ring drawn as a sibling of (not inside) the clipped circle
+          above — an SVG stroke can't be clipped by the circle's own
+          overflow:'hidden' the way the bottom fill is, and doesn't need to
+          be. It replaces the old flat 1.5px border with a proportional arc:
+          at frac 0 the fill arc has zero length so only the faint track
+          shows (reading as a plain outline, same as the old border did at
+          rest), and at frac 1 the fill arc closes into a full ring — so a
+          childless Milestone (frac always exactly 0 or 1) looks the same as
+          it always has, binary. A Milestone with children gets a visible
+          partial arc for any fraction in between, which is the whole point:
+          it reads as "X% done" at a glance the way the thin bottom-fill
+          sliver alone did not. */}
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        <ProgressRing
+          size={size}
+          progress={frac}
+          trackColor={hexAlpha(noteColor, 0.25)}
+          fillColor={noteColor}
+          strokeWidth={ringStroke}
+        />
       </View>
       <Animated.View
         pointerEvents="none"
