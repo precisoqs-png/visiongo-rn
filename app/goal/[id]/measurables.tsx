@@ -142,28 +142,26 @@ export default function MeasurablesListScreen() {
               palette={p}
               title="Measurables vs Milestones"
               body={
-                'Measurables are quick, directly-trackable items on this goal itself — a ' +
-                'checkbox ("Sign up for a race"), a running number ("145/150 days active"), ' +
-                'or a weekly build-up. A good measurable is concrete and countable: a ' +
-                'specific unit and target you can tick up as you go, with no sub-goal of ' +
-                'its own.\n\n' +
-                'Milestones are sub-goals — "Save $10,000", "Run a marathon" — that can carry ' +
-                "their own deadline and a recurring Commitment you get reminded about on a " +
-                'schedule. Reach for a Milestone when a piece of the goal deserves its own ' +
-                'repeatable action, not just a one-time tick.'
+                'Measurables are the quantified thing under a Milestone — a running number ' +
+                '("145/150 days active"), a weekly build-up, or a recurring Commitment you get ' +
+                'reminded about on a schedule. A good Measurable is concrete and countable: a ' +
+                'specific unit and target you can tick up as you go.\n\n' +
+                'Milestones are big binary wins — "Save $10,000", "Run a marathon" — a title ' +
+                'and an optional deadline, nothing to tick up. They live on the goal\'s bubble ' +
+                "canvas; open one to add and track its Measurables here."
               }
             />
           </View>
           <Text style={[styles.layerHint, { color: p.muted }]}>
-            Quick checklist items you track directly on this goal — the same ones shown as
-            bubbles on the canvas. Add, edit, or remove them here.
+            The quantified things tracking each Milestone — a number, a ladder, or a recurring
+            commitment. Add, edit, or remove them here.
           </Text>
-          {goal.items.filter((it) => !it.milestone).length === 0 ? (
+          {goal.items.filter((it) => it.parentId != null).length === 0 ? (
             <Text style={[styles.emptyHint, { color: p.muted }]}>
               No measurables yet. Add one below or ask your coach.
             </Text>
           ) : (
-            goal.items.filter((it) => !it.milestone).map((m) => (
+            goal.items.filter((it) => it.parentId != null).map((m) => (
               <MeasurableCard
                 key={m.id}
                 measurable={m}
@@ -182,6 +180,7 @@ export default function MeasurablesListScreen() {
           <AddMeasurableForm
             palette={p}
             goalTargetDate={goal.targetDate}
+            milestones={goal.items.filter((it) => it.milestone && it.parentId == null)}
             onAdd={(m) => { addMeasurable(m, goal.id); resyncWeekNotifications(); }}
           />
         </View>

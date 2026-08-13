@@ -307,9 +307,9 @@ export default function GoalDetailScreen() {
   // than leaving the user to work out Measurables vs Milestones cold — the
   // manual forms below still work, this is just the offered fast path.
   const isEmptyGoal = goal.items.length === 0;
-  // This screen only ever shows milestone-flagged items — plain measurables
-  // live on the goal's bubble canvas / measurables.tsx instead.
-  const milestoneItems = goal.items.filter((it) => it.milestone);
+  // This screen only ever shows top-level Milestones — their quantified
+  // Measurable children live on measurables.tsx instead.
+  const milestoneItems = goal.items.filter((it) => it.milestone && it.parentId == null);
 
   const daysLeft = goal.targetDate
     ? Math.max(0, Math.round((localDate(goal.targetDate).getTime() - Date.now()) / 86400000))
@@ -482,18 +482,18 @@ export default function GoalDetailScreen() {
               palette={p}
               title="Measurables vs Milestones"
               body={
-                'Milestones are sub-goals — "Save $10,000", "Run a marathon" — that can carry ' +
-                "their own deadline and recurring Commitments you get reminded about on a " +
-                'schedule (weekly, monthly, or custom). Reach for a Milestone when a piece of ' +
-                'the goal deserves its own repeatable action, not just a one-time tick.\n\n' +
-                'Measurables (on the goal\'s bubble canvas) are quick, directly-trackable items — ' +
-                'a checkbox, a running number, or a weekly ladder — with no sub-goal of their own.'
+                'Milestones are big binary wins — "Save $10,000", "Run a marathon" — a title ' +
+                'and an optional deadline, nothing to tick up, just done or not done. They live ' +
+                "on the goal's bubble canvas and here.\n\n" +
+                'Measurables are the quantified thing under a Milestone — current/target, a unit, ' +
+                'a weekly ladder, or recurring Commitments you get reminded about on a schedule ' +
+                '(weekly, monthly, or custom). Open a Milestone to add and track its Measurables.'
               }
             />
           </View>
           <Text style={[styles.layerHint, { color: p.muted }]}>
-            Sub-goals with their own deadline and recurring commitments. Tap a commitment
-            count to expand it; tap the bell to set a reminder.
+            Big binary wins with an optional deadline. Add a Measurable under one to track the
+            numbers and recurring commitments that get you there.
           </Text>
           {milestoneItems.length === 0 ? (
             <Text style={[styles.emptyHint, { color: p.muted }]}>

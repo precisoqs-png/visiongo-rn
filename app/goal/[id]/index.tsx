@@ -129,7 +129,7 @@ export default function GoalCanvasScreen() {
 
   useEffect(() => {
     if (!goal) return;
-    const measurables = goal.items.filter((it) => !it.milestone);
+    const measurables = goal.items.filter((it) => it.parentId == null);
     const frac = new Map<string, number>(measurables.map((m) => [m.id, measurableFraction(m)]));
     if (seenFracRef.current === null) {
       // First render of this screen for this goal — anything already
@@ -203,9 +203,9 @@ export default function GoalCanvasScreen() {
     );
   }
 
-  // Only plain (non-milestone) items ever render as canvas bubbles —
-  // milestone-flagged items live on the Milestones screen instead.
-  const goalMeasurables = goal.items.filter((it) => !it.milestone);
+  // Only top-level items (Milestones — every Measurable now requires a
+  // parent and can no longer stand alone) ever render as canvas bubbles.
+  const goalMeasurables = goal.items.filter((it) => it.parentId == null);
 
   // Measurables shown as regular canvas bubbles: not complete, and not
   // currently mid-flight to the completed column (those render as

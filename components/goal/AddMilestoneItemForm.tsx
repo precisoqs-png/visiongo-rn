@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { TrackableItem, newMeasurable } from '../../store/models';
+import { TrackableItem, newMilestone } from '../../store/models';
 import { Palette } from '../../theme/themes';
 import { CalendarPicker } from '../shared/CalendarPicker';
 
@@ -11,38 +11,26 @@ interface Props {
   onAdd: (m: TrackableItem) => void;
 }
 
-// Manual "add a milestone" form — same idea as AddMeasurableForm's manual
-// path, but producing a milestone-flagged item (own deadline, no upfront
-// numeric/effort split: a filled-in Target means 'number', blank means
-// 'commitment' driven entirely by whatever Commitments get attached after).
+// Manual "add a milestone" form — a big binary win: title + optional
+// deadline only, no target/unit/step. Its quantified Measurables (if any)
+// get added separately, under it, from measurables.tsx.
 export function AddMilestoneItemForm({ palette: p, goalTargetDate, onAdd }: Props) {
   const [label, setLabel] = useState('');
-  const [targetStr, setTargetStr] = useState('');
-  const [unit, setUnit] = useState('');
-  const [stepStr, setStepStr] = useState('');
   const [deadline, setDeadline] = useState<string | undefined>(goalTargetDate);
   const [showPicker, setShowPicker] = useState(false);
-
-  const hasTarget = targetStr.trim().length > 0;
 
   const commit = () => {
     const t = label.trim();
     if (!t) return;
-    const parsedStep = parseFloat(stepStr);
-    const m = newMeasurable({
-      type: hasTarget ? 'number' : 'commitment',
+    const m = newMilestone({
       label: t,
-      milestone: true,
-      target: hasTarget ? (parseFloat(targetStr) || 1) : 0,
-      unit: hasTarget ? unit : '',
-      step: hasTarget && Number.isFinite(parsedStep) && parsedStep > 0 ? parsedStep : 1,
       deadline,
       // Only tracked as "borrowed" from the goal while it still matches —
       // see isItemDeadlineOutdated in models.ts.
       sizedForGoalDate: deadline === goalTargetDate ? goalTargetDate : undefined,
     });
     onAdd(m);
-    setLabel(''); setTargetStr(''); setUnit(''); setStepStr('');
+    setLabel('');
   };
 
   return (
@@ -57,37 +45,9 @@ export function AddMilestoneItemForm({ palette: p, goalTargetDate, onAdd }: Prop
         onChangeText={setLabel}
       />
 
-      <View style={styles.inputRow}>
-        <TextInput
-          style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
-          placeholder="Target (optional)"
-          placeholderTextColor={p.muted}
-          keyboardType="numeric"
-          value={targetStr}
-          onChangeText={setTargetStr}
-        />
-        <TextInput
-          style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1.4 }]}
-          placeholder="Unit ($, km)"
-          placeholderTextColor={p.muted}
-          value={unit}
-          onChangeText={setUnit}
-          editable={hasTarget}
-        />
-        <TextInput
-          style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1 }]}
-          placeholder="Step"
-          placeholderTextColor={p.muted}
-          keyboardType="numeric"
-          value={stepStr}
-          onChangeText={setStepStr}
-          editable={hasTarget}
-        />
-      </View>
       <Text style={[styles.fieldHint, { color: p.muted }]}>
-        {hasTarget
-          ? 'A number to hit, with a deadline below — attach a recurring commitment after adding it.'
-          : 'No number to hit? Leave Target blank and attach a recurring commitment after adding it.'}
+        A big binary win — no number to hit here. Give it a deadline below, then add its
+        Measurables (numbers, ladders, recurring commitments) from the Measurables tab.
       </Text>
 
       <TouchableOpacity style={[styles.dateRow, { borderColor: p.line }]} onPress={() => setShowPicker(true)}>
