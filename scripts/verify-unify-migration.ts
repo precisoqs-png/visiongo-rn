@@ -626,6 +626,101 @@ assert(
   'after cascade delete, isCompleted reads false for an empty goal (not a false-positive from an invisible orphan)',
 );
 
+// ── Section 9: defensive orphan sweep ──────────────────────────────────
+//
+// A goal carrying a genuinely dangling `parentId` (pointing at an id with no
+// matching item — however it got there, e.g. a since-fixed bug or a
+// hand-edited backup) must not pass through normalizeYears unchanged: the
+// orphan is invisible to goalProgress/isCompleted (both filter to top-level
+// `parentId == null` items only), and if it were the goal's ONLY top-level
+// item, the goal would be permanently uncompletable (isCompleted() reads
+// false unconditionally for a goal with zero top-level items).
+//
+// Two fixtures: one already stamped itemsSchema:6 (proves the sweep is NOT
+// gated behind the itemsSchema early-return — that guard exists to protect
+// already-correct data from re-INVERSION, a different concern from sweeping
+// a dangling reference that should never exist regardless of schema
+// version) and one pre-v6 legacy shape (proves the sweep also runs on data
+// that still needs the v5 unify + v6 invert passes first).
+const orphanGoalV6: Goal = {
+  id: 'gOrphanV6', title: 'Already-migrated goal with a dangling parentId',
+  colorIndex: 0, reminder: { on: false, frequency: 'Daily' }, chat: [], pendingActions: [],
+  itemsSchema: ITEMS_SCHEMA_VERSION,
+  items: [
+    {
+      // The ONLY top-level item on this goal points at a parentId that
+      // resolves to nothing — e.g. its real parent Milestone was deleted by
+      // a bug that skipped removeItemCascade. Before the sweep, this leaves
+      // the goal with ZERO top-level items.
+      id: 'orphanChild', type: 'number', label: 'Books finished', parentId: 'missingParent',
+      done: false, current: 6, target: 24, unit: 'bk', step: 1, weeks: [], commitments: [],
+    },
+  ],
+};
+
+const sweptV6 = normalizeYears([{ year: 2026, goals: [orphanGoalV6] }] as any)[0].goals[0];
+assert(
+  sweptV6.items.some((it) => it.parentId == null),
+  'orphan sweep (already-v6 goal): the orphan is re-parented to a valid, present top-level item',
+);
+const recoveredParentV6 = sweptV6.items.find((it) => it.id === 'orphanChild')
+  ? sweptV6.items.find((it) => it.id === sweptV6.items.find((c) => c.id === 'orphanChild')!.parentId)
+  : undefined;
+assert(!!recoveredParentV6, 'orphan sweep (already-v6 goal): the synthesized parent is actually present in items');
+assert(
+  sweptV6.items.every((it) => it.parentId == null || sweptV6.items.some((p) => p.id === it.parentId)),
+  'orphan sweep (already-v6 goal): no dangling parentId references remain anywhere in items',
+);
+const sweptV6AsGoal = sweptV6 as unknown as Goal;
+assert(
+  goalProgress(sweptV6AsGoal) > 0 && goalProgress(sweptV6AsGoal) < 1,
+  `orphan sweep (already-v6 goal): goalProgress now reads the orphan's real partial progress (not the invisible-0 it read before sweeping) — got ${goalProgress(sweptV6AsGoal)}`,
+);
+assert(
+  !isCompleted(sweptV6AsGoal),
+  'orphan sweep (already-v6 goal): isCompleted reads a sane false, not a permanent false stuck from zero top-level items',
+);
+
+const sweptV6Again = normalizeYears([{ year: 2026, goals: [sweptV6] }] as any)[0].goals[0];
+assert(
+  deepEqual(sweptV6Again, sweptV6),
+  'orphan sweep is idempotent: running normalizeYears again on already-swept output does not re-sweep or re-wrap',
+);
+
+// Same scenario, but hitting the OTHER guard inside invertItemsForGoal — no
+// `itemsSchema` stamped on the goal at all (so the goal-level early-return
+// above doesn't apply), with the dangling `parentId` already present on the
+// item (so invertItemsForGoal's item-level guard — "any item carrying
+// `parentId` is unambiguously already a v6 child Measurable" — passes it
+// through untouched too, exactly the "onboarding custom-goal" scenario that
+// guard's own comment describes). Proves the sweep also runs on this path,
+// not just the goal-level itemsSchema early-return covered above.
+const orphanGoalItemGuard: Goal = {
+  id: 'gOrphanItemGuard', title: 'Unstamped goal, item already has a dangling parentId',
+  colorIndex: 0, reminder: { on: false, frequency: 'Daily' }, chat: [], pendingActions: [],
+  items: [
+    {
+      id: 'itemGuardOrphan', type: 'number', label: 'Nights on track', parentId: 'alsoMissingParent',
+      done: false, current: 20, target: 60, unit: 'nights', step: 1, weeks: [], commitments: [],
+    },
+  ],
+};
+
+const sweptItemGuard = normalizeYears([{ year: 2026, goals: [orphanGoalItemGuard] }] as any)[0].goals[0];
+assert(
+  sweptItemGuard.items.every((it) => it.parentId == null || sweptItemGuard.items.some((p) => p.id === it.parentId)),
+  'orphan sweep (item-level-guard path, no itemsSchema stamped): no dangling parentId references remain',
+);
+assert(
+  sweptItemGuard.items.find((it) => it.id === 'itemGuardOrphan')!.parentId !== 'alsoMissingParent',
+  'orphan sweep (item-level-guard path): the orphan was actually re-parented, not merely left dangling and coincidentally passing the check above',
+);
+const sweptItemGuardAgain = normalizeYears([{ year: 2026, goals: [sweptItemGuard] }] as any)[0].goals[0];
+assert(
+  deepEqual(sweptItemGuardAgain, sweptItemGuard),
+  'orphan sweep (item-level-guard path): idempotent — a second normalizeYears pass does not re-sweep',
+);
+
 // ── Result ───────────────────────────────────────────────────────────
 
 console.log('');

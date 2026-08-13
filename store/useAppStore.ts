@@ -829,7 +829,17 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
   if (!existing) return goal;
 
   if (a.kind === 'removeTask') {
-    return { ...goal, items: goal.items.filter((it) => it.id !== existing.id) };
+    // Route through removeItemCascade for consistency with every other
+    // delete path (deleteMeasurable, deleteMilestone, deleteMeasurableInPlace,
+    // removeMilestone above) even though it's a no-op today: resolveMeasurable
+    // (used to find `existing`) currently can never resolve an item that HAS
+    // children — nothing in this model gives a plain Measurable its own
+    // children, so `existing` here is always childless and a plain filter by
+    // id is equivalent to the cascade. Fixed anyway as defense-in-depth, so
+    // this can't quietly regress into a live orphan-leaving bug if
+    // resolveMeasurable's resolution logic or the model ever changes to let
+    // it match an item with children.
+    return { ...goal, items: removeItemCascade(goal.items, existing.id) };
   }
 
   const patched: TrackableItem = { ...existing };

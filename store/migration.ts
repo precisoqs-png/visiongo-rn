@@ -251,9 +251,72 @@ export function normalizeYears(years: LegacyYears): YearData[] {
       // v6: invert the Milestones/Measurables model — see invertItemsForGoal.
       // Runs after the v5 unify above so it always sees the current `items`
       // shape, and is itself gated on `itemsSchema` for idempotency.
-      return invertItemsForGoal(unified);
+      const inverted = invertItemsForGoal(unified);
+      // Defensive orphan sweep — deliberately UNCONDITIONAL, unlike the two
+      // guards above. Both `itemsSchema` (goal-level) and the `parentId !=
+      // null` item-level guard inside invertItemsForGoal exist to protect
+      // already-correctly-shaped data from being RE-INVERTED — a different
+      // concern from sweeping up a dangling `parentId` that should never
+      // have existed in the first place (a since-fixed bug, a hand-edited
+      // backup, etc.), regardless of what schema version the goal claims.
+      // Gating this behind either guard would mean an orphan riding along on
+      // an already-v6-stamped goal — which both guards wave straight through
+      // untouched — sails through forever. See sweepOrphanParents below.
+      return sweepOrphanParents(inverted);
     }),
   }));
+}
+
+// Re-parents any item whose `parentId` points at an id that doesn't match
+// any other item on the same goal. Left unrepaired, such an item is
+// invisible to goalProgress/isCompleted (both filter to `parentId == null`
+// top-level items only) while still rendering its own card at whatever
+// fraction its no-parent-found deadline/progress fallbacks produce — worst
+// case, an orphan under a goal's ONLY top-level Milestone leaves that goal
+// with zero top-level items, and isCompleted() returns false unconditionally
+// for a goal with no top-level items, making it permanently uncompletable.
+//
+// All of a goal's orphans (there's normally at most one, but this doesn't
+// assume that) are re-parented under ONE freshly synthesized top-level
+// Milestone, rather than one synthetic parent each — an orphan's original
+// intended parent is unrecoverable by definition (that's what makes it an
+// orphan), so there's no more "correct" grouping to reconstruct, and one
+// visibly-labeled "Recovered items" container is easier for a user to
+// notice and clean up than several. A promoted top-level item for the
+// orphan itself (instead of wrapping it) was considered and rejected: a
+// quantified ('number'/'commitment'/etc) item at top level violates the
+// "a top-level Milestone is always type 'check'" invariant the rest of this
+// model (and measurableFraction's children-average branch) relies on.
+//
+// Idempotent by construction: once swept, every formerly-orphaned item's
+// `parentId` resolves to the synthesized Milestone, which is itself a
+// present item with no `parentId` of its own — a second pass finds zero
+// orphans and returns `items` unchanged (same array reference, even, since
+// the empty-orphans branch below short-circuits before building anything).
+function sweepOrphanParents(goal: Goal): Goal {
+  const ids = new Set(goal.items.map((it) => it.id));
+  const orphans = goal.items.filter((it) => it.parentId != null && !ids.has(it.parentId));
+  if (orphans.length === 0) return goal;
+
+  const orphanIds = new Set(orphans.map((it) => it.id));
+  const recoveryParent: TrackableItem = {
+    id: newId(),
+    type: 'check',
+    label: 'Recovered items',
+    done: false,
+    current: 0,
+    target: 0,
+    unit: '',
+    step: 1,
+    weeks: [],
+    commitments: [],
+    milestone: true,
+  };
+  const items = [
+    recoveryParent,
+    ...goal.items.map((it) => (orphanIds.has(it.id) ? { ...it, parentId: recoveryParent.id } : it)),
+  ];
+  return { ...goal, items };
 }
 
 // Backfills a single already-unified item — covers a step/schedule/history
