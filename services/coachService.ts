@@ -1,6 +1,6 @@
 import {
   CoachAction, Measurable, MeasurableType, measurableStep,
-  Milestone, MilestoneKind, Cadence,
+  Milestone, Cadence,
   milestonePercent, cadenceLabel, isStepDoneThisPeriod,
 } from '../store/models';
 import { getDeviceId } from './deviceId';
@@ -12,11 +12,13 @@ export interface CoachGoalContext {
   achieveByDate?: string;
   weeksRemaining?: number;
   today: Date;
-  // The goal's real steps, so the coach talks about what actually exists
-  // instead of inventing a plan the user cannot see.
+  // The goal's Measurables — the quantified children of a Milestone, each
+  // carrying whatever commitments drive it — so the coach talks about what
+  // actually exists instead of inventing a plan the user cannot see.
   measurables: Measurable[];
-  // The goal's milestones and their recurring commitments, so the coach can
-  // build on what exists instead of duplicating it.
+  // The goal's top-level Milestones (binary wins, no target/commitments of
+  // their own), so the coach can attach new Measurables to an existing one
+  // instead of duplicating it.
   milestones: Milestone[];
   // Coach replies so far — drives the "plan within ~5 messages" budget.
   exchangeCount: number;
@@ -47,15 +49,20 @@ export const COACH_TOOLS = [
   {
     name: 'add_step',
     description:
-      'Add a new measurable step to the goal. Use type "ladder" for a step that ' +
-      'builds week by week (the app expands it into dated weekly micro-steps), ' +
-      '"number" for a running count towards a target, and "check" for a one-off ' +
-      'action. Call once per step — several calls in one reply are fine.',
+      'Add a Measurable — the quantified thing tracking a Milestone. Use type ' +
+      '"ladder" for one that builds week by week (the app expands it into dated ' +
+      'weekly micro-steps), "number" for a running count towards a target, and ' +
+      '"check" for a one-off tick (rare — most quantified progress should be ' +
+      '"number" or "ladder"). Every Measurable belongs to exactly one Milestone: ' +
+      'always pass parent_milestone naming an existing Milestone (add it first ' +
+      'with add_milestone in the same reply if it does not exist yet). Call once ' +
+      'per Measurable — several calls in one reply are fine.',
     input_schema: {
       type: 'object',
       properties: {
-        label: { type: 'string', description: 'Short name of the step, e.g. "Weekly long-run build-up".' },
+        label: { type: 'string', description: 'Short name of the Measurable, e.g. "Weekly long-run build-up".' },
         type: { type: 'string', enum: ['check', 'number', 'ladder'] },
+        parent_milestone: { type: 'string', description: 'Exact title of the Milestone this Measurable tracks.' },
         target: { type: 'number', description: 'Target value. Required for type "number".' },
         unit: { type: 'string', description: 'Unit of the target, e.g. "km", "days", "$".' },
         step_size: {
@@ -68,7 +75,7 @@ export const COACH_TOOLS = [
         ladder_end: { type: 'number', description: 'Final-week value. Required for type "ladder".' },
         ladder_weeks: { type: 'integer', description: 'Number of weekly micro-steps. Must fit the weeks remaining.' },
       },
-      required: ['label', 'type'],
+      required: ['label', 'type', 'parent_milestone'],
     },
   },
   {
@@ -116,28 +123,24 @@ export const COACH_TOOLS = [
   {
     name: 'add_milestone',
     description:
-      'Add a Milestone — a milestone under this goal that the user works ' +
-      'towards, e.g. "Save $10,000" or "Run a marathon". Use kind "numeric" ' +
-      'when there is a number to accumulate, "effort" when the work is not ' +
-      'arithmetic. Follow it with add_commitment to give it a recurring ' +
-      'commitment.',
+      'Add a Milestone — a big BINARY win under this goal, e.g. "Save $10,000" ' +
+      'or "Run a marathon". A Milestone has no number of its own: just a title ' +
+      'and an optional deadline, done or not done. Follow it with add_step to ' +
+      'give it a quantified Measurable (a number, a build-up, or a recurring ' +
+      'commitment) that actually tracks progress toward it.',
     input_schema: {
       type: 'object',
       properties: {
         title: { type: 'string' },
-        kind: { type: 'string', enum: ['numeric', 'effort'] },
-        target: { type: 'number', description: 'Total to reach. Numeric milestones only.' },
-        unit: { type: 'string', description: 'e.g. "$", "km", "books".' },
-        step_size: { type: 'number', description: 'How much one +/- tap moves the counter. Default 1.' },
         deadline: { type: 'string', description: 'ISO date (YYYY-MM-DD) the milestone is due. Defaults to the goal\'s own date.' },
       },
-      required: ['title', 'kind'],
+      required: ['title'],
     },
   },
   {
     name: 'add_commitment',
     description:
-      'Add ONE recurring commitment under a Milestone — the thing the user ' +
+      'Add ONE recurring commitment under a Measurable — the thing the user ' +
       'repeats and gets reminded about, e.g. "Save $1,000 per month" or ' +
       '"Run 40 km this week". Keep it to a single simple recurring target: do ' +
       'NOT lay out a multi-week training programme or a sequence of escalating ' +
@@ -145,14 +148,14 @@ export const COACH_TOOLS = [
     input_schema: {
       type: 'object',
       properties: {
-        milestone_title: { type: 'string', description: 'Title of the Milestone this belongs to.' },
+        measurable_title: { type: 'string', description: 'Exact label of the Measurable this commitment belongs to.' },
         label: { type: 'string', description: 'The commitment, e.g. "Run 40 km this week".' },
         amount: { type: 'number', description: 'Per-period amount, if it is numeric.' },
         unit: { type: 'string' },
         cadence: { type: 'string', enum: ['weekly', 'monthly', 'custom'] },
         interval_days: { type: 'integer', description: 'Days between check-ins. Cadence "custom" only.' },
       },
-      required: ['milestone_title', 'label', 'cadence'],
+      required: ['measurable_title', 'label', 'cadence'],
     },
   },
   {
@@ -170,35 +173,43 @@ export const COACH_TOOLS = [
 
 // ── System prompt ─────────────────────────────────────────
 
-function describeMeasurable(m: Measurable): string {
-  switch (m.type) {
-    case 'check':
-      return `- "${m.label}" (check) — ${m.done ? 'done' : 'not done'}`;
-    case 'number':
-      return `- "${m.label}" (number) — ${m.current}/${m.target} ${m.unit}, +/- moves by ${measurableStep(m)}`;
-    case 'ladder': {
-      const done = m.weeks.filter((w) => w.done).length;
-      return `- "${m.label}" (weekly ladder) — ${done}/${m.weeks.length} weeks done, final target ${m.target} ${m.unit}`;
+// Measurable: the quantified CHILD of a Milestone (current/target/unit, or a
+// weekly ladder, plus whatever recurring commitments drive it). `milestones`
+// is the goal's top-level Milestone list, used only to print the parent's
+// name alongside each Measurable.
+function describeMeasurable(m: Measurable, milestones: Milestone[]): string {
+  const parent = milestones.find((mg) => mg.id === m.parentId);
+  const under = parent ? ` [under "${parent.label}"]` : '';
+  const head = ((): string => {
+    switch (m.type) {
+      case 'check':
+        return `- "${m.label}" (check)${under} — ${m.done ? 'done' : 'not done'}`;
+      case 'number':
+        return `- "${m.label}" (number)${under} — ${m.current}/${m.target} ${m.unit}, +/- moves by ${measurableStep(m)}`;
+      case 'ladder': {
+        const done = m.weeks.filter((w) => w.done).length;
+        return `- "${m.label}" (weekly ladder)${under} — ${done}/${m.weeks.length} weeks done, final target ${m.target} ${m.unit}`;
+      }
+      case 'commitment':
+        return `- "${m.label}" (commitment-driven)${under} — ${milestonePercent(m)}%${m.done ? ', marked done' : ''}`;
     }
-    default:
-      return `- "${m.label}"`;
-  }
-}
-
-function describeMilestone(mg: Milestone): string {
-  const head = mg.type === 'number'
-    ? `- MILESTONE "${mg.label}" (numeric) — ${mg.current ?? 0}/${mg.target ?? 0} ${mg.unit ?? ''}, ${milestonePercent(mg)}%`
-    : `- MILESTONE "${mg.label}" (effort) — ${milestonePercent(mg)}%${mg.done ? ', marked done' : ''}`;
-  const due = mg.deadline
-    ? `, due ${new Date(mg.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-    : '';
-  const steps = mg.commitments.length
-    ? mg.commitments.map((s) =>
+  })();
+  const steps = m.commitments.length
+    ? '\n' + m.commitments.map((s) =>
         `    · commitment "${s.label}" — ${cadenceLabel(s)}, ${s.completions.length} check-ins` +
         `${isStepDoneThisPeriod(s) ? ', done this period' : ''}` +
         `${s.schedule.on ? ', reminder on' : ''}`).join('\n')
-    : '    · (no commitments yet)';
-  return `${head}${due}\n${steps}`;
+    : '';
+  return `${head}${steps}`;
+}
+
+// Milestone: a top-level binary win — just a title, an optional deadline,
+// and done/not-done. It never carries target/unit/commitments of its own.
+function describeMilestone(mg: Milestone): string {
+  const due = mg.deadline
+    ? `, due ${new Date(mg.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+    : '';
+  return `- MILESTONE "${mg.label}"${due} — ${mg.done ? 'done' : 'not done yet'}`;
 }
 
 export function buildSystemPrompt(ctx: CoachGoalContext): string {
@@ -220,8 +231,8 @@ give financial, investment, tax, legal or medical/mental-health advice.`;
   const weeksStr =
     ctx.weeksRemaining != null ? ` (${ctx.weeksRemaining} weeks remaining)` : '';
   const stepsStr = ctx.measurables.length
-    ? ctx.measurables.map(describeMeasurable).join('\n')
-    : '(none yet — this goal has no steps at all)';
+    ? ctx.measurables.map((m) => describeMeasurable(m, ctx.milestones ?? [])).join('\n')
+    : '(none yet — this goal has no Measurables at all)';
   const milestonesStr = (ctx.milestones ?? []).length
     ? ctx.milestones.map(describeMilestone).join('\n')
     : '(none yet)';
@@ -244,43 +255,52 @@ THE GOAL YOU ARE COACHING
 - Goal: "${ctx.goalTitle}"
 - Today: ${todayStr}
 - Achieve by: ${achieveStr}${weeksStr}${ctx.motivation ? `\n- Why this matters to the user: "${ctx.motivation}"` : ''}
-- Steps currently on this goal:
+- Measurables currently on this goal:
 ${stepsStr}
 - Milestones on this goal:
 ${milestonesStr}
 
 This is reply #${replyNo} of the conversation.
 
-HOW THIS GOAL IS STRUCTURED
-A goal holds steps (measurables) and MILESTONES — sub-goals like \
-"Save $10,000" or "Run a marathon" that carry COMMITMENTS — one simple \
-recurring commitment each ("Save $1,000 per month", "Run 40 km this week") that the \
-user can turn into a push reminder.
-- Numeric milestone (a number to accumulate by a date): the app can already do the \
-arithmetic. Add the milestone with its target and deadline and let the user pick the \
-weekly/monthly split, or propose one commitment yourself if they asked you to.
-- Effort milestone (not arithmetic): establish their baseline with ONE question, then \
-propose ONE recurring target sized from that baseline.
+HOW THIS GOAL IS STRUCTURED — THREE LAYERS
+1. MILESTONE — a big binary win, e.g. "Save $10,000" or "Run a marathon". Just \
+a title and an optional deadline: no number, no commitments, just done or not \
+done. This is the top-level thing the user is working toward.
+2. MEASURABLE — the quantified thing that actually tracks a Milestone: a running \
+number ("$4,200/$10,000 saved"), a weekly build-up ladder ("18km -> 30km over 8 \
+weeks"), or a one-off check. EVERY Measurable belongs to exactly one Milestone — \
+always add the Milestone first (or reuse an existing one) before adding a Measurable \
+under it.
+3. COMMITMENT — one simple recurring habit attached to a Measurable that the user \
+gets reminded about on a schedule ("Save $1,000 per month", "Run 40 km this week"). \
+Optional, and at most one per Measurable — it is the mechanism that moves the \
+Measurable's number, not a separate thing to track.
+For a numeric goal (a number to accumulate by a date): the app can already do the \
+arithmetic — add the Milestone, then a "number" Measurable with its target and \
+deadline, and let the user pick the weekly/monthly commitment split, or propose one \
+yourself if asked. For an effort goal (not arithmetic): establish their baseline with \
+ONE question, then add the Milestone and a Measurable sized from that baseline.
 
 NEVER PRESCRIBE A PROGRAMME
-Propose at most one commitment per milestone. Do NOT lay out a multi-week \
+Propose at most one commitment per Measurable. Do NOT lay out a multi-week \
 training plan, an escalating weekly schedule, or a periodised programme, even if asked \
 — VisionGo prompts and tracks a simple recurring commitment, it does not coach \
 technique. Keep it supportive and general. Never give medical, injury, nutrition, \
 financial or investment advice; redirect to a planning action instead.
 
 YOU CAN ACTUALLY EDIT THIS GOAL
-You have tools — add_step, edit_step, remove_step, set_target, add_milestone, \
-add_commitment, remove_milestone — that change the user's real goal. Never describe a step you could create instead of creating it: if you say a \
-step belongs in the plan, call add_step for it in the same reply. Every tool call is \
-shown to the user as a chip they confirm before it is applied, so proposing is safe — \
-but do not ask "shall I add this?" and then wait. Propose the calls, and say in your \
-text that they can tap to confirm.
-When editing or removing, pass the step's exact label from the list above. When adding \
-a commitment, pass the exact milestone title it belongs under — add the \
-milestone first in the same reply if it does not exist yet.
-Reminders are never switched on by you: say the user can tap the bell on the step to \
-pick the day and time (e.g. payday).
+You have tools — add_milestone, add_step, edit_step, remove_step, set_target, \
+add_commitment, remove_milestone — that change the user's real goal. Never describe a \
+Measurable you could create instead of creating it: if you say a Measurable belongs in \
+the plan, call add_step for it in the same reply, passing parent_milestone (add the \
+Milestone first with add_milestone in the same reply if it does not exist yet). Every \
+tool call is shown to the user as a chip they confirm before it is applied, so \
+proposing is safe — but do not ask "shall I add this?" and then wait. Propose the \
+calls, and say in your text that they can tap to confirm.
+When editing or removing a Measurable, pass its exact label from the list above. When \
+adding a commitment, pass the exact Measurable title it belongs under.
+Reminders are never switched on by you: say the user can tap the bell on the \
+Measurable to pick the day and time (e.g. payday).
 
 STAY GROUNDED — DO NOT JUST PRAISE
 - Anchor every reply to "${ctx.goalTitle}" and the steps listed above.
@@ -349,10 +369,24 @@ function toolUseToAction(
       measurables.find((m) => m.label.toLowerCase().includes(stepLabel.toLowerCase()))
     : undefined;
 
+  // remove_milestone still names a top-level Milestone; add_commitment now
+  // names the Measurable the commitment attaches to.
   const mgTitle = str(input.milestone_title);
   const mgMatch = mgTitle
     ? milestones.find((mg) => mg.label.trim().toLowerCase() === mgTitle.toLowerCase()) ??
       milestones.find((mg) => mg.label.toLowerCase().includes(mgTitle.toLowerCase()))
+    : undefined;
+
+  const measurableTitle = str(input.measurable_title);
+  const measurableMatch = measurableTitle
+    ? measurables.find((m) => m.label.trim().toLowerCase() === measurableTitle.toLowerCase()) ??
+      measurables.find((m) => m.label.toLowerCase().includes(measurableTitle.toLowerCase()))
+    : undefined;
+
+  const parentTitle = str(input.parent_milestone);
+  const parentMatch = parentTitle
+    ? milestones.find((mg) => mg.label.trim().toLowerCase() === parentTitle.toLowerCase()) ??
+      milestones.find((mg) => mg.label.toLowerCase().includes(parentTitle.toLowerCase()))
     : undefined;
 
   const cadence = ((): Cadence | undefined => {
@@ -364,33 +398,23 @@ function toolUseToAction(
     case 'add_milestone': {
       const title = str(input.title);
       if (!title) return null;
-      const rawKind = str(input.kind);
-      const target = num(input.target);
-      const kind: MilestoneKind =
-        rawKind === 'numeric' || rawKind === 'effort'
-          ? rawKind
-          : target != null ? 'numeric' : 'effort';
       // Accept a bare YYYY-MM-DD and anything Date can parse; ignore garbage.
       const rawDeadline = str(input.deadline);
       const parsed = rawDeadline ? new Date(rawDeadline) : null;
       return {
         kind: 'addMilestone',
         label: title,
-        milestoneKind: kind,
-        target: kind === 'numeric' ? target : undefined,
-        unit: str(input.unit),
-        step: num(input.step_size),
         deadline: parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : undefined,
       };
     }
     case 'add_commitment': {
       const label = str(input.label);
-      if (!label || !mgTitle) return null;
+      if (!label || !measurableTitle) return null;
       return {
         kind: 'addCommitment',
         label,
-        milestoneId: mgMatch?.id,
-        milestoneLabel: mgTitle,
+        measurableId: measurableMatch?.id,
+        measurableLabel: measurableTitle,
         amount: num(input.amount),
         unit: str(input.unit),
         cadence: cadence ?? 'weekly',
@@ -403,7 +427,10 @@ function toolUseToAction(
     case 'add_step': {
       const label = str(input.label);
       const rawType = str(input.type);
-      if (!label) return null;
+      // A Measurable always needs its parent Milestone — a required param on
+      // this tool now, so a call missing it (or naming an unresolved one)
+      // cannot be turned into an action.
+      if (!label || !parentTitle) return null;
       const type: MeasurableType =
         rawType === 'number' || rawType === 'ladder' ? rawType : 'check';
       return {
@@ -416,6 +443,8 @@ function toolUseToAction(
         ladderStart: num(input.ladder_start),
         ladderEnd: num(input.ladder_end),
         ladderWeeks: num(input.ladder_weeks),
+        milestoneId: parentMatch?.id,
+        milestoneLabel: parentTitle,
       };
     }
     case 'edit_step':
@@ -459,32 +488,43 @@ export function parseSuggestions(text: string): {
     // Models like to bullet or indent these — strip that before matching.
     const cleaned = line.trim().replace(/^[-*•]\s*/, '');
 
-    // MILESTONE|<title>|<numeric|effort>|<target?>|<unit?>
+    // MILESTONE|<title>|<deadline ISO?> — a binary win, no number of its own.
     if (cleaned.startsWith('MILESTONE|')) {
       const p = cleaned.split('|').map((s) => s.trim());
       const title = p[1];
       if (title) {
-        const kind: MilestoneKind = p[2] === 'numeric' ? 'numeric' : 'effort';
         actions.push({
-          kind: 'addMilestone', label: title, milestoneKind: kind,
-          target: kind === 'numeric' && p[3] ? Number(p[3]) : undefined,
-          unit: p[4] || undefined,
+          kind: 'addMilestone', label: title,
+          deadline: p[2] || undefined,
         });
         continue;
       }
     }
 
     // STEP|<milestone title>|<label>|<weekly|monthly|custom>|<amount?>|<unit?>|<intervalDays?>
+    // A "commitment-driven" Measurable under the named Milestone, with one
+    // recurring commitment already attached — two actions from one line
+    // (addTask creates the Measurable, addCommitment attaches the habit),
+    // applied in order by the confirmation-chip pipeline (applyAllPending
+    // Actions folds the queue in order; a single chip tap applies onto the
+    // live goal, where the Measurable it depends on already exists once its
+    // own chip has been confirmed first).
     if (cleaned.startsWith('STEP|')) {
       const p = cleaned.split('|').map((s) => s.trim());
       const [, mgTitle, label, cadenceRaw] = p;
       if (mgTitle && label) {
         const cadence: Cadence =
           cadenceRaw === 'monthly' || cadenceRaw === 'custom' ? cadenceRaw : 'weekly';
+        const amount = p[4] ? Number(p[4]) : undefined;
+        const unit = p[5] || undefined;
         actions.push({
-          kind: 'addCommitment', milestoneLabel: mgTitle, label, cadence,
-          amount: p[4] ? Number(p[4]) : undefined,
-          unit: p[5] || undefined,
+          kind: 'addTask', type: 'commitment', label,
+          milestoneLabel: mgTitle,
+        });
+        actions.push({
+          kind: 'addCommitment', measurableLabel: label, label, cadence,
+          amount,
+          unit,
           intervalDays: p[6] ? Number(p[6]) : undefined,
         });
         continue;
@@ -714,18 +754,19 @@ function buildTurn3(userReply: string): string {
   return `Got it${quoted} — tell me the number you’d change and I’ll re-cut the plan around it.`;
 }
 
-// The goal screen's "Ask your coach" button sends a message naming one effort
-// milestone. Offline, match it back so the stub can still answer usefully.
+// The goal screen's "Ask your coach" button sends a message naming one
+// Milestone (a big binary win with no Measurable of its own yet). Offline,
+// match it back so the stub can still answer usefully by proposing a
+// commitment-driven Measurable under it.
 function matchEffortHandoff(text: string, ctx: CoachGoalContext): Milestone | undefined {
   if (!/weekly target|baseline|accountable|break .* down/i.test(text)) return undefined;
   const lower = text.toLowerCase();
-  return (ctx.milestones ?? []).find(
-    (mg) => mg.type === 'commitment' && lower.includes(mg.label.toLowerCase()),
-  );
+  return (ctx.milestones ?? []).find((mg) => lower.includes(mg.label.toLowerCase()));
 }
 
-// One simple recurring commitment, sized from any number the user mentioned —
-// deliberately not a training programme.
+// One simple recurring commitment under a new commitment-driven Measurable,
+// sized from any number the user mentioned — deliberately not a training
+// programme. `mg` is the Milestone this Measurable is added under.
 function buildEffortStep(mg: Milestone, userReply: string): string {
   const domain = detectDomain(mg.label);
   const n = extractNumber(userReply, 0);

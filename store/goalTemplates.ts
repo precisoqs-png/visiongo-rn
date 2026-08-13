@@ -1,5 +1,5 @@
 import {
-  Goal, Measurable, Milestone, newId, newMeasurable,
+  Goal, TrackableItem, newId, newMeasurable,
   newMilestone, newCommitment, buildCommitmentRamp,
 } from './models';
 
@@ -9,11 +9,9 @@ export interface GoalTemplate {
   title: string;
   category: string;
   stepCount: number;
-  buildMeasurables: () => Measurable[];
-  // Templates whose primary breakdown is a progressive build-up (was a
-  // Measurables ladder) use this instead — see mkBuildUpMilestone. Absent
-  // for every other template, which stays Measurables-only for now.
-  buildMilestones?: () => Milestone[];
+  // Every item (Milestones and their child Measurables, already flattened
+  // and parented) this template seeds a new goal with.
+  build: () => TrackableItem[];
 }
 
 export interface TemplateCategory {
@@ -21,25 +19,37 @@ export interface TemplateCategory {
   templates: GoalTemplate[];
 }
 
-function mkCheck(label: string): Measurable {
-  return newMeasurable({ type: 'check', label });
+// A one-off binary win with nothing to tick up — a top-level Milestone on
+// its own, no child Measurable needed.
+function mkCheck(label: string): TrackableItem {
+  return newMilestone({ label });
 }
-// `step` is how far one tap of +/- moves the counter — 1 for day/session
-// counts, coarser for targets counted in hundreds.
-function mkNumber(label: string, target: number, unit: string, step = 1): Measurable {
-  return newMeasurable({ type: 'number', label, target, unit, step });
-}
-// A progressive build-up as a Milestone + build-up Commitment, instead of
-// a standalone Measurables ladder — gives it commitment machinery
-// (reminders, the Tasks tab) a bare ladder Measurable doesn't have. `kind`
-// is 'effort' rather than 'numeric': the build-up already tracks weekly
-// progress, so there's no separate cumulative total to also track.
-function mkBuildUpMilestone(title: string, start: number, end: number, weekCount: number, unit: string): Milestone {
-  const ramp = buildCommitmentRamp(start, end, weekCount);
-  return newMilestone({
-    title, kind: 'effort',
-    steps: [newCommitment({ label: title, unit, cadence: 'weekly', ramp })],
+
+// A quantified goal — a Milestone (the win) with one child Measurable (the
+// number) tracking it. `step` is how far one tap of +/- moves the counter —
+// 1 for day/session counts, coarser for targets counted in hundreds.
+function mkNumber(label: string, target: number, unit: string, step = 1): TrackableItem[] {
+  const milestone = newMilestone({ label });
+  const measurable = newMeasurable({
+    type: 'number', label, target, unit, step, parentId: milestone.id,
   });
+  return [milestone, measurable];
+}
+
+// A progressive build-up — a Milestone (the win) with one child Measurable
+// (type 'commitment', no target/current of its own) carrying a single
+// weekly-ramp Commitment. Gives it commitment machinery (reminders, the
+// Tasks tab) a bare ladder Measurable doesn't have.
+function mkBuildUpMilestone(
+  title: string, start: number, end: number, weekCount: number, unit: string,
+): TrackableItem[] {
+  const ramp = buildCommitmentRamp(start, end, weekCount);
+  const milestone = newMilestone({ label: title });
+  const measurable = newMeasurable({
+    type: 'commitment', label: title, parentId: milestone.id,
+    commitments: [newCommitment({ label: title, unit, cadence: 'weekly', ramp })],
+  });
+  return [milestone, measurable];
 }
 
 export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
@@ -49,27 +59,25 @@ export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
       {
         id: 'health-run-half', emoji: '🏃', title: 'Run a half marathon',
         category: 'Health & Body', stepCount: 3,
-        buildMeasurables: () => [
+        build: () => [
           mkCheck('Sign up for a race'),
           mkCheck('Get fitted running shoes'),
-        ],
-        buildMilestones: () => [
-          mkBuildUpMilestone('Weekly long-run build-up', 5, 21, 10, 'km'),
+          ...mkBuildUpMilestone('Weekly long-run build-up', 5, 21, 10, 'km'),
         ],
       },
       {
         id: 'health-move-daily', emoji: '💪', title: 'Move every day',
         category: 'Health & Body', stepCount: 2,
-        buildMeasurables: () => [
-          mkNumber('Days active', 150, 'days'),
+        build: () => [
+          ...mkNumber('Days active', 150, 'days'),
           mkCheck('Find a workout I enjoy'),
         ],
       },
       {
         id: 'health-sleep', emoji: '😴', title: 'Sleep 8 hours',
         category: 'Health & Body', stepCount: 2,
-        buildMeasurables: () => [
-          mkNumber('Nights on track', 60, 'nights'),
+        build: () => [
+          ...mkNumber('Nights on track', 60, 'nights'),
           mkCheck('Set a wind-down routine'),
         ],
       },
@@ -81,30 +89,28 @@ export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
       {
         id: 'mind-read', emoji: '📚', title: 'Read 24 books',
         category: 'Mind & Growth', stepCount: 2,
-        buildMeasurables: () => [
-          mkNumber('Books finished', 24, 'bk'),
+        build: () => [
+          ...mkNumber('Books finished', 24, 'bk'),
           mkCheck('Join a book club'),
         ],
       },
       {
         id: 'mind-language', emoji: '🌍', title: 'Learn a language',
         category: 'Mind & Growth', stepCount: 2,
-        buildMeasurables: () => [
+        build: () => [
           mkCheck('Hold a 5-min conversation'),
-        ],
-        buildMilestones: () => [
           // Days-per-week studied, ramping up — NOT weeks (a ladder that
           // ramped 1 -> 30 "wk" produced meaningless fractional week values
           // like "5.8 wk", and a 30-week streak can't be reached within a
           // 12-week ladder anyway).
-          mkBuildUpMilestone('Weekly study days build-up', 2, 6, 12, 'days/week'),
+          ...mkBuildUpMilestone('Weekly study days build-up', 2, 6, 12, 'days/week'),
         ],
       },
       {
         id: 'mind-mindful', emoji: '🧘', title: 'Mindful mornings',
         category: 'Mind & Growth', stepCount: 2,
-        buildMeasurables: () => [
-          mkNumber('Days meditated', 60, 'days'),
+        build: () => [
+          ...mkNumber('Days meditated', 60, 'days'),
           mkCheck('No phone first hour'),
         ],
       },
@@ -116,16 +122,16 @@ export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
       {
         id: 'money-emergency', emoji: '🏦', title: 'Build an emergency fund',
         category: 'Money', stepCount: 2,
-        buildMeasurables: () => [
-          mkNumber('Amount saved', 5000, '$', 50),
+        build: () => [
+          ...mkNumber('Amount saved', 5000, '$', 50),
           mkCheck('Open a savings account'),
         ],
       },
       {
         id: 'money-trip', emoji: '✈️', title: 'Save for a dream trip',
         category: 'Money', stepCount: 2,
-        buildMeasurables: () => [
-          mkNumber('Amount set aside', 6000, '$', 50),
+        build: () => [
+          ...mkNumber('Amount set aside', 6000, '$', 50),
           mkCheck('Choose destination'),
         ],
       },
@@ -137,7 +143,7 @@ export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
       {
         id: 'creative-cook', emoji: '🍳', title: 'Cook 5 signature dishes',
         category: 'Creativity', stepCount: 5,
-        buildMeasurables: () => [
+        build: () => [
           mkCheck('Dish one'),
           mkCheck('Dish two'),
           mkCheck('Dish three'),
@@ -148,7 +154,7 @@ export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
       {
         id: 'creative-photo', emoji: '📷', title: 'Learn film photography',
         category: 'Creativity', stepCount: 3,
-        buildMeasurables: () => [
+        build: () => [
           mkCheck('Buy a film camera'),
           mkCheck('Shoot first roll'),
           mkCheck('Develop and print'),
@@ -157,9 +163,8 @@ export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
       {
         id: 'creative-write', emoji: '✍️', title: 'Write every week',
         category: 'Creativity', stepCount: 1,
-        buildMeasurables: () => [],
-        buildMilestones: () => [
-          mkBuildUpMilestone('Weekly word-count build-up', 200, 2000, 12, 'words'),
+        build: () => [
+          ...mkBuildUpMilestone('Weekly word-count build-up', 200, 2000, 12, 'words'),
         ],
       },
     ],
@@ -170,15 +175,15 @@ export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
       {
         id: 'life-declutter', emoji: '🏠', title: 'Declutter the home',
         category: 'Life & Home', stepCount: 1,
-        buildMeasurables: () => [
-          mkNumber('Rooms cleared', 6, 'rm'),
+        build: () => [
+          ...mkNumber('Rooms cleared', 6, 'rm'),
         ],
       },
       {
         id: 'life-circle', emoji: '🤝', title: 'Grow my circle',
         category: 'Life & Home', stepCount: 2,
-        buildMeasurables: () => [
-          mkNumber('New connections', 12, 'ppl'),
+        build: () => [
+          ...mkNumber('New connections', 12, 'ppl'),
           mkCheck('Reconnect with an old friend'),
         ],
       },
@@ -194,6 +199,6 @@ export function instantiateTemplate(t: GoalTemplate, colorIndex: number): Goal {
     reminder: { on: false, frequency: 'Daily' },
     chat: [],
     pendingActions: [],
-    items: [...t.buildMeasurables(), ...(t.buildMilestones?.() ?? [])],
+    items: t.build(),
   };
 }
