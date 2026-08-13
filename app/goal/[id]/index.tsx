@@ -8,17 +8,23 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../../store/useThemeStore';
 import { useAppStore } from '../../../store/useAppStore';
-import { Measurable, TrackableItem, BoardPosition, measurableFraction } from '../../../store/models';
+import {
+  Measurable, TrackableItem, BoardPosition, Commitment, Cadence, StepSchedule, measurableFraction,
+} from '../../../store/models';
 import { GoalNote } from '../../../components/board/GoalNote';
 import {
   Point, clampCenter, computeRadialLayout, MIN_BUBBLE, MAX_BUBBLE, CENTER_SIZE,
 } from '../../../components/board/RadialBoard';
 import { MeasurableBubble, tickMeasurable } from '../../../components/goal/MeasurableBubble';
 import { MeasurableDetailSheet } from '../../../components/goal/MeasurableDetailSheet';
+import { StepScheduleSheet } from '../../../components/goal/StepScheduleSheet';
 import { CoachChat } from '../../../components/goal/CoachChat';
 import { SegmentedControl } from '../../../components/shared/SegmentedControl';
 import { CompletionFlight, CompletedChip } from '../../../components/shared/CompletionFlight';
 import { FONTS, GOAL_NOTE_COLORS } from '../../../theme/themes';
+import {
+  syncCommitmentNotifications, requestNotificationPermission, alertNotificationsUnavailable,
+} from '../../../services/notificationService';
 
 const TOP_SAFE = 90;
 const BOTTOM_SAFE = 120;
@@ -195,6 +201,61 @@ export default function GoalCanvasScreen() {
     patchGoal((g) => ({ items: g.items.filter((x) => x.id !== measurableId) }));
   };
 
+  // Reminder sheet for ONE Commitment nested inside whichever item is
+  // currently open in the detail sheet — same pattern measurables.tsx uses
+  // for its own CommitmentsBlock bells, wired here too since a top-level
+  // 'commitment'-type Milestone (own commitments, no children) can be opened
+  // straight from the canvas without ever visiting the Measurables tab.
+  const [scheduleForCommitment, setScheduleForCommitment] = useState<{ item: Measurable; step: Commitment } | null>(null);
+
+  const resyncCommitmentNotifications = () => {
+    const fresh = useAppStore.getState().getGoal(id!);
+    if (fresh && useAppStore.getState().notificationsMasterOn) {
+      void syncCommitmentNotifications(fresh);
+    }
+  };
+
+  const saveCommitmentSchedule = async (
+    patch: { cadence: Cadence; intervalDays?: number; schedule: StepSchedule },
+  ) => {
+    const target = scheduleForCommitment;
+    if (!target) return;
+    const apply = (schedule: StepSchedule) => {
+      const updated: Measurable = {
+        ...target.item,
+        commitments: target.item.commitments.map((s) => (
+          s.id === target.step.id ? { ...s, cadence: patch.cadence, intervalDays: patch.intervalDays, schedule } : s
+        )),
+      };
+      updateMeasurableInPlace(updated);
+    };
+    if (patch.schedule.on) {
+      const granted = await requestNotificationPermission();
+      if (!granted) {
+        alertNotificationsUnavailable();
+        apply({ ...patch.schedule, on: false });
+        setScheduleForCommitment(null);
+        return;
+      }
+    }
+    apply(patch.schedule);
+    setScheduleForCommitment(null);
+    resyncCommitmentNotifications();
+  };
+
+  const turnOffCommitmentReminder = () => {
+    const target = scheduleForCommitment;
+    if (!target) return;
+    updateMeasurableInPlace({
+      ...target.item,
+      commitments: target.item.commitments.map((s) => (
+        s.id === target.step.id ? { ...s, schedule: { ...s.schedule, on: false } } : s
+      )),
+    });
+    setScheduleForCommitment(null);
+    resyncCommitmentNotifications();
+  };
+
   if (!hydrated || !goal) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: p.bg }}>
@@ -286,6 +347,11 @@ export default function GoalCanvasScreen() {
           // lastCenterRef, updated every render since we don't know ahead
           // of time which measurable will complete next.
           lastMeasurableCenterRef.current.set(m.id, { center, size: bubbleSize });
+          // Same "Milestone with children is a pure container" rule
+          // MeasurableCard's own `hasChildren`/`readOnly` uses — a hold
+          // gesture on one of these must not tick a `done` flag that
+          // measurableFraction no longer reads once there are children.
+          const hasChildren = goal.items.some((it) => it.parentId === m.id);
           return (
             <MeasurableBubble
               key={m.id}
@@ -298,6 +364,7 @@ export default function GoalCanvasScreen() {
               canvasSize={size}
               onTap={() => setOpenMeasurable(m)}
               onTick={() => updateMeasurableInPlace(tickMeasurable(m))}
+              tickDisabled={hasChildren}
               onDragEnd={(c) => savePosition(m.id, c)}
             />
           );
@@ -424,6 +491,18 @@ export default function GoalCanvasScreen() {
         onUpdate={updateMeasurableInPlace}
         onDelete={(mid) => { deleteMeasurableInPlace(mid); setOpenMeasurable(null); }}
         onDismiss={() => setOpenMeasurable(null)}
+        onOpenCommitmentSchedule={(m, step) => setScheduleForCommitment({ item: m, step })}
+      />
+
+      {/* Reminder sheet for one Commitment nested inside whichever item is
+          open above — same component/logic as measurables.tsx's own. */}
+      <StepScheduleSheet
+        visible={!!scheduleForCommitment}
+        step={scheduleForCommitment?.step ?? null}
+        palette={p}
+        onSave={(patch) => { void saveCommitmentSchedule(patch); }}
+        onTurnOff={turnOffCommitmentReminder}
+        onDismiss={() => setScheduleForCommitment(null)}
       />
     </LinearGradient>
   );

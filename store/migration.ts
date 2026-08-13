@@ -210,7 +210,7 @@ function migrateLegacyMilestone(mg: LegacyMilestone): TrackableItem {
 export function normalizeYears(years: LegacyYears): YearData[] {
   return (years ?? []).map((y) => ({
     ...y,
-    goals: (y.goals ?? []).map(({ suggestions, minorGoals, measurables, milestones, items, ...g }): Goal => {
+    goals: (y.goals ?? []).map(({ suggestions, minorGoals, measurables, milestones, items, itemsSchema, ...g }): Goal => {
       const unified: Goal = {
         ...g,
         // Goals persisted before the reminder feature existed have no
@@ -234,6 +234,19 @@ export function normalizeYears(years: LegacyYears): YearData[] {
               ...(measurables ?? []).map(migrateLegacyMeasurable),
               ...(milestones ?? minorGoals ?? []).map(migrateLegacyMilestone),
             ],
+        // Explicitly re-attached here (rather than left to linger wherever it
+        // fell in `g`'s own spread order) so `items` and `itemsSchema` are
+        // ALWAYS the last two keys, in that fixed order, on every goal this
+        // function produces — whether itemsSchema was present on the input or
+        // not. Without this, a goal's key order depends on whether itemsSchema
+        // already existed going in (it lands right after `items` the first
+        // time invertItemsForGoal stamps it, but ends up appended even later,
+        // ahead of the freshly-rebuilt `items` key, on the NEXT pass) — same
+        // data, different JSON.stringify output, which makes the persisted
+        // blob churn on every rehydrate for no data reason. `itemsSchema:
+        // undefined` here is dropped by JSON.stringify on legacy goals, so
+        // this has no effect on what gets persisted for them.
+        itemsSchema,
       };
       // v6: invert the Milestones/Measurables model — see invertItemsForGoal.
       // Runs after the v5 unify above so it always sees the current `items`
@@ -277,6 +290,36 @@ export function invertItemsForGoal(goal: Goal): Goal {
 
   const nextItems: TrackableItem[] = [];
   for (const item of goal.items) {
+    // Defensive, ITEM-level guard — the `itemsSchema` check above is a
+    // goal-level idempotency marker, and it is the ONLY thing that stops this
+    // function from re-inverting already-correctly-shaped items IF something
+    // upstream forgot to stamp it (e.g. a goal built and saved without ever
+    // going through normalizeYears, then edited in-session before the next
+    // rehydrate — see the onboarding custom-goal bug this guards against).
+    // Without this, an already-v6 item would get blindly re-wrapped/re-split
+    // by the branches below, which only look at the item's OWN shape and have
+    // no idea whether it was already migrated.
+    //
+    // Both shapes checked here are UNAMBIGUOUS post-invert-only shapes that
+    // never occur in any pre-v6 persisted data:
+    //  - `parentId` is a brand new field this very function introduces —
+    //    no pre-v6 item shape (LegacyMeasurable, LegacyMilestone, or a
+    //    plain pre-invert TrackableItem) ever has it set, so ANY item
+    //    carrying one is unambiguously already a v6 child Measurable.
+    //  - `milestone: true` + `type: 'check'` together only ever come out of
+    //    THIS function (the two branches below, for a former quantified
+    //    Milestone's synthesized parent and for a plain check item promoted
+    //    in place) — a pre-v6 milestone-flagged item was always type
+    //    'number' or 'commitment' (see migrateLegacyMilestone), never
+    //    'check', so this combination is unambiguously a v6 top-level
+    //    Milestone.
+    // A goal that genuinely still needs converting (the fixtures below) never
+    // produces either shape on its OWN pre-invert items, so this can't mask a
+    // real legacy item that actually needs splitting/wrapping.
+    if (item.parentId != null || (item.milestone === true && item.type === 'check')) {
+      nextItems.push(item);
+      continue;
+    }
     if (item.milestone) {
       // Former quantified Milestone (numeric or effort, carries commitments)
       // -> child Measurable under a freshly synthesized binary parent.

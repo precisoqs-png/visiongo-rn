@@ -426,6 +426,122 @@ assert(
   `measurableFraction resolved through the real parent deadline (${fractionWithRealParentDeadline}) must read LOWER than the broken no-deadline fallback (${fractionWithNoDeadline}) — proves the parent deadline is actually driving the math`
 );
 
+// ── 8. Regression: onboarding-built custom goals (bug A) ────────────────
+//
+// Bug: app/onboarding.tsx built custom-goal Goal literals directly (bypassing
+// addGoalFull/instantiateTemplate) with no itemsSchema stamp, then
+// completeOnboarding stored them verbatim (no normalizeYears run at save
+// time either). Items started empty so nothing looked wrong immediately —
+// but if the user added a Milestone + Measurable in that SAME session
+// (before any rehydrate), the pair landed in `items` already correctly
+// shaped (the v6 shape addMilestone/addMeasurable produce) on a goal that
+// still had no itemsSchema marker at all. The NEXT rehydrate's
+// normalizeYears saw a goal with no itemsSchema, treated the whole thing as
+// pre-v6 legacy, and re-inverted already-correct items — duplicating them
+// and severing the Measurable's parentId from its real parent.
+//
+// Fixed two ways: (1) onboarding now stamps itemsSchema on every goal it
+// builds, and (2) invertItemsForGoal is now defensive at the ITEM level too.
+// This fixture deliberately leaves itemsSchema OFF the goal (as if fix (1)
+// did not exist) specifically so the goal-level short-circuit cannot be
+// what's saving it — only fix (2), the item-level shape check, can. That
+// makes this a real regression test for the item-level guard, not just a
+// duplicate of the "freshly-stamped goal" checks in section 5/6 above.
+
+const onboardingMilestoneId = newId();
+const onboardingMeasurableId = newId();
+const onboardingGoal: Goal = {
+  id: newId(),
+  title: 'Learn guitar',
+  colorIndex: 0,
+  reminder: { on: false, frequency: 'Daily' },
+  chat: [],
+  pendingActions: [],
+  // Deliberately no itemsSchema — reproduces the unfixed onboarding
+  // construction site so this test exercises the item-level guard alone.
+  items: [
+    // "Added live, in-session" — already correctly shaped v6 items (a
+    // childless top-level Milestone + its child Measurable), never passed
+    // through normalizeYears before this rehydrate.
+    { id: onboardingMilestoneId, type: 'check', label: 'Play a full song', milestone: true, done: false, current: 0, target: 0, unit: '', step: 1, weeks: [], commitments: [] },
+    { id: onboardingMeasurableId, type: 'number', label: 'Practice sessions', parentId: onboardingMilestoneId, done: false, current: 8, target: 30, unit: 'sessions', step: 1, weeks: [], commitments: [] },
+  ],
+};
+const onboardingYears = [{ year: 2026, motto: '', goals: [onboardingGoal] }];
+const onboardingNormalized = normalizeYears(onboardingYears as any);
+const onboardingGoalOut = onboardingNormalized[0].goals[0];
+assert(
+  onboardingGoalOut.items.length === 2,
+  `onboarding-shaped goal (missing itemsSchema) with already-v6 items must not be re-inverted — expected 2 items, got ${onboardingGoalOut.items.length}`,
+);
+const onboardingMilestoneOut = onboardingGoalOut.items.find((it) => it.id === onboardingMilestoneId)!;
+const onboardingMeasurableOut = onboardingGoalOut.items.find((it) => it.id === onboardingMeasurableId)!;
+assert(
+  !!onboardingMilestoneOut && onboardingMilestoneOut.milestone === true && onboardingMilestoneOut.parentId == null,
+  'onboarding Milestone stays a top-level Milestone, not demoted into a child',
+);
+assert(
+  !!onboardingMeasurableOut && onboardingMeasurableOut.parentId === onboardingMilestoneId,
+  'onboarding Measurable\'s parentId still points at its REAL original parent, not a newly synthesized one',
+);
+assert(
+  onboardingGoalOut.items.filter((it) => it.label === 'Play a full song').length === 1,
+  'onboarding Milestone label not duplicated by a spurious re-wrap',
+);
+assert(
+  onboardingGoalOut.items.filter((it) => it.label === 'Practice sessions').length === 1,
+  'onboarding Measurable label not duplicated by a spurious re-wrap',
+);
+assert(
+  Math.abs(goalProgress(onboardingGoalOut) - goalProgress(onboardingGoal)) < 1e-9,
+  `goalProgress unchanged by normalizeYears on already-correct onboarding items — expected ${goalProgress(onboardingGoal)}, got ${goalProgress(onboardingGoalOut)}`,
+);
+
+// Re-run the FULL existing legacy-shape suite's inputs through the item-level
+// guard's code path one more time, to make sure the new shape check doesn't
+// accidentally swallow genuine pre-v6 conversions (the guard must only ever
+// pass through items that are ALREADY correctly shaped, never ones that
+// still need splitting/wrapping). Sections 1-4 above already assert this in
+// detail; this just re-confirms the top-line counts one more time against a
+// SECOND fresh run (a new object graph, not reusing `migrated` from above) so
+// there's no chance of accidentally asserting against already-mutated state.
+const legacyRecheck = normalizeYears(oldYears as any);
+const g1Recheck = legacyRecheck[0].goals.find((g) => g.id === 'g1')!;
+const g2Recheck = legacyRecheck[0].goals.find((g) => g.id === 'g2')!;
+assert(
+  g1Recheck.items.length === 5 && g2Recheck.items.length === 4,
+  `item-level guard does not suppress genuine legacy conversions — expected g1=5/g2=4, got g1=${g1Recheck.items.length}/g2=${g2Recheck.items.length}`,
+);
+
+// ── 9. Regression: itemsSchema key ordering doesn't churn JSON (bug D) ───
+//
+// Bug: invertItemsForGoal's stamped-goal object literal (`{ ...goal, items,
+// itemsSchema }`) put `itemsSchema` wherever it happened to land relative to
+// `items` depending on whether the input already had the key — one order the
+// FIRST time a goal is inverted, a DIFFERENT order on every rehydrate after
+// that (once normalizeYears' own `unified` object rebuild re-shuffles which
+// key was destructured/re-added last). Deep-equal (canonical()/deepEqual()
+// above) can't see this since it sorts keys before comparing — this needs an
+// EXACT JSON.stringify comparison, which is what AsyncStorage's persisted
+// string actually is.
+// NOTE: each of these calls `normalizeYears(oldYears)`/`normalizeYears(markedYears)`
+// exactly ONCE and reuses that single result for both sides of the
+// comparison — normalizeYears synthesizes fresh random ids (newId()) for any
+// newly-created parent Milestone, so calling it twice independently on the
+// same RAW input (rather than chaining: second call fed the first call's
+// OUTPUT) would spuriously differ on those ids alone, which has nothing to
+// do with the key-ordering bug this section actually guards against.
+const legacyOnce = normalizeYears(oldYears as any);
+assert(
+  JSON.stringify(legacyOnce) === JSON.stringify(normalizeYears(legacyOnce as any)),
+  'normalizeYears output is BYTE-STABLE (not just deep-equal) across repeated rehydrates, starting from a legacy (pre-v6) blob',
+);
+const markedOnce = normalizeYears(markedYears as any);
+assert(
+  JSON.stringify(markedOnce) === JSON.stringify(normalizeYears(markedOnce as any)),
+  'normalizeYears output is byte-stable across repeated rehydrates, starting from an already-itemsSchema:6 blob',
+);
+
 // ── Result ───────────────────────────────────────────────────────────
 
 console.log('');

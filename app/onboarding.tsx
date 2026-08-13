@@ -11,6 +11,7 @@ import { useAppStore } from '../store/useAppStore';
 import { GOAL_NOTE_COLORS, FONTS } from '../theme/themes';
 import { TEMPLATE_CATEGORIES, GoalTemplate, instantiateTemplate } from '../store/goalTemplates';
 import { Goal } from '../store/models';
+import { ITEMS_SCHEMA_VERSION } from '../store/migration';
 
 const { width } = Dimensions.get('window');
 const NOW = new Date().getFullYear();
@@ -97,6 +98,11 @@ export default function OnboardingScreen() {
           chat: [],
           pendingActions: [],
           items: [],
+          // Stamped so a Milestone/Measurable added in this same session
+          // (before the next rehydrate ever runs normalizeYears) isn't
+          // mistaken for pre-v6 legacy data and re-inverted — see
+          // invertItemsForGoal's goal-level short-circuit in store/migration.ts.
+          itemsSchema: ITEMS_SCHEMA_VERSION,
         });
       }
       const effectiveMotto = motto.trim() || 'Dream it. Plan it. Live it.';

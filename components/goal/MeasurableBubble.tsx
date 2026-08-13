@@ -65,6 +65,16 @@ interface Props {
   canvasSize: { w: number; h: number };
   onTap: () => void;
   onTick: () => void;
+  // True for a Milestone that has children Measurables — mirrors
+  // MeasurableCard's own `hasChildren`/`readOnly` rule (see its comment):
+  // once a Milestone has children, its fraction comes entirely from the
+  // average of theirs (measurableFraction checks for children before
+  // `done`), so its own `done` flag is not an independent completion path.
+  // With this true, the hold-gesture neither fires the completion pulse nor
+  // calls `onTick` — ticking would flip a `done` flag that isn't read by
+  // anything, and the pulse would celebrate a gesture that moved
+  // goalProgress by exactly zero.
+  tickDisabled?: boolean;
   onDragStart?: () => void;
   onDragEnd: (center: Point) => void;
 }
@@ -75,7 +85,7 @@ interface Props {
 // press that stays still past HOLD_MS ticks the measurable off (or, for a
 // ladder, advances it to the next week) instead of opening it.
 export function MeasurableBubble({
-  measurable: m, goal, size, center, palette: p, noteColor, canvasSize, onTap, onTick, onDragStart, onDragEnd,
+  measurable: m, goal, size, center, palette: p, noteColor, canvasSize, onTap, onTick, tickDisabled, onDragStart, onDragEnd,
 }: Props) {
   const pan = useRef(new Animated.ValueXY()).current;
   const { scale: popScale, pulse } = useCompletionPulse();
@@ -105,6 +115,8 @@ export function MeasurableBubble({
   onTapRef.current = onTap;
   const onTickRef = useRef(onTick);
   onTickRef.current = onTick;
+  const tickDisabledRef = useRef(tickDisabled);
+  tickDisabledRef.current = tickDisabled;
   const onDragStartRef = useRef(onDragStart);
   onDragStartRef.current = onDragStart;
   const onDragEndRef = useRef(onDragEnd);
@@ -130,6 +142,7 @@ export function MeasurableBubble({
         clearHold();
         holdTimer.current = setTimeout(() => {
           if (draggingRef.current) return; // already turned into a drag
+          if (tickDisabledRef.current) return; // Milestone-with-children: no independent tick
           holdFiredRef.current = true;
           pulse(true);
           onTickRef.current();

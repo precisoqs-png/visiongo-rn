@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Modal, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Measurable, Goal } from '../../store/models';
+import { Commitment, Measurable, Goal } from '../../store/models';
 import { Palette } from '../../theme/themes';
 import { MeasurableCard } from './MeasurableCard';
 
@@ -19,13 +19,19 @@ interface Props {
   onUpdate: (m: Measurable) => void;
   onDelete: (id: string) => void;
   onDismiss: () => void;
+  // Opens the reminder sheet for one of this measurable's Commitments —
+  // passed straight through to MeasurableCard, same as onOpenSchedule below.
+  // Optional so a caller with nowhere to put a Commitment reminder sheet
+  // doesn't have to supply one; MeasurableCard already treats it as optional
+  // (no bell/CommitmentsBlock affordance without it).
+  onOpenCommitmentSchedule?: (m: Measurable, step: Commitment) => void;
 }
 
 // What a tap on a canvas bubble opens — the same editable row a measurable
 // gets in the old list view (MeasurableCard, unchanged), just surfaced in a
 // modal since the bubble itself is too small for steppers/ladder weeks.
 export function MeasurableDetailSheet({
-  measurable, goal, goalTargetDate, palette: p, noteColor, onUpdate, onDelete, onDismiss,
+  measurable, goal, goalTargetDate, palette: p, noteColor, onUpdate, onDelete, onDismiss, onOpenCommitmentSchedule,
 }: Props) {
   return (
     <Modal visible={!!measurable} transparent animationType="fade" onRequestClose={onDismiss}>
@@ -52,6 +58,7 @@ export function MeasurableDetailSheet({
               noteColor={noteColor}
               onUpdate={onUpdate}
               onDelete={(mid) => { onDelete(mid); onDismiss(); }}
+              onOpenCommitmentSchedule={onOpenCommitmentSchedule}
             />
           )}
         </TouchableOpacity>

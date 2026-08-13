@@ -140,13 +140,21 @@ export function MeasurableCard({
         </View>
       )}
 
-      {/* Recurring commitments — gated on actually having any, not on
-          `m.milestone`. Post-invert, commitments live on the child
-          Measurable (parentId set, milestone unset) — gating on `m.milestone`
-          here meant nobody could ever see or tick a migrated goal's
-          commitments/build-up ramp weeks on its card. A plain measurable
-          with no commitments still renders nothing, same as before. */}
-      {m.commitments.length > 0 && onOpenCommitmentSchedule && (
+      {/* Recurring commitments — gated on "can this item ever have
+          commitments", not on `m.milestone` and not on already having some.
+          Post-invert, commitments live on the child Measurable (parentId
+          set, milestone unset) — gating on `m.milestone` alone meant nobody
+          could ever see or tick a migrated goal's commitments/build-up ramp
+          weeks on its card. Gating on `m.commitments.length > 0` alone (a
+          later fix) went too far the other way: CommitmentsBlock is also the
+          ONLY add-commitment affordance (its empty state + "+ Commitment"
+          pill), so a Measurable with zero commitments so far could never
+          gain its first one. `m.parentId != null` covers that — every
+          Measurable (a quantified child) can always open the block to add
+          one, whether or not it has any yet; a top-level childless Milestone
+          (parentId absent, and per newMilestone always has zero commitments
+          of its own to begin with) still renders nothing, same as before. */}
+      {(m.commitments.length > 0 || m.parentId != null) && onOpenCommitmentSchedule && (
         <CommitmentsBlock
           item={m}
           palette={p}
