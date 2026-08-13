@@ -17,6 +17,11 @@ import { GOAL_NOTE_COLORS as COLORS } from '../theme/themes';
 
 export const COACH_DAILY_LIMIT = 20;
 
+// AsyncStorage key for the one-shot snapshot importBackup takes before it
+// overwrites state, so an import gone wrong (or one the user regrets) is
+// recoverable via restorePreImportSnapshot.
+const PRE_IMPORT_SNAPSHOT_KEY = 'visiongo-pre-import-snapshot';
+
 // Bumped whenever the persisted shape changes — see migrateState below.
 // v3: Goal.minorGoals -> Goal.milestones, and the matching CoachAction kind/
 // field renames (addMinorGoal -> addMilestone, minorGoalId -> milestoneId,
@@ -138,6 +143,9 @@ interface AppState {
   // Runs the incoming years through the same normalizeYears backfilling as
   // any other persisted blob before swapping it in.
   importBackup: (data: { years: YearData[]; selectedYear?: number; hasCompletedOnboarding?: boolean }) => void;
+  // Restores the state importBackup last overwrote, if a snapshot is still
+  // stored. Returns false if there's nothing to restore.
+  restorePreImportSnapshot: () => Promise<boolean>;
 
   setBoardLayout: (l: BoardLayout) => void;
   setBoardViewMode: (m: BoardViewMode) => void;
@@ -680,7 +688,21 @@ export const useAppStore = create<AppState>()(
 
       importBackup: (data) => {
         const years = normalizeYears(data.years as LegacyState['years']);
-        set((s) => ({
+        const s = get();
+        // Snapshot what's about to be overwritten so a bad import (or one
+        // the user regrets) is recoverable via restorePreImportSnapshot,
+        // rather than gone the instant this set() below commits.
+        AsyncStorage.setItem(
+          PRE_IMPORT_SNAPSHOT_KEY,
+          JSON.stringify({
+            years: s.years,
+            selectedYear: s.selectedYear,
+            hasCompletedOnboarding: s.hasCompletedOnboarding,
+            savedAt: new Date().toISOString(),
+          }),
+        ).catch((e) => console.warn('[VisionGo] Failed to snapshot pre-import state:', e));
+
+        set(() => ({
           years,
           selectedYear:
             data.selectedYear ?? (years.find((y) => y.year === s.selectedYear) ? s.selectedYear : years[0]?.year ?? s.selectedYear),
@@ -688,6 +710,20 @@ export const useAppStore = create<AppState>()(
             ? { hasCompletedOnboarding: data.hasCompletedOnboarding }
             : {}),
         }));
+      },
+
+      restorePreImportSnapshot: async () => {
+        const raw = await AsyncStorage.getItem(PRE_IMPORT_SNAPSHOT_KEY);
+        if (!raw) return false;
+        try {
+          const snap = JSON.parse(raw) as { years: YearData[]; selectedYear: number; hasCompletedOnboarding: boolean };
+          set({ years: snap.years, selectedYear: snap.selectedYear, hasCompletedOnboarding: snap.hasCompletedOnboarding });
+          await AsyncStorage.removeItem(PRE_IMPORT_SNAPSHOT_KEY);
+          return true;
+        } catch (e) {
+          console.warn('[VisionGo] Failed to restore pre-import snapshot:', e);
+          return false;
+        }
       },
 
       setBoardLayout: (l) => set({ boardLayout: l }),
