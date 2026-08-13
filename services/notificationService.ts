@@ -30,6 +30,23 @@ export async function requestNotificationPermission(): Promise<boolean> {
   }
 }
 
+/**
+ * Reads the current OS permission state without prompting the user — used
+ * at startup to reconcile the persisted `notificationsMasterOn` flag against
+ * reality, since that flag defaults to true and nothing ever asked iOS for
+ * permission on a fresh install.
+ */
+export async function hasNotificationPermission(): Promise<boolean> {
+  if (!SUPPORTED) return false;
+  try {
+    const { status } = await Notifications.getPermissionsAsync();
+    return status === 'granted';
+  } catch (e) {
+    console.warn('[VisionGo] Notification permission check failed:', e);
+    return false;
+  }
+}
+
 /** User-facing feedback when reminders can't be enabled. */
 export function alertNotificationsUnavailable(): void {
   if (Platform.OS === 'web') {
