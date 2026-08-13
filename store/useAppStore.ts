@@ -942,19 +942,38 @@ export { normalizeYears } from './migration';
 
 type LegacyState = Omit<AppState, 'years'> & { years?: LegacyYears };
 
+// normalizeYears is not wrapped internally, so a shape it doesn't expect
+// (corrupt storage, a hand-edited blob, a future format this build predates)
+// throws here uncaught. Before this guard, that exception propagated out of
+// persist.rehydrate() — _layout.tsx's 3s fallback would then force-mount the
+// app with empty default state, and the next write would persist that
+// emptiness over the user's real (if oddly-shaped) data. Falling back to the
+// raw persisted state instead means the year list may render nothing new
+// until the real bug is fixed, but the underlying data itself is preserved.
 function migrateState(persisted: unknown, _version: number): AppState {
   const state = persisted as LegacyState;
   if (!state?.years) return state as AppState;
   backupBeforeV6Invert(state);
-  return { ...state, years: normalizeYears(state.years) } as AppState;
+  try {
+    return { ...state, years: normalizeYears(state.years) } as AppState;
+  } catch (e) {
+    console.warn('[VisionGo] migrateState: normalizeYears threw, keeping raw persisted state:', e);
+    return state as AppState;
+  }
 }
 
 // zustand only calls `migrate` when the stored blob carries a numeric version,
 // so anything written without one would slip through unmigrated and crash on
-// `goal.pendingActions`. Normalizing here as well closes that gap.
+// `goal.pendingActions`. Normalizing here as well closes that gap. See
+// migrateState's comment above for why this is also wrapped.
 function mergeState(persisted: unknown, current: AppState): AppState {
   const state = persisted as LegacyState;
   if (!state?.years) return { ...current, ...(state as object) } as AppState;
   backupBeforeV6Invert(state);
-  return { ...current, ...state, years: normalizeYears(state.years) } as AppState;
+  try {
+    return { ...current, ...state, years: normalizeYears(state.years) } as AppState;
+  } catch (e) {
+    console.warn('[VisionGo] mergeState: normalizeYears threw, keeping raw persisted state:', e);
+    return { ...current, ...state } as AppState;
+  }
 }
