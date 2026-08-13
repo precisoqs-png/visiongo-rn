@@ -141,6 +141,7 @@ is the most common way this silently breaks:
    | `COACH_SHARED_SECRET` | a long random string you generate yourself, e.g. `openssl rand -hex 32` |
    | `UPSTASH_REDIS_REST_URL` | from the Upstash database's REST API tab |
    | `UPSTASH_REDIS_REST_TOKEN` | from the same tab |
+   | `ALLOWED_ORIGINS` | *(optional)* comma-separated origins allowed to call this route from a browser, e.g. `https://precisoqs-png.github.io`. Leave unset to skip this check (native requests never send an Origin header anyway, so this only matters for the web build). |
 
 5. Note the deployment's URL (e.g. `https://visiongo-rn.vercel.app`) — you
    need it for the next step.
