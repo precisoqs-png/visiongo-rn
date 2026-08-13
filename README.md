@@ -25,23 +25,15 @@ Scan the QR code with the **Expo Go** app on your iPhone (same Wi-Fi network).
 
 ## Enabling the real AI coach
 
-The coach falls back to a stub if no API key is configured. To use the real Claude model:
+The Anthropic API key is **server-side only** — it's read by
+`app/api/coach+api.ts`, which runs on Vercel, and is never bundled into the
+client. It must never be added to `app.json`/`app.config.js` `expo.extra`
+or any `EXPO_PUBLIC_*` variable — either would ship it in the `.ipa`/`.apk`
+and the web bundle, readable by anyone who installs the app.
 
-1. Get an API key at [console.anthropic.com](https://console.anthropic.com)
-2. Add to `app.json` under `expo.extra`:
-
-```json
-"extra": {
-  "anthropicKey": "sk-ant-..."
-}
-```
-
-> **Never commit the key.** For production builds use EAS Secrets instead:
-> ```bash
-> eas secret:create --scope project --name ANTHROPIC_KEY --value sk-ant-...
-> ```
-> Then reference it in `eas.json` build profiles via `env: { "ANTHROPIC_KEY": "$ANTHROPIC_KEY" }`
-> and read it in `app.config.js` (rename `app.json` → `app.config.js`) to inject into `extra`.
+See [`DEPLOYMENT.md`](./DEPLOYMENT.md) (Step 7) for the full setup: deploying
+the API route to Vercel, setting `ANTHROPIC_API_KEY` there, and pointing the
+client at that deployment via `EXPO_PUBLIC_COACH_API_URL` in `eas.json`.
 
 ## EAS Build
 
