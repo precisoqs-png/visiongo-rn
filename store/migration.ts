@@ -20,7 +20,7 @@
 
 import {
   YearData, Goal, TrackableItem, CoachAction, PendingAction,
-  Commitment, Reminder, DEFAULT_SCHEDULE, newId, measurableFraction,
+  Commitment, Reminder, BoardPosition, DEFAULT_SCHEDULE, newId, measurableFraction,
 } from './models';
 
 // Bumped only when the shape of Goal.items itself changes (not on every
@@ -348,10 +348,24 @@ function normalizeItem(m: TrackableItem): TrackableItem {
 // Every reparented item keeps its ORIGINAL id (measurableBubblePositions and
 // notification identifiers are keyed by item id) — only synthesized parent
 // Milestones get a new id.
+//
+// The two split/wrap branches below (former quantified Milestone, and plain
+// quantified item) move the CANVAS-VISIBLE role from the old id to the freshly
+// synthesized parent id — the goal screen's bubble canvas only renders
+// top-level (parentId == null) items (app/goal/[id]/index.tsx), and after
+// either branch the old id belongs to the new off-canvas CHILD, not the new
+// top-level parent. `goal.measurableBubblePositions` is keyed by item id, so
+// without carrying the old id's entry over to the new parent id, every
+// pre-invert goal's hand-arranged canvas layout would silently reset to
+// auto-placement on first launch after this migration ships — see
+// bubblePositionRemap below.
 export function invertItemsForGoal(goal: Goal): Goal {
   if (goal.itemsSchema === ITEMS_SCHEMA_VERSION) return goal;
 
   const nextItems: TrackableItem[] = [];
+  // old (pre-invert) item id -> newly synthesized top-level parent id, for
+  // just the two branches that move canvas visibility off the original id.
+  const bubblePositionRemap = new Map<string, string>();
   for (const item of goal.items) {
     // Defensive, ITEM-level guard — the `itemsSchema` check above is a
     // goal-level idempotency marker, and it is the ONLY thing that stops this
@@ -397,6 +411,7 @@ export function invertItemsForGoal(goal: Goal): Goal {
       // as before.
       const wasDone = measurableFraction(item, goal) >= 1;
       const parentId = newId();
+      bubblePositionRemap.set(item.id, parentId);
       nextItems.push({
         id: parentId,
         type: 'check',
@@ -429,6 +444,7 @@ export function invertItemsForGoal(goal: Goal): Goal {
     // pre-invert-shape reasoning as the `goal` arg above applies here too.
     const wasDone = measurableFraction(item, goal) >= 1;
     const parentId = newId();
+    bubblePositionRemap.set(item.id, parentId);
     nextItems.push({
       id: parentId,
       type: 'check',
@@ -449,7 +465,34 @@ export function invertItemsForGoal(goal: Goal): Goal {
     });
   }
 
-  return { ...goal, items: nextItems, itemsSchema: ITEMS_SCHEMA_VERSION };
+  // Carry each remapped old id's saved bubble position over to its new
+  // top-level parent id, and drop the stale old-id key (it now belongs to an
+  // off-canvas child, so leaving it behind would just accumulate dead entries
+  // across repeated migrations/imports). Built as a fresh object only when
+  // there's actually something to remap, so a goal with no
+  // measurableBubblePositions (or no split/wrap items at all) round-trips
+  // with the exact same `measurableBubblePositions` reference untouched.
+  let measurableBubblePositions = goal.measurableBubblePositions;
+  if (measurableBubblePositions && bubblePositionRemap.size > 0) {
+    const next: Record<string, BoardPosition> = { ...measurableBubblePositions };
+    let changed = false;
+    for (const [oldId, newParentId] of bubblePositionRemap) {
+      const pos = next[oldId];
+      if (pos) {
+        delete next[oldId];
+        next[newParentId] = pos;
+        changed = true;
+      }
+    }
+    if (changed) measurableBubblePositions = next;
+  }
+
+  return {
+    ...goal,
+    items: nextItems,
+    itemsSchema: ITEMS_SCHEMA_VERSION,
+    ...(measurableBubblePositions !== goal.measurableBubblePositions ? { measurableBubblePositions } : {}),
+  };
 }
 
 function legacySuggestionToPending(s: LegacySuggestion): PendingAction {

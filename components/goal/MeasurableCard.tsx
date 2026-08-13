@@ -109,7 +109,7 @@ function CommitmentScheduleBell({ m, p, onUpdate, onOpenCommitmentSchedule }: {
       <TouchableOpacity
         onPress={createAndOpen}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        accessibilityLabel={`Add a reminder for ${m.label}`}
+        accessibilityLabel={`Add a commitment reminder for ${m.label}`}
         style={styles.bellTarget}
       >
         <Ionicons name="notifications-circle-outline" size={17} color={p.muted} />

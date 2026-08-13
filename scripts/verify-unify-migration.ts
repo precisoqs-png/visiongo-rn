@@ -721,6 +721,82 @@ assert(
   'orphan sweep (item-level-guard path): idempotent — a second normalizeYears pass does not re-sweep',
 );
 
+// ── Section 10: bubble-position carry-forward across the split/wrap ────
+//
+// A legacy goal's `measurableBubblePositions` is keyed by item id. For the
+// two split/wrap branches (former quantified Milestone, plain quantified
+// item) the CANVAS-VISIBLE role moves from the old id to a freshly
+// synthesized top-level parent id — without carrying the saved position
+// forward, a hand-arranged canvas layout would silently reset on first
+// launch after this migration. The promoted-in-place plain check item keeps
+// its own id throughout, so its position needs no help from this fix.
+const bubbleGoal = {
+  id: 'gBubble',
+  title: 'Bubble position check',
+  colorIndex: 0,
+  reminder: { on: false, frequency: 'Daily' },
+  chat: [],
+  pendingActions: [],
+  measurableBubblePositions: {
+    // m5: plain check item, promoted in place -> position should survive
+    // under the SAME id untouched.
+    m5: { x: 0.2, y: 0.3 },
+    // mg5: milestone-flagged quantified item, splits into a synthesized
+    // parent + same-id child -> position should move to the new parent id.
+    mg5: { x: 0.7, y: 0.8 },
+    // An unrelated stale key with no matching item at all — must simply be
+    // left alone (not everyone's stray key has to correspond to an item).
+    'never-existed': { x: 0.1, y: 0.1 },
+  },
+  items: [
+    { id: 'm5', type: 'check', label: 'Book the venue', done: false, current: 0, target: 0, unit: '', step: 1, weeks: [], commitments: [] },
+    {
+      id: 'mg5', type: 'number', label: 'Save $5,000', milestone: true,
+      target: 5000, current: 1000, unit: '$', step: 100, done: false,
+      deadline: '2026-11-01', weeks: [], commitments: [],
+    },
+  ],
+};
+const bubbleYears = [{ year: 2026, motto: '', goals: [bubbleGoal] }];
+const bubbleMigrated = normalizeYears(bubbleYears as any)[0].goals[0];
+
+const bubbleM5 = bubbleMigrated.items.find((it) => it.id === 'm5')!;
+assert(
+  bubbleMigrated.measurableBubblePositions?.m5?.x === 0.2 && bubbleMigrated.measurableBubblePositions?.m5?.y === 0.3,
+  'bubble position: promoted-in-place check item keeps its saved position under its own (unchanged) id',
+);
+assert(bubbleM5.parentId == null, 'sanity: m5 is still a top-level item after promotion');
+
+const bubbleMg5 = bubbleMigrated.items.find((it) => it.id === 'mg5')!;
+assert(!!bubbleMg5.parentId, 'sanity: mg5 became a child Measurable with a parentId');
+const bubbleMg5Parent = bubbleMigrated.items.find((it) => it.id === bubbleMg5.parentId)!;
+assert(
+  bubbleMigrated.measurableBubblePositions?.[bubbleMg5Parent.id]?.x === 0.7
+    && bubbleMigrated.measurableBubblePositions?.[bubbleMg5Parent.id]?.y === 0.8,
+  'bubble position: mg5\'s saved position was carried forward to its NEW synthesized top-level parent id',
+);
+assert(
+  bubbleMigrated.measurableBubblePositions?.mg5 === undefined,
+  'bubble position: the stale old-id key (now belonging to an off-canvas child) is removed, not left dangling',
+);
+assert(
+  bubbleMigrated.measurableBubblePositions?.['never-existed']?.x === 0.1,
+  'bubble position: an unrelated key with no matching item is left untouched',
+);
+assert(
+  bubbleMigrated.items.filter((it) => it.parentId == null).every((it) => bubbleMigrated.measurableBubblePositions?.[it.id] !== undefined),
+  'bubble position: every top-level (canvas-visible) item after migration has a position entry under its OWN id',
+);
+
+// Idempotency: a second pass has no old-id-pointing-at-a-since-reparented-item
+// scenario left to fix, so it must not touch measurableBubblePositions again
+// (same reference or same content — either way, no further remap/removal).
+const bubbleTwice = normalizeYears([{ year: 2026, motto: '', goals: [bubbleMigrated] }] as any)[0].goals[0];
+assert(
+  deepEqual(bubbleTwice.measurableBubblePositions, bubbleMigrated.measurableBubblePositions),
+  'bubble position: a second normalizeYears pass does not re-carry-forward or otherwise mutate an already-migrated goal\'s measurableBubblePositions',
+);
+
 // ── Result ───────────────────────────────────────────────────────────
 
 console.log('');
