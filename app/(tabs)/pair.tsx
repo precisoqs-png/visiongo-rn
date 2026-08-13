@@ -106,6 +106,9 @@ export default function PairScreen() {
         <View style={styles.header}>
           <Text style={[styles.eyebrow, { color: p.muted }]}>PAIR</Text>
           <Text style={[styles.subtitle, { color: p.text }]}>See how two goals align</Text>
+          <Text style={[styles.disclosure, { color: p.muted }]}>
+            The two goal titles you pick are sent to Anthropic to generate this reading.
+          </Text>
         </View>
 
         <View style={[styles.card, { backgroundColor: p.surface }]}>
@@ -216,6 +219,7 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 20, paddingBottom: 16 },
   eyebrow: { fontSize: 11, fontWeight: '600', letterSpacing: 2 },
   subtitle: { fontSize: 20, fontStyle: 'italic', marginTop: 2 },
+  disclosure: { fontSize: 11, lineHeight: 15, marginTop: 6 },
   card: { borderRadius: 16, padding: 18, marginHorizontal: 18, marginBottom: 14 },
   pairedWith: { fontSize: 16, fontStyle: 'italic', textAlign: 'center', marginVertical: 8 },
   dropdown: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 10, gap: 8 },
