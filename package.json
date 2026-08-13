@@ -7,7 +7,9 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "build:vercel": "EXPO_WEB_OUTPUT=server expo export -p web"
+    "build:vercel": "EXPO_WEB_OUTPUT=server expo export -p web",
+    "typecheck": "tsc --noEmit",
+    "verify-migration": "tsx scripts/verify-unify-migration.ts"
   },
   "dependencies": {
     "@expo/metro-runtime": "~4.0.1",
@@ -32,8 +34,8 @@
     "expo-modules-core": "~2.2.3",
     "expo-notifications": "~0.29.9",
     "expo-router": "~4.0.17",
-    "expo-splash-screen": "~0.29.22",
     "expo-sharing": "~13.0.1",
+    "expo-splash-screen": "~0.29.22",
     "expo-status-bar": "~2.0.1",
     "react": "18.3.1",
     "react-dom": "^18.3.1",
@@ -49,6 +51,7 @@
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@types/react": "~18.3.12",
+    "tsx": "^4.23.12",
     "typescript": "^5.3.3"
   },
   "overrides": {

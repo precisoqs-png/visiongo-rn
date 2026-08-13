@@ -20,6 +20,7 @@ export default function PairScreen() {
   const [firstId, setFirstId] = useState<string | null>(null);
   const [secondId, setSecondId] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
+  const [resultIsStub, setResultIsStub] = useState(false);
   const [loading, setLoading] = useState(false);
   const [pickerFor, setPickerFor] = useState<'first' | 'second' | null>(null);
 
@@ -30,6 +31,7 @@ export default function PairScreen() {
   const runPairing = async () => {
     if (!g1 || !g2) return;
     setResult(null);
+    setResultIsStub(false);
     setLoading(true);
     const prompt = `Two of my goals this year are:\n1. ${g1.title}\n2. ${g2.title}\n\nIn 2-3 encouraging sentences, describe how these two goals reinforce each other and help me become a better version of myself. If there's any potential tension between them, frame it as an exciting balance to manage — never discourage either goal.`;
     try {
@@ -43,6 +45,7 @@ export default function PairScreen() {
       };
       const res = await coachService.send([{ role: 'user', text: prompt }], ctx);
       setResult(res.text);
+      setResultIsStub(!!res.stub);
     } catch (err) {
       setResult(
         err instanceof Error && (err as { isRateLimit?: boolean }).isRateLimit
@@ -101,6 +104,9 @@ export default function PairScreen() {
         <View style={styles.header}>
           <Text style={[styles.eyebrow, { color: p.muted }]}>PAIR</Text>
           <Text style={[styles.subtitle, { color: p.text }]}>See how two goals align</Text>
+          <Text style={[styles.disclosure, { color: p.muted }]}>
+            The two goal titles you pick are sent to Anthropic to generate this reading.
+          </Text>
         </View>
 
         <View style={[styles.card, { backgroundColor: p.surface }]}>
@@ -128,6 +134,14 @@ export default function PairScreen() {
               <Ionicons name="sparkles" size={16} color={p.accent} />
               <Text style={[styles.resultTitle, { color: p.text }]}>How they align</Text>
             </View>
+            {resultIsStub && (
+              <View style={styles.stubBanner}>
+                <Ionicons name="alert-circle-outline" size={12} color={p.muted} />
+                <Text style={[styles.stubBannerText, { color: p.muted }]}>
+                  Coach unavailable — showing a basic reading
+                </Text>
+              </View>
+            )}
             <Text style={[styles.resultText, { color: p.text }]}>{result}</Text>
           </View>
         )}
@@ -191,6 +205,7 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 20, paddingBottom: 16 },
   eyebrow: { fontSize: 11, fontWeight: '600', letterSpacing: 2 },
   subtitle: { fontSize: 20, fontStyle: 'italic', marginTop: 2 },
+  disclosure: { fontSize: 11, lineHeight: 15, marginTop: 6 },
   card: { borderRadius: 16, padding: 18, marginHorizontal: 18, marginBottom: 14 },
   pairedWith: { fontSize: 16, fontStyle: 'italic', textAlign: 'center', marginVertical: 8 },
   dropdown: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 10, gap: 8 },
@@ -199,6 +214,8 @@ const styles = StyleSheet.create({
   resultCard: { borderRadius: 14, padding: 16, marginHorizontal: 18 },
   resultHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   resultTitle: { fontSize: 14, fontWeight: '600' },
+  stubBanner: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 8 },
+  stubBannerText: { fontSize: 11, fontWeight: '500' },
   resultText: { fontSize: 15, lineHeight: 22 },
   goalDot: { width: 10, height: 10, borderRadius: 5 },
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 40, paddingBottom: 60 },

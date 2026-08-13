@@ -110,24 +110,95 @@ You get hot reload, full New Architecture, and all native modules.
 
 ## Step 7 — Enable the AI Coach
 
-The AI coach key lives server-side only — it never ships in the `.ipa`.
+The coach has two halves that live in **different places** — mixing them up
+is the most common way this silently breaks:
+
+- `ANTHROPIC_API_KEY` and `COACH_SHARED_SECRET` are **server-side** —
+  they're read by `app/api/coach+api.ts`, which runs on **Vercel**, not in
+  the app. They must be set as **Vercel environment variables**, never as an
+  EAS secret or in `app.json`/`eas.json` — either of those would ship the
+  key inside the `.ipa`/`.apk` and leak it to every install.
+- `EXPO_PUBLIC_COACH_API_URL` and `EXPO_PUBLIC_COACH_SHARED_SECRET` are
+  **client-side** — they tell the app *where* the Vercel deployment is and
+  let it identify itself to it. `EXPO_PUBLIC_*` vars are always compiled
+  into the client bundle and are extractable by anyone with the `.ipa` or
+  the web build, so `EXPO_PUBLIC_COACH_SHARED_SECRET` is a speed bump against
+  casual/automated abuse of the proxy, not a real secret — see the note
+  below on what it does and doesn't stop.
+
+### 7a — Deploy the server to Vercel and set its env vars
 
 1. Get an API key at [console.anthropic.com](https://console.anthropic.com)
-2. Go to **expo.dev/accounts/[your-username]/projects/visiongo-rn/secrets**
-3. Click **Add a new secret**
-4. Name: `ANTHROPIC_API_KEY`, Value: your `sk-ant-…` key
-5. Click **Save**
+2. [Create an Upstash Redis database](https://console.upstash.com) (free
+   tier is fine) — this backs the daily usage caps described below
+3. Deploy this repo to [vercel.com](https://vercel.com) (it already has
+   `vercel.json`; build command is `npm run build:vercel`)
+4. In the Vercel project → **Settings → Environment Variables**, add:
 
-The secret is injected automatically into all subsequent EAS builds.
-If it’s not set, the coach silently falls back to a stub response —
-the app never crashes.
+   | Name | Value |
+   |---|---|
+   | `ANTHROPIC_API_KEY` | your `sk-ant-…` key |
+   | `COACH_SHARED_SECRET` | a long random string you generate yourself, e.g. `openssl rand -hex 32` |
+   | `UPSTASH_REDIS_REST_URL` | from the Upstash database's REST API tab |
+   | `UPSTASH_REDIS_REST_TOKEN` | from the same tab |
+   | `ALLOWED_ORIGINS` | *(optional)* comma-separated origins allowed to call this route from a browser, e.g. `https://precisoqs-png.github.io`. Leave unset to skip this check (native requests never send an Origin header anyway, so this only matters for the web build). |
 
-**To test the coach in a Codespace or local dev session:**
+5. Note the deployment's URL (e.g. `https://visiongo-rn.vercel.app`) — you
+   need it for the next step.
+
+If `ANTHROPIC_API_KEY` is missing, the route returns a `503` — the coach
+does **not** silently fall back to a stub on the server side; that only
+happens on the client when it can't reach the server at all (see
+`services/coachService.ts`).
+
+**What `COACH_SHARED_SECRET` does and doesn't stop:** the client sends it as
+a header on every request, and the server rejects requests missing or
+mismatching it. Because it ships inside `EXPO_PUBLIC_COACH_SHARED_SECRET` in
+every build, anyone who extracts it from the app can still call the proxy
+directly — it stops casual/automated scraping of the endpoint by parties who
+haven't gone to that effort, nothing more. The real per-request cost
+controls are the server-side daily caps (device + global), which don't rely
+on the secret at all.
+
+### 7b — Point the app at it (`eas.json`)
+
+`eas.json`'s `build.<profile>.env` now sets, for each profile:
+
+```json
+"EXPO_PUBLIC_COACH_API_URL": "https://visiongo-rn.vercel.app",
+"EXPO_PUBLIC_COACH_SHARED_SECRET": "$COACH_SHARED_SECRET"
+```
+
+Replace the URL with your actual Vercel deployment URL from Step 7a if it
+differs. The `$COACH_SHARED_SECRET` syntax tells EAS to read the value from
+an **EAS secret** of that name (not from your shell) — set it once:
+
+```bash
+eas secret:create --scope project --name COACH_SHARED_SECRET --value "the-same-value-you-put-in-vercel"
+```
+
+Without `EXPO_PUBLIC_COACH_API_URL` set, **native builds throw a loud
+configuration error** instead of silently degrading to the offline stub —
+see `CoachConfigError` in `services/coachService.ts`. This is deliberate: a
+misconfigured production build should be obviously broken in testing, not
+indistinguishable from a working one that happens to be offline.
+
+**To test the coach in a Codespace or local dev session** (talks to the
+Expo Router API route directly, no Vercel deployment needed):
 ```bash
 # .env is already in .gitignore
 echo 'ANTHROPIC_API_KEY=sk-ant-YOUR-KEY-HERE' > .env
+echo 'COACH_SHARED_SECRET=dev-only-value' >> .env
+echo 'EXPO_PUBLIC_COACH_SHARED_SECRET=dev-only-value' >> .env
 npx expo start --dev-client --clear
 ```
+
+**Note on the GitHub Pages web build:** `deploy-web.yml` publishes a static
+export with no server route at all, so `/api/coach` 404s there by design —
+that deployment always runs the offline stub, permanently, not as a fallback
+for an outage. That URL is also listed as the **Support URL** in App Store
+Connect metadata (see Step 8's checklist) — worth knowing before a reviewer
+clicks it expecting the same coach behavior as the shipped app.
 
 ---
 
@@ -157,30 +228,24 @@ the submit step errors, or vice versa.
 
 ### Step 8a — iOS code-signing credentials
 
-`eas.json` currently sets `production.ios.credentialsSource: "local"`,
-which means EAS expects `credentials.json` plus the certificate/profile
-files it points to (`.p12`, `.mobileprovision`) to exist in the checked-out
-repo. **Those files are intentionally gitignored and are not committed**,
-so a GitHub Actions runner has nothing to sign with today — a production
-build kicked off from CI will fail at the credentials step until this is
-resolved. This document does not change `credentialsSource` or generate
-any certificates.
+`eas.json` sets `production.ios.credentialsSource: "remote"`, which uses
+signing credentials stored on EAS's servers (set up once via an interactive
+`eas credentials` run) rather than files checked into the repo. This is the
+same mechanism `development` and `preview` already use — neither sets
+`credentialsSource`, so both default to `"remote"` too.
 
-> **For CI runs specifically**, `credentialsSource: "remote"` is the better
-> fit than `"local"`: it uses signing credentials stored on EAS's servers
-> (set up once via an interactive `eas credentials` run) instead of files
-> that would otherwise have to be decoded from secrets on every run. This
-> is exactly how `development` and `preview` already work — neither sets
-> `credentialsSource`, so both default to `"remote"`, and their only
-> failure so far has been "no credentials uploaded yet," not a wrong
-> source. Switching `production` requires deliberately editing
-> `eas.json` (not done here) and running `eas credentials` once to upload
-> the distribution certificate — do that only when you're ready.
+Run this once, interactively, before the first production build:
+```bash
+eas credentials
+# iOS → (select the project) → production → set up a new distribution certificate
+```
+Until that's done, a production build kicked off from CI will fail at the
+credentials step — this document does not generate any certificates for you.
 
-If you run production builds **locally** instead (`eas build --profile
-production --platform ios`, from a machine that has `credentials.json` and
-the referenced files), `credentialsSource: local` works as-is with no
-changes needed.
+If you'd rather run production builds **locally** with files you manage
+yourself (`credentials.json` plus `.p12`/`.mobileprovision`), change
+`credentialsSource` to `"local"` in `eas.json` and keep those files
+gitignored as usual.
 
 ### Step 8b — App Store Connect API key (for the submit step)
 
@@ -218,8 +283,10 @@ step is skipped and EAS falls back to Option A automatically — so it's safe
 to set up Option A now and revisit Option B later, or never.
 
 The app's numeric App Store Connect ID is already set in
-`submit.production.ios.ascAppId` in `eas.json` (`1211999645`) — nothing to
-add there.
+`submit.production.ios.ascAppId` in `eas.json` (`6794743198`) — nothing to
+add there. If your App Store Connect app has a different numeric ID, update
+that field in `eas.json` to match — the two must agree, or `eas submit` will
+try to upload to the wrong app record.
 
 ### Optional: Apple ID secrets (interactive/code-signing flows only)
 

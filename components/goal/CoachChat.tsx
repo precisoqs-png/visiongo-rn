@@ -6,7 +6,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Goal, ChatMessage, describeAction, newId } from '../../store/models';
 import { Palette } from '../../theme/themes';
-import { coachService, CoachGoalContext, CoachMessageRaw } from '../../services/coachService';
+import { coachService, CoachConfigError, CoachGoalContext, CoachMessageRaw } from '../../services/coachService';
 import { useAppStore, COACH_DAILY_LIMIT } from '../../store/useAppStore';
 
 interface Props {
@@ -109,6 +109,10 @@ export function CoachChat({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [streamingId, setStreamingId] = useState<string | null>(null);
+  // Set on any bubble that came back from the offline stub instead of the
+  // real coach, so a network/config/parsing failure never reads as a
+  // genuine answer.
+  const [stubMessageIds, setStubMessageIds] = useState<Set<string>>(new Set());
 
   const addChatMessage = useAppStore((s) => s.addChatMessage);
   const addPendingActions = useAppStore((s) => s.addPendingActions);
@@ -136,14 +140,7 @@ export function CoachChat({
 
   const sendText = async (raw: string) => {
     const text = raw.trim();
-    if (!text || loading) return;
-
-    // Check daily cap before doing anything
-    const allowed = incrementCoachUsage();
-    if (!allowed) {
-      setError("You've reached today's coaching limit — check back tomorrow!");
-      return;
-    }
+    if (!text || loading || limitReached) return;
 
     setError('');
 
@@ -185,12 +182,27 @@ export function CoachChat({
       addChatMessage(coachMsg, goal.id);
       setStreamingId(msgId);
       addPendingActions(response.actions, goal.id);
+      if (response.stub) {
+        // A stub reply is not a failure the user needs to retry — it's a
+        // usable (if generic) plan — but it must never be mistaken for a
+        // real coach answer, so flag the bubble instead of the allowance.
+        setStubMessageIds((prev) => new Set(prev).add(msgId));
+      } else {
+        // Only a confirmed real response counts against the daily
+        // allowance — a failed, cancelled, misconfigured, or stubbed
+        // request must not burn it.
+        incrementCoachUsage();
+      }
     } catch (err) {
-      setError(
-        err instanceof Error && (err as { isRateLimit?: boolean }).isRateLimit
-          ? err.message
-          : 'Coach is unavailable right now. Try again.',
-      );
+      if (err instanceof CoachConfigError) {
+        setError('Coach isn’t set up for this build yet. Nothing was sent — try again later.');
+      } else if (err instanceof Error && (err as { isRateLimit?: boolean }).isRateLimit) {
+        setError(err.message);
+      } else if (err instanceof Error && err.name === 'AbortError') {
+        setError('That took too long. Try again.');
+      } else {
+        setError('Coach is unavailable right now. Try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -219,6 +231,9 @@ export function CoachChat({
   return (
     <View>
       <Text style={[styles.eyebrow, { color: p.muted }]}>AI COACH</Text>
+      <Text style={[styles.disclosure, { color: p.muted }]}>
+        Messages, your goal details, and your "why this matters" note are sent to Anthropic to generate replies.
+      </Text>
 
       {goal.chat.length === 0 && !loading && (
         <View style={[styles.emptyCard, { backgroundColor: p.surface }]}>
@@ -232,28 +247,38 @@ export function CoachChat({
       {goal.chat.map((msg) => {
         const isUser = msg.sender === 'user';
         const isStreaming = msg.id === streamingId;
+        const isStub = stubMessageIds.has(msg.id);
         const textColor = isUser ? p.surface : p.text;
 
         return (
-          <View
-            key={msg.id}
-            style={[
-              styles.bubble,
-              isUser
-                ? [styles.userBubble, { backgroundColor: p.accent }]
-                : [styles.coachBubble, { backgroundColor: p.surface }],
-            ]}
-          >
-            {isStreaming ? (
-              <TypewriterText
-                text={msg.text}
-                color={textColor}
-                speed={30}
-                onDone={() => setStreamingId(null)}
-              />
-            ) : (
-              <Text style={[styles.bubbleText, { color: textColor }]}>{msg.text}</Text>
+          <View key={msg.id}>
+            {isStub && (
+              <View style={[styles.stubBanner, { backgroundColor: `${p.muted}22` }]}>
+                <Ionicons name="alert-circle-outline" size={12} color={p.muted} />
+                <Text style={[styles.stubBannerText, { color: p.muted }]}>
+                  Coach unavailable — showing a basic plan
+                </Text>
+              </View>
             )}
+            <View
+              style={[
+                styles.bubble,
+                isUser
+                  ? [styles.userBubble, { backgroundColor: p.accent }]
+                  : [styles.coachBubble, { backgroundColor: p.surface }],
+              ]}
+            >
+              {isStreaming ? (
+                <TypewriterText
+                  text={msg.text}
+                  color={textColor}
+                  speed={30}
+                  onDone={() => setStreamingId(null)}
+                />
+              ) : (
+                <Text style={[styles.bubbleText, { color: textColor }]}>{msg.text}</Text>
+              )}
+            </View>
           </View>
         );
       })}
@@ -407,8 +432,9 @@ const styles = StyleSheet.create({
   applyAllText: { fontSize: 13, fontWeight: '700' },
   dismissAllText: { fontSize: 13, fontWeight: '500' },
   eyebrow: {
-    fontSize: 11, fontWeight: '600', letterSpacing: 1.5, marginBottom: 10,
+    fontSize: 11, fontWeight: '600', letterSpacing: 1.5, marginBottom: 4,
   },
+  disclosure: { fontSize: 11, lineHeight: 15, marginBottom: 10 },
   emptyCard: { borderRadius: 14, padding: 16, marginBottom: 10 },
   emptyText: { fontSize: 14, lineHeight: 20 },
   bubble: {
@@ -416,6 +442,11 @@ const styles = StyleSheet.create({
   },
   coachBubble: { alignSelf: 'flex-start' },
   userBubble: { alignSelf: 'flex-end' },
+  stubBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    alignSelf: 'flex-start', marginBottom: 4, paddingHorizontal: 2,
+  },
+  stubBannerText: { fontSize: 11, fontWeight: '500' },
   bubbleText: { fontSize: 14, lineHeight: 20 },
   errorText: { fontSize: 13, marginBottom: 8 },
   limitBanner: {

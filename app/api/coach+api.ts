@@ -10,9 +10,22 @@ const SERVER_DAILY_LIMIT = 500;
 // stop a client from calling this route more than the stated limit. These
 // counters live in Redis keyed by a per-device id sent as a header, so they
 // hold regardless of what the client does or claims.
+//
+// The device id itself is just an unsigned client-supplied header though —
+// nothing stops a caller from generating a fresh one per request to reset
+// this cap. IP_DAILY_LIMITS below is the backstop for that: it doesn't care
+// what id the client claims. Set noticeably higher than the device limit so
+// it doesn't false-positive on a household/office NAT or a carrier's shared
+// IP with several genuine users behind it — it exists to catch "rotate the
+// device id in a loop," not "two people on the same wifi."
 const DEVICE_DAILY_LIMITS: Record<'coach' | 'pair', number> = {
   coach: 20,
   pair: 5,
+};
+
+const IP_DAILY_LIMITS: Record<'coach' | 'pair', number> = {
+  coach: 100,
+  pair: 25,
 };
 
 const UPSTASH_TIMEOUT_MS = 15_000;
@@ -143,9 +156,17 @@ function todayKey(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-async function checkAndIncrementServerLimit(): Promise<boolean> {
+// Belt-and-suspenders global ceiling — unlike the per-device/per-IP checks
+// below, this one fails CLOSED: if Redis is unreachable/misconfigured we
+// cannot prove the deployment is under its daily cost ceiling, so the
+// honest answer is "unavailable," not "allowed." The per-device/IP checks
+// stay fail-open by design (a Redis outage should degrade abuse protection,
+// not take the whole feature down for every user) — this is the one limit
+// that exists specifically to bound worst-case spend, so it doesn't get
+// that same trade-off.
+async function checkServerLimit(): Promise<boolean | null> {
   const count = await incrWithDailyExpiry(`coach-usage:${todayKey()}`);
-  if (count === null) return true;
+  if (count === null) return null;
   return count <= SERVER_DAILY_LIMIT;
 }
 
@@ -164,7 +185,75 @@ async function checkAndIncrementDeviceLimit(
   return { allowed: count <= limit, limit };
 }
 
+// Backstop against device-id rotation: keyed by the caller's IP instead of
+// anything the client claims. See IP_DAILY_LIMITS above for why the
+// threshold is set well above the device limit.
+async function checkAndIncrementIpLimit(
+  ip: string, kind: 'coach' | 'pair'
+): Promise<{ allowed: boolean; limit: number }> {
+  const limit = IP_DAILY_LIMITS[kind];
+  const key = `ip-usage:${kind}:${ip || 'no-ip'}:${todayKey()}`;
+  const count = await incrWithDailyExpiry(key);
+  if (count === null) return { allowed: true, limit };
+  return { allowed: count <= limit, limit };
+}
+
+// Vercel (and most reverse proxies) put the real client IP in the first
+// hop of x-forwarded-for; x-real-ip is a fallback for other front ends.
+// Neither header is attacker-controllable the way x-device-id is — the
+// proxy sets it, not the client.
+function clientIp(request: Request): string {
+  const forwarded = request.headers.get('x-forwarded-for');
+  if (forwarded) return forwarded.split(',')[0].trim();
+  return request.headers.get('x-real-ip') ?? '';
+}
+
+// A shared secret sent by the client as a header. This is NOT a real secret
+// — EXPO_PUBLIC_* values ship inside the client bundle/IPA and are
+// extractable by anyone willing to unpack it — so treat it only as a speed
+// bump against casual/automated scraping of this endpoint, not as access
+// control. The real cost controls are the daily caps above, which don't
+// depend on this check at all. If COACH_SHARED_SECRET isn't configured,
+// this check is skipped (logged once) rather than locking everyone out —
+// same trade-off as the Upstash-missing case below.
+let warnedMissingSecret = false;
+function checkSharedSecret(request: Request): boolean {
+  const expected = process.env.COACH_SHARED_SECRET;
+  if (!expected) {
+    if (!warnedMissingSecret) {
+      warnedMissingSecret = true;
+      console.warn('[coach+api] COACH_SHARED_SECRET not set — shared-secret check is DISABLED');
+    }
+    return true;
+  }
+  return request.headers.get('x-coach-secret') === expected;
+}
+
+// Browser requests carry Origin (or, failing that, Referer); native app
+// requests carry neither. When ALLOWED_ORIGINS is configured and a request
+// does carry one of these headers, reject anything not on the allowlist —
+// this only ever narrows what a *browser* can do against the endpoint
+// (e.g. another site's JS calling it with a user's cookies/session), it has
+// no effect on native or on tools that don't set these headers at all.
+function checkOrigin(request: Request): boolean {
+  const allowed: string[] = (process.env.ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((s: string) => s.trim())
+    .filter(Boolean);
+  if (allowed.length === 0) return true;
+  const origin = request.headers.get('origin') ?? request.headers.get('referer');
+  if (!origin) return true;
+  return allowed.some((a: string) => origin === a || origin.startsWith(`${a}/`));
+}
+
 export async function POST(request: Request): Promise<Response> {
+  if (!checkOrigin(request)) {
+    return Response.json({ error: 'Origin not allowed.' }, { status: 403 });
+  }
+  if (!checkSharedSecret(request)) {
+    return Response.json({ error: 'Missing or invalid credentials.' }, { status: 401 });
+  }
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return Response.json(
@@ -173,7 +262,17 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const globalAllowed = await checkAndIncrementServerLimit();
+  const globalAllowed = await checkServerLimit();
+  if (globalAllowed === null) {
+    // Fail CLOSED: we could not verify the deployment is under its daily
+    // cost ceiling, so refuse rather than risk unbounded spend. See
+    // checkServerLimit's comment for why this one differs from the
+    // fail-open device/IP checks below.
+    return Response.json(
+      { error: 'Coach is temporarily unavailable. Please try again shortly.' },
+      { status: 503 }
+    );
+  }
   if (!globalAllowed) {
     return Response.json(
       { error: 'The coach has reached its daily usage limit for all users. Please try again tomorrow.' },
@@ -202,6 +301,16 @@ export async function POST(request: Request): Promise<Response> {
 
   const kind: 'coach' | 'pair' = body.kind === 'pair' ? 'pair' : 'coach';
   const deviceId = request.headers.get('x-device-id') ?? '';
+  const ip = clientIp(request);
+
+  const { allowed: ipAllowed } = await checkAndIncrementIpLimit(ip, kind);
+  if (!ipAllowed) {
+    return Response.json(
+      { error: 'Too many requests from this network today. Please try again tomorrow.' },
+      { status: 429 }
+    );
+  }
+
   const { allowed: deviceAllowed, limit: deviceLimit } = await checkAndIncrementDeviceLimit(deviceId, kind);
   if (!deviceAllowed) {
     const what = kind === 'pair' ? 'Pair' : 'coach chat';

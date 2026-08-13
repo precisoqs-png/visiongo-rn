@@ -1,9 +1,29 @@
+import { Platform } from 'react-native';
 import {
   CoachAction, Measurable, MeasurableType, measurableStep,
   Milestone, MilestoneKind, Cadence,
   milestonePercent, cadenceLabel, isStepDoneThisPeriod,
 } from '../store/models';
 import { getDeviceId } from './deviceId';
+
+// How long the client waits for the proxy before giving up and treating the
+// request as failed. Generously above the server's own ~20s Anthropic
+// timeout budget (see app/api/coach+api.ts) so a slow-but-alive server isn't
+// cut off first by the client.
+const CLIENT_TIMEOUT_MS = 25_000;
+
+// Thrown when the app has no configured coach server URL on a build where
+// one is required (native). This is a build/deploy misconfiguration, not a
+// transient network failure — it must never be swallowed into a silent stub
+// fallback, or a broken production build looks indistinguishable from a
+// working one that's just using the offline coach.
+export class CoachConfigError extends Error {
+  readonly isConfigError = true as const;
+  constructor(message: string) {
+    super(message);
+    this.name = 'CoachConfigError';
+  }
+}
 
 // ── Types ──────────────────────────────────────────
 
@@ -36,6 +56,10 @@ export interface CoachMessageRaw {
 export interface CoachResponse {
   text: string;
   actions: CoachAction[];
+  // True when this reply came from the offline StubCoachService rather than
+  // the real AI — lets the UI say so honestly instead of presenting a
+  // canned fallback as a genuine coach answer.
+  stub?: boolean;
 }
 
 // ── Tool definitions ───────────────────────────────────────
@@ -762,6 +786,7 @@ export class StubCoachService implements CoachService {
           `overall. Watch your time budget when both need attention in the same week — ` +
           `that is the balance to manage, not a reason to drop one.`,
         actions: [],
+        stub: true,
       };
     }
 
@@ -774,7 +799,7 @@ export class StubCoachService implements CoachService {
     const handoff = matchEffortHandoff(lastUserMsg, ctx);
     if (handoff) {
       const { displayText, actions } = parseSuggestions(buildEffortStep(handoff, lastUserMsg));
-      return { text: displayText, actions };
+      return { text: displayText, actions, stub: true };
     }
 
     let rawText: string;
@@ -791,7 +816,7 @@ export class StubCoachService implements CoachService {
     }
 
     const { displayText, actions } = parseSuggestions(rawText);
-    return { text: displayText, actions };
+    return { text: displayText, actions, stub: true };
   }
 }
 
@@ -799,25 +824,54 @@ export class StubCoachService implements CoachService {
 //
 // URL resolution:
 //   Dev / Node-hosted web: relative '/api/coach' hits Expo Router API route.
-//   Static hosts (GitHub Pages): 404 → falls back to StubCoachService.
-//   Native production: set EXPO_PUBLIC_COACH_API_URL to your deployed server
-//     (e.g. https://your-app.vercel.app); without it the relative URL is
-//     invalid on native and the network-error catch falls back to stub.
+//   Static hosts (GitHub Pages): no server route exists at all there, so
+//     every request 404s → falls back to StubCoachService. This is expected
+//     and permanent for that deployment target, not a bug to fix — the
+//     GitHub Pages build always runs the offline coach.
+//   Native production: EXPO_PUBLIC_COACH_API_URL MUST be set (per eas.json
+//     build profile) to the deployed server, e.g. https://your-app.vercel.app.
+//     A relative URL is not a valid fetch target on native, so a missing
+//     value here throws CoachConfigError instead of quietly degrading to
+//     the stub — see the check below.
 //
-// To enable real AI responses: deploy Expo server build to Vercel, set
-// ANTHROPIC_API_KEY there, set EXPO_PUBLIC_COACH_API_URL as EAS Secret.
+// To enable real AI responses: deploy the Expo server build to Vercel, set
+// ANTHROPIC_API_KEY and COACH_SHARED_SECRET there (see DEPLOYMENT.md), and
+// set EXPO_PUBLIC_COACH_API_URL + EXPO_PUBLIC_COACH_SHARED_SECRET per EAS
+// build profile in eas.json.
 
 export class ProxyCoachService implements CoachService {
   async send(messages: CoachMessageRaw[], ctx: CoachGoalContext): Promise<CoachResponse> {
     const base = process.env.EXPO_PUBLIC_COACH_API_URL ?? '';
+
+    // A relative '/api/coach' is a legitimate same-origin target on web (dev
+    // server, or a Vercel-hosted web build) but is not a valid fetch target
+    // on native — there is no "origin" to resolve it against, and the
+    // request would either throw or (worse) silently hit nothing. Treat a
+    // missing base URL on native as a loud configuration error, not a
+    // reason to fall back to the stub.
+    if (!base && Platform.OS !== 'web') {
+      throw new CoachConfigError(
+        'Coach isn’t configured for this build (EXPO_PUBLIC_COACH_API_URL is unset). ' +
+        'This is a build/deploy issue, not a temporary outage.',
+      );
+    }
+
     const url = `${base}/api/coach`;
     const deviceId = await getDeviceId();
+    const sharedSecret = process.env.EXPO_PUBLIC_COACH_SHARED_SECRET ?? '';
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CLIENT_TIMEOUT_MS);
 
     let response: globalThis.Response;
     try {
       response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-device-id': deviceId },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-device-id': deviceId,
+          ...(sharedSecret ? { 'x-coach-secret': sharedSecret } : {}),
+        },
         body: JSON.stringify({
           messages: messages.map((m) => ({ role: m.role, content: m.text })),
           systemPrompt: buildSystemPrompt(ctx),
@@ -827,9 +881,12 @@ export class ProxyCoachService implements CoachService {
           // counters this request counts against.
           kind: ctx.kind === 'pairing' ? 'pair' : 'coach',
         }),
+        signal: controller.signal,
       });
     } catch {
       return new StubCoachService().send(messages, ctx);
+    } finally {
+      clearTimeout(timer);
     }
 
     // A device or global cap being hit is real, user-facing information —
@@ -846,6 +903,21 @@ export class ProxyCoachService implements CoachService {
       const err = new Error(msg) as Error & { isRateLimit: true };
       err.isRateLimit = true;
       throw err;
+    }
+
+    // The server's global cost-ceiling fails CLOSED (see app/api/coach+api.ts)
+    // and returns 503 when it can't verify the daily count is under budget.
+    // That is also real, user-facing information, not a reason to paper over
+    // it with an offline plan.
+    if (response.status === 503) {
+      let msg = 'Coach is temporarily unavailable. Please try again shortly.';
+      try {
+        const data = await response.json();
+        if (typeof data?.error === 'string') msg = data.error;
+      } catch {
+        // Keep the default message.
+      }
+      throw new Error(msg);
     }
 
     if (!response.ok) {

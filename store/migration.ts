@@ -193,6 +193,34 @@ function migrateLegacyMilestone(mg: LegacyMilestone): TrackableItem {
 // same shape it was given). Exported so imported backup JSON
 // (Settings > Backup > Import) can be run through the same defensive
 // backfilling as any other persisted blob, instead of duplicating this logic.
+// A shallow but real shape check for an imported backup file, run before
+// normalizeYears touches it. `Array.isArray(data.years)` alone accepts
+// `{ years: [] }`, `{ years: [null] }`, `{ years: [{}] }` — any
+// valid-shaped garbage silently wipes real data once importBackup
+// unconditionally overwrites state with whatever normalizeYears produces
+// from it. This doesn't attempt to validate every legacy field (that's what
+// normalizeYears itself tolerates across format versions) — just enough to
+// reject a file that plainly isn't a VisionGo backup at all.
+export function validateBackupShape(data: unknown): string | null {
+  if (!data || typeof data !== 'object') return 'That file is not a VisionGo backup.';
+  const years = (data as { years?: unknown }).years;
+  if (!Array.isArray(years)) return 'That file does not look like a VisionGo backup (missing a "years" list).';
+  for (const y of years) {
+    if (!y || typeof y !== 'object') return 'That file contains an invalid year entry.';
+    const yr = y as { year?: unknown; goals?: unknown };
+    if (typeof yr.year !== 'number') return 'That file contains a year entry with no year number.';
+    if (!Array.isArray(yr.goals)) return 'That file contains a year entry with no goals list.';
+    for (const g of yr.goals) {
+      if (!g || typeof g !== 'object') return 'That file contains an invalid goal entry.';
+      const goal = g as { id?: unknown; title?: unknown };
+      if (typeof goal.id !== 'string' || typeof goal.title !== 'string') {
+        return 'That file contains a goal entry missing an id or title.';
+      }
+    }
+  }
+  return null;
+}
+
 export function normalizeYears(years: LegacyYears): YearData[] {
   return (years ?? []).map((y) => ({
     ...y,
