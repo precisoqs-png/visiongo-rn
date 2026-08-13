@@ -160,6 +160,24 @@ export function isItemDeadlineOutdated(m: TrackableItem, goalTargetDate?: string
 export const isMeasurableDeadlineOutdated = isItemDeadlineOutdated;
 export const isMilestoneDeadlineOutdated = isItemDeadlineOutdated;
 
+// Removing ANY item must also drop its children (a Measurable's `parentId`
+// pointing at a Milestone that no longer exists would never resolve or
+// render again — see itemDeadline/measurableFraction, both of which walk
+// goal.items looking for a parent by id and silently treat "not found" as
+// "no parent info", not as an error). A Measurable never has children of
+// its own in this model, so applying this to a Measurable's id is a
+// harmless no-op; the condition is deliberately unconditional (no
+// `milestone: true` check) so every delete path — coach-driven or
+// user-driven — behaves identically regardless of what kind of item is
+// being removed. Every call site that removes an item from `goal.items`
+// (deleteMeasurable, deleteMilestone, deleteMeasurableInPlace, and
+// applyCoachAction's removeMilestone) MUST go through this, not a hand-rolled
+// `it.id !== id` filter, so a future item type with children doesn't
+// silently reopen the orphan bug this closes.
+export function removeItemCascade(items: TrackableItem[], id: string): TrackableItem[] {
+  return items.filter((it) => it.id !== id && it.parentId !== id);
+}
+
 // Snap a value onto the item's step grid. Steps may be fractional
 // (0.5 kg), so round the multiple rather than the value to avoid float noise.
 export function snapToStep(value: number, step: number): number {

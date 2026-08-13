@@ -9,7 +9,7 @@ import {
   newId, newMeasurable, newMilestone, newCommitment, buildLadderWeeks,
   resolveMeasurable, resolveMilestone, periodKey,
   DEFAULT_SCHEDULE, currentBuildUpWeek, isStepDoneThisPeriod, currentStepPeriodDueDate,
-  formatNumber, isCompleted,
+  formatNumber, isCompleted, removeItemCascade,
 } from './models';
 import { normalizeYears, LegacyYears, ITEMS_SCHEMA_VERSION } from './migration';
 import { GOAL_NOTE_COLORS as COLORS } from '../theme/themes';
@@ -299,8 +299,11 @@ export const useAppStore = create<AppState>()(
       },
 
       deleteMeasurable: (mid, goalId) => {
+        // Cascades: deleting a top-level Milestone from the Milestones tab
+        // goes through this same action, and must also drop any child
+        // Measurable pointing at it — see removeItemCascade's comment.
         get()._patchGoal(goalId, (g) => ({
-          ...g, items: g.items.filter((it) => it.id !== mid),
+          ...g, items: removeItemCascade(g.items, mid),
         }));
       },
 
@@ -316,9 +319,10 @@ export const useAppStore = create<AppState>()(
       },
 
       deleteMilestone: (mgId, goalId) => {
+        // Same cascade as deleteMeasurable — see removeItemCascade's comment.
         get()._patchGoal(goalId, (g) => ({
           ...g,
-          items: g.items.filter((it) => it.id !== mgId),
+          items: removeItemCascade(g.items, mgId),
         }));
       },
 
@@ -593,7 +597,15 @@ export const useAppStore = create<AppState>()(
       },
 
       completeOnboarding: (year, motto, goals) => {
-        const yd: YearData = { year, motto: motto || 'Dream it. Plan it. Live it.', goals };
+        // Stamp itemsSchema on every incoming goal as a final safety net,
+        // independent of whether the caller already did it — same reasoning
+        // as addGoalFull above: a goal entering the store for the first time
+        // must never look re-migratable to the next rehydrate's
+        // normalizeYears pass. Every current caller (app/onboarding.tsx)
+        // already stamps this itself before calling in, so this is
+        // belt-and-braces, not a fix for an exploitable gap today.
+        const stampedGoals = goals.map((g) => ({ ...g, itemsSchema: ITEMS_SCHEMA_VERSION }));
+        const yd: YearData = { year, motto: motto || 'Dream it. Plan it. Live it.', goals: stampedGoals };
         set((s) => ({
           years: s.years.filter((y) => y.year !== year).concat(yd).sort((a, b) => a.year - b.year),
           selectedYear: year,
@@ -765,10 +777,13 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
     const target = resolveMilestone(a, goal);
     if (!target) return goal;
     // Removing a Milestone removes its children too — an orphaned Measurable
-    // with a dangling parentId would never resolve or render again.
+    // with a dangling parentId would never resolve or render again. See
+    // removeItemCascade's comment (store/models.ts) for the full rationale;
+    // the user-facing delete paths in useAppStore/index.tsx use the same
+    // helper for consistency.
     return {
       ...goal,
-      items: goal.items.filter((it) => it.id !== target.id && it.parentId !== target.id),
+      items: removeItemCascade(goal.items, target.id),
     };
   }
 

@@ -25,7 +25,7 @@
 import { normalizeYears, ITEMS_SCHEMA_VERSION } from '../store/migration';
 import {
   goalProgress, isCompleted, measurableFraction, commitmentStreak, commitmentProgress,
-  milestoneCheckpoints, itemDeadline, Goal, newId,
+  milestoneCheckpoints, itemDeadline, Goal, newId, removeItemCascade,
 } from '../store/models';
 import { TEMPLATE_CATEGORIES, instantiateTemplate } from '../store/goalTemplates';
 
@@ -540,6 +540,90 @@ const markedOnce = normalizeYears(markedYears as any);
 assert(
   JSON.stringify(markedOnce) === JSON.stringify(normalizeYears(markedOnce as any)),
   'normalizeYears output is byte-stable across repeated rehydrates, starting from an already-itemsSchema:6 blob',
+);
+
+// ── 10. Regression: deleting a Milestone must cascade to its Measurable
+// children (the fifth-review main bug) ──────────────────────────────────
+//
+// Before the fix, deleteMeasurable/deleteMilestone/deleteMeasurableInPlace
+// each filtered out only the target item by id, leaving any child Measurable
+// (parentId pointing at the deleted Milestone) orphaned in `goal.items`.
+// Consequences traced through the real model functions:
+//   - goalProgress/isCompleted only iterate top-level items (parentId ==
+//     null), so the orphan is invisible to both; if it was the goal's only
+//     top-level item, the goal has zero top-level items left and isCompleted
+//     returns false unconditionally — permanently uncompletable.
+//   - itemDeadline can't find a parent for the orphan, so commitmentProgress
+//     falls through to its "no deadline -> expected 0 -> already done if any
+//     completions exist" branch, misreading a barely-started commitment as
+//     100% complete on its own card while the goal's overall progress reads
+//     something else entirely — the exact false-100% shape section 7 above
+///     guards against, reached via deletion instead of a missing `goal` arg.
+// This exercises removeItemCascade directly — the real helper every fixed
+// delete path (deleteMeasurable, deleteMilestone in store/useAppStore.ts,
+// deleteMeasurableInPlace in app/goal/[id]/index.tsx, and applyCoachAction's
+// pre-existing removeMilestone) now calls, so this is a genuine regression
+// test for the shared fix, not a hand-rolled equivalent.
+
+const cascadeGoal: Goal = {
+  id: 'gcascade', title: 'Cascade delete check', colorIndex: 0,
+  reminder: { on: false, frequency: 'Daily' }, chat: [], pendingActions: [],
+  itemsSchema: ITEMS_SCHEMA_VERSION,
+  items: [
+    {
+      id: 'pCascade', type: 'check', label: 'Save for a trip', milestone: true,
+      done: false, current: 0, target: 0, unit: '', step: 1, weeks: [], commitments: [],
+      deadline: '2026-12-31',
+    },
+    {
+      // A 'commitment'-type child with ~14% progress (1 of 7 monthly
+      // completions against a deadline that allows ~7 periods) — the most
+      // faithful repro of a partially-done commitment orphaned by deletion.
+      id: 'cCascade', type: 'commitment', label: 'Monthly savings', parentId: 'pCascade',
+      done: false, current: 0, target: 0, unit: '', step: 1, weeks: [],
+      commitments: [
+        {
+          id: 'stepCascade', label: 'Save $500/mo', amount: 500, unit: '$', cadence: 'monthly',
+          completions: ['2026-01'], createdAt: '2026-01-01T00:00:00.000Z',
+          schedule: { on: false, weekday: 2, dayOfMonth: 1, hour: 9, minute: 0 },
+        },
+      ],
+    },
+  ],
+};
+
+// Sanity: before deletion, the child reads a real partial fraction (not 0,
+// not falsely 100%) — same shape as section 7's check, confirming this
+// fixture actually reproduces "partially done" before we delete anything.
+const cCascadeBefore = cascadeGoal.items.find((it) => it.id === 'cCascade')!;
+const fractionBefore = measurableFraction(cCascadeBefore, cascadeGoal);
+assert(
+  fractionBefore > 0 && fractionBefore < 1,
+  `cascade fixture sanity: child measurable starts genuinely partial (not 0, not 100%) — got ${fractionBefore}`,
+);
+
+const cascadedItems = removeItemCascade(cascadeGoal.items, 'pCascade');
+assert(
+  cascadedItems.find((it) => it.id === 'pCascade') === undefined,
+  'removeItemCascade: the deleted Milestone itself is gone',
+);
+assert(
+  cascadedItems.find((it) => it.id === 'cCascade') === undefined,
+  'removeItemCascade: the child Measurable is ALSO gone, not orphaned (the main bug)',
+);
+assert(
+  cascadedItems.every((it) => it.parentId == null || cascadedItems.some((p) => p.id === it.parentId)),
+  'removeItemCascade: no dangling parentId references remain anywhere in items',
+);
+
+const cascadedGoal: Goal = { ...cascadeGoal, items: cascadedItems };
+assert(
+  goalProgress(cascadedGoal) === 0,
+  `after cascade delete, goalProgress reads a sane 0 for an empty goal (not a leftover fraction from the orphan) — got ${goalProgress(cascadedGoal)}`,
+);
+assert(
+  !isCompleted(cascadedGoal),
+  'after cascade delete, isCompleted reads false for an empty goal (not a false-positive from an invisible orphan)',
 );
 
 // ── Result ───────────────────────────────────────────────────────────

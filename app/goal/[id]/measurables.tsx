@@ -105,17 +105,33 @@ export default function MeasurablesListScreen() {
   // now that commitments live on the child Measurable this screen renders.
   const [scheduleForCommitment, setScheduleForCommitment] = useState<{ item: Measurable; step: Commitment } | null>(null);
 
+  // `scheduleForCommitment.item` is a snapshot taken when the schedule sheet
+  // was OPENED — it can go stale if the user edits the same item (e.g. a
+  // check-in) while the sheet is still open. Re-read the current item from
+  // the store right before applying the patch, same "read fresh state, not
+  // the render closure" pattern the resync* helpers above already use, so a
+  // concurrent edit is never silently clobbered.
+  const freshTargetItem = (): Measurable | undefined => {
+    const target = scheduleForCommitment;
+    if (!target) return undefined;
+    const fresh = useAppStore.getState().getGoal(id!);
+    return fresh?.items.find((it) => it.id === target.item.id);
+  };
+
   const saveCommitmentSchedule = async (
     patch: { cadence: Cadence; intervalDays?: number; schedule: StepSchedule },
   ) => {
     const target = scheduleForCommitment;
     if (!target) return;
-    const apply = (schedule: StepSchedule) => updateMeasurable({
-      ...target.item,
-      commitments: target.item.commitments.map((s) => (
-        s.id === target.step.id ? { ...s, cadence: patch.cadence, intervalDays: patch.intervalDays, schedule } : s
-      )),
-    }, id!);
+    const apply = (schedule: StepSchedule) => {
+      const currentItem = freshTargetItem() ?? target.item;
+      updateMeasurable({
+        ...currentItem,
+        commitments: currentItem.commitments.map((s) => (
+          s.id === target.step.id ? { ...s, cadence: patch.cadence, intervalDays: patch.intervalDays, schedule } : s
+        )),
+      }, id!);
+    };
     if (patch.schedule.on) {
       const granted = await requestNotificationPermission();
       if (!granted) {
@@ -133,9 +149,10 @@ export default function MeasurablesListScreen() {
   const turnOffCommitmentReminder = () => {
     const target = scheduleForCommitment;
     if (!target) return;
+    const currentItem = freshTargetItem() ?? target.item;
     updateMeasurable({
-      ...target.item,
-      commitments: target.item.commitments.map((s) => (
+      ...currentItem,
+      commitments: currentItem.commitments.map((s) => (
         s.id === target.step.id ? { ...s, schedule: { ...s.schedule, on: false } } : s
       )),
     }, id!);

@@ -10,6 +10,7 @@ import { useThemeStore } from '../../../store/useThemeStore';
 import { useAppStore } from '../../../store/useAppStore';
 import {
   Measurable, TrackableItem, BoardPosition, Commitment, Cadence, StepSchedule, measurableFraction,
+  removeItemCascade,
 } from '../../../store/models';
 import { GoalNote } from '../../../components/board/GoalNote';
 import {
@@ -198,7 +199,12 @@ export default function GoalCanvasScreen() {
   };
 
   const deleteMeasurableInPlace = (measurableId: string) => {
-    patchGoal((g) => ({ items: g.items.filter((x) => x.id !== measurableId) }));
+    // Cascade: this is called on any item opened from the canvas, including
+    // a top-level Milestone — its child Measurable(s) must go with it, or
+    // they're left with a dangling parentId (invisible on the canvas, but
+    // still rendered on the Measurables tab, and misreading its own progress
+    // — see removeItemCascade's comment in store/models.ts).
+    patchGoal((g) => ({ items: removeItemCascade(g.items, measurableId) }));
   };
 
   // Reminder sheet for ONE Commitment nested inside whichever item is
@@ -215,15 +221,29 @@ export default function GoalCanvasScreen() {
     }
   };
 
+  // `scheduleForCommitment.item` is a snapshot taken when the schedule sheet
+  // was OPENED — it can go stale if the user edits the same item (e.g. a
+  // check-in) while the sheet is still open. Re-read the current item from
+  // the store right before applying the patch, same "read fresh state, not
+  // the render closure" pattern patchGoal/resyncCommitmentNotifications
+  // already use above, so a concurrent edit is never silently clobbered.
+  const freshTargetItem = (): Measurable | undefined => {
+    const target = scheduleForCommitment;
+    if (!target) return undefined;
+    const fresh = useAppStore.getState().getGoal(id!);
+    return fresh?.items.find((it) => it.id === target.item.id);
+  };
+
   const saveCommitmentSchedule = async (
     patch: { cadence: Cadence; intervalDays?: number; schedule: StepSchedule },
   ) => {
     const target = scheduleForCommitment;
     if (!target) return;
     const apply = (schedule: StepSchedule) => {
+      const currentItem = freshTargetItem() ?? target.item;
       const updated: Measurable = {
-        ...target.item,
-        commitments: target.item.commitments.map((s) => (
+        ...currentItem,
+        commitments: currentItem.commitments.map((s) => (
           s.id === target.step.id ? { ...s, cadence: patch.cadence, intervalDays: patch.intervalDays, schedule } : s
         )),
       };
@@ -246,9 +266,10 @@ export default function GoalCanvasScreen() {
   const turnOffCommitmentReminder = () => {
     const target = scheduleForCommitment;
     if (!target) return;
+    const currentItem = freshTargetItem() ?? target.item;
     updateMeasurableInPlace({
-      ...target.item,
-      commitments: target.item.commitments.map((s) => (
+      ...currentItem,
+      commitments: currentItem.commitments.map((s) => (
         s.id === target.step.id ? { ...s, schedule: { ...s.schedule, on: false } } : s
       )),
     });
