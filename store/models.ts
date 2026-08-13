@@ -1,5 +1,3 @@
-import * as Crypto from 'expo-crypto';
-
 export type MeasurableType = 'check' | 'number' | 'ladder' | 'commitment';
 
 export interface LadderWeek {
@@ -697,8 +695,15 @@ export type BoardLayout = 'radial' | 'grid';
 export type BoardViewMode = 'wholeYear' | 'byMonth';
 
 // ── ID generation ─────────────────────────────────────────────
-
+//
+// Lazily requires expo-crypto instead of importing it at module top-level so
+// that pure-logic consumers of this file (e.g. scripts/verify-unify-migration.ts,
+// run standalone under tsx/Node) don't have to resolve expo-crypto's native
+// module graph just to reach unrelated functions — this only touches the
+// dependency when an id actually needs generating.
 export function newId(): string {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const Crypto = require('expo-crypto') as typeof import('expo-crypto');
   return Crypto.randomUUID();
 }
 
