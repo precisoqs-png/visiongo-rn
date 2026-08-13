@@ -6,6 +6,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import * as Linking from 'expo-linking';
 import * as FileSystem from 'expo-file-system';
 import * as DocumentPicker from 'expo-document-picker';
 import { useThemeStore } from '../../store/useThemeStore';
@@ -196,6 +197,14 @@ export default function SettingsScreen() {
         >
           <Text style={[styles.settingsRowText, { color: p.text }]}>How to Use</Text>
           <Ionicons name="chevron-forward" size={14} color={p.muted} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.settingsRow, { backgroundColor: p.surface }]}
+          onPress={() => Linking.openURL('https://precisoqs-png.github.io/visiongo-rn/privacy-policy.html')}
+          activeOpacity={0.75}
+        >
+          <Text style={[styles.settingsRowText, { color: p.text }]}>Privacy Policy</Text>
+          <Ionicons name="open-outline" size={14} color={p.muted} />
         </TouchableOpacity>
 
         <SectionLabel label="BACKUP" palette={p} />

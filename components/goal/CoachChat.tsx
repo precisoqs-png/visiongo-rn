@@ -231,6 +231,9 @@ export function CoachChat({
   return (
     <View>
       <Text style={[styles.eyebrow, { color: p.muted }]}>AI COACH</Text>
+      <Text style={[styles.disclosure, { color: p.muted }]}>
+        Messages, your goal details, and your "why this matters" note are sent to Anthropic to generate replies.
+      </Text>
 
       {goal.chat.length === 0 && !loading && (
         <View style={[styles.emptyCard, { backgroundColor: p.surface }]}>
@@ -429,8 +432,9 @@ const styles = StyleSheet.create({
   applyAllText: { fontSize: 13, fontWeight: '700' },
   dismissAllText: { fontSize: 13, fontWeight: '500' },
   eyebrow: {
-    fontSize: 11, fontWeight: '600', letterSpacing: 1.5, marginBottom: 10,
+    fontSize: 11, fontWeight: '600', letterSpacing: 1.5, marginBottom: 4,
   },
+  disclosure: { fontSize: 11, lineHeight: 15, marginBottom: 10 },
   emptyCard: { borderRadius: 14, padding: 16, marginBottom: 10 },
   emptyText: { fontSize: 14, lineHeight: 20 },
   bubble: {
