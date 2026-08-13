@@ -1,6 +1,6 @@
 import {
   CoachAction, Measurable, MeasurableType, measurableStep,
-  Milestone, Cadence,
+  Milestone, Cadence, Goal,
   milestonePercent, cadenceLabel, isStepDoneThisPeriod,
 } from '../store/models';
 import { getDeviceId } from './deviceId';
@@ -180,6 +180,12 @@ export const COACH_TOOLS = [
 function describeMeasurable(m: Measurable, milestones: Milestone[]): string {
   const parent = milestones.find((mg) => mg.id === m.parentId);
   const under = parent ? ` [under "${parent.label}"]` : '';
+  // milestonePercent now requires a Goal (see store/models.ts) so it can
+  // resolve a commitment-driven Measurable's deadline through its parent.
+  // A Measurable never has children of its own, so a minimal stand-in
+  // carrying just the Milestones (for the parent lookup) plus this one
+  // Measurable is equivalent to the real goal for this call.
+  const goalStandIn = { items: [...milestones, m] } as Goal;
   const head = ((): string => {
     switch (m.type) {
       case 'check':
@@ -191,7 +197,7 @@ function describeMeasurable(m: Measurable, milestones: Milestone[]): string {
         return `- "${m.label}" (weekly ladder)${under} — ${done}/${m.weeks.length} weeks done, final target ${m.target} ${m.unit}`;
       }
       case 'commitment':
-        return `- "${m.label}" (commitment-driven)${under} — ${milestonePercent(m)}%${m.done ? ', marked done' : ''}`;
+        return `- "${m.label}" (commitment-driven)${under} — ${milestonePercent(m, goalStandIn)}%${m.done ? ', marked done' : ''}`;
     }
   })();
   const steps = m.commitments.length

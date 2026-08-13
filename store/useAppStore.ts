@@ -46,7 +46,19 @@ function backupBeforeV6Invert(state: { years?: LegacyYears }): void {
     const needsInvert = years.some((y) =>
       (y.goals ?? []).some((g) => (g as { itemsSchema?: number }).itemsSchema !== ITEMS_SCHEMA_VERSION));
     if (!needsInvert) return;
-    void AsyncStorage.setItem(PRE_V6_BACKUP_KEY, JSON.stringify(state)).catch(() => {});
+    // Defensive, in addition to the needsInvert gate above: this backup must
+    // be taken exactly once per device, ever — the first pre-invert state,
+    // never a later (already-migrated, or worse re-re-inverted) one. Before
+    // this repo's bug 1 fix, a freshly-created goal was missing itemsSchema
+    // and made needsInvert a false positive on nearly every rehydrate, which
+    // kept clobbering the one genuine backup with post-migration data. That
+    // false positive is now fixed at the source, but this existence check
+    // stays as a second line of defense against any future gap in the same
+    // gate re-triggering the same clobber.
+    void AsyncStorage.getItem(PRE_V6_BACKUP_KEY).then((existing) => {
+      if (existing != null) return;
+      return AsyncStorage.setItem(PRE_V6_BACKUP_KEY, JSON.stringify(state));
+    }).catch(() => {});
   } catch {
     // Never let a backup attempt block or throw into the migrate/merge path.
   }
@@ -218,10 +230,17 @@ export const useAppStore = create<AppState>()(
         const existing = get().years.find((y) => y.year === year);
         if (!existing) get().selectYear(year);
         const colorIndex = (get().years.find((y) => y.year === year)?.goals.length ?? 0) % COLORS.length;
+        // Stamped with the current itemsSchema so this goal is never re-run
+        // through invertItemsForGoal on the next rehydrate — a fresh goal
+        // has no legacy shape to invert, and mistakenly re-inverting it
+        // would demote its Milestone into a synthesized parent's child and
+        // sever a Measurable's parentId (see the bug this guards against in
+        // store/migration.ts's ITEMS_SCHEMA_VERSION comment).
         const goal: Goal = {
           id: newId(), title, colorIndex,
           reminder: { on: false, frequency: 'Daily' },
           chat: [], pendingActions: [], items: [],
+          itemsSchema: ITEMS_SCHEMA_VERSION,
         };
         set((s) => ({
           years: s.years.map((y) =>
@@ -235,12 +254,16 @@ export const useAppStore = create<AppState>()(
         const year = get().selectedYear;
         const existing = get().years.find((y) => y.year === year);
         if (!existing) get().selectYear(year);
+        // Stamped here too (not just relied on from the caller) — same
+        // reasoning as addGoal above: a goal entering the store for the
+        // first time must never look re-migratable.
+        const stamped: Goal = { ...goal, itemsSchema: ITEMS_SCHEMA_VERSION };
         set((s) => ({
           years: s.years.map((y) =>
-            y.year === year ? { ...y, goals: [...y.goals, goal] } : y
+            y.year === year ? { ...y, goals: [...y.goals, stamped] } : y
           ),
         }));
-        return goal.id;
+        return stamped.id;
       },
 
       updateGoal: (goal) => {

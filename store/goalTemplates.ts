@@ -2,6 +2,7 @@ import {
   Goal, TrackableItem, newId, newMeasurable,
   newMilestone, newCommitment, buildCommitmentRamp,
 } from './models';
+import { ITEMS_SCHEMA_VERSION } from './migration';
 
 export interface GoalTemplate {
   id: string;
@@ -200,5 +201,11 @@ export function instantiateTemplate(t: GoalTemplate, colorIndex: number): Goal {
     chat: [],
     pendingActions: [],
     items: t.build(),
+    // Already built directly on the current (post-invert) shape — a
+    // top-level Milestone from mkCheck/mkBuildUpMilestone/mkNumber, its
+    // Measurable children already parented. Stamping this prevents the next
+    // rehydrate's normalizeYears pass from treating it as legacy data and
+    // re-inverting it (see store/migration.ts's ITEMS_SCHEMA_VERSION comment).
+    itemsSchema: ITEMS_SCHEMA_VERSION,
   };
 }

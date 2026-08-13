@@ -504,6 +504,7 @@ export default function GoalDetailScreen() {
               <MeasurableCard
                 key={m.id}
                 measurable={m}
+                goal={goal}
                 goalTargetDate={goal.targetDate}
                 palette={p}
                 noteColor={noteColor}

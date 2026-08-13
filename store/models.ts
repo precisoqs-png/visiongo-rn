@@ -136,7 +136,7 @@ export function measurableStep(m: TrackableItem): number {
  * parent Milestone's `deadline`. A top-level Milestone (or any item with no
  * parent) just reads its own `deadline`. Every call site that used to read
  * `item.deadline` directly (commitmentProgress via measurableFraction,
- * suggestBreakdowns, isItemDeadlineOutdated) must go through this instead,
+ * isItemDeadlineOutdated) must go through this instead,
  * so a part-done commitment on a child never reads against a stale/absent
  * deadline of its own.
  */
@@ -350,24 +350,7 @@ export function periodsUntil(deadline: string, cadence: Cadence, intervalDays = 
   }
 }
 
-// ── Breakdown suggestions (case 1: arithmetic milestones) ────
-
-export interface BreakdownOption {
-  cadence: Cadence;
-  intervalDays?: number; // set alongside cadence 'custom' — daily habit options
-  periods: number;
-  amountPerPeriod: number;
-  label: string;       // "Save $1,000 per month"
-  summary: string;     // "12 payments of $1,000"
-}
-
-// Round to something a human would actually commit to, scaled to size.
-function friendlyAmount(v: number): number {
-  if (v >= 1000) return Math.round(v / 50) * 50;
-  if (v >= 100) return Math.round(v / 10) * 10;
-  if (v >= 10) return Math.round(v);
-  return Math.round(v * 10) / 10;
-}
+// ── Amount formatting ──────────────────────────────────────
 
 /** "$1,000" for currency symbols, "40 km" for everything else. */
 export function formatAmount(v: number, unit?: string): string {
@@ -375,81 +358,6 @@ export function formatAmount(v: number, unit?: string): string {
   if (!unit) return n;
   // Currency-ish units read better in front: $1,000 not 1,000 $
   return /^[$£€¥]$/.test(unit.trim()) ? `${unit.trim()}${n}` : `${n} ${unit}`;
-}
-const fmtAmount = formatAmount;
-
-// Explicit recurrence language in the title — "each morning", "every day",
-// "daily", "each week", "weekly" — marks an item as a repeating HABIT
-// rather than a one-time cumulative sum. For a habit, `target` is already the
-// per-occurrence amount ("30 min each morning" means 30 min EVERY morning,
-// not 30 min total to divide across the weeks remaining).
-const DAILY_HABIT_CUE = /\b(each|every)\s+(day|morning|evening|night)\b|\bdaily\b/i;
-const WEEKLY_HABIT_CUE = /\b(each|every)\s+week\b|\bweekly\b/i;
-
-export function isRecurringHabit(mg: TrackableItem): boolean {
-  return mg.type === 'number' && (DAILY_HABIT_CUE.test(mg.label) || WEEKLY_HABIT_CUE.test(mg.label));
-}
-
-/**
- * Turns "Save $10,000 by <deadline>" into weekly/monthly commitments sized
- * from what is still OUTSTANDING, so a part-funded goal is not over-split.
- * Returns [] when there is no numeric target or no time left to plan over.
- * `deadline` resolves through the parent Milestone via itemDeadline — a
- * Measurable has no deadline of its own.
- *
- * Recurring habits ("No phone 30 min each morning") are a different shape of
- * problem — the target already IS the per-occurrence amount, so it is routed
- * to suggestHabitCadence instead of being divided by the weeks remaining.
- */
-export function suggestBreakdowns(mg: TrackableItem, goal: Goal, today: Date = new Date()): BreakdownOption[] {
-  const deadline = itemDeadline(mg, goal);
-  if (mg.type !== 'number' || !mg.target || !deadline) return [];
-  const remaining = Math.max(0, mg.target - (mg.current ?? 0));
-  if (remaining <= 0) return [];
-
-  if (isRecurringHabit(mg)) {
-    return suggestHabitCadence(mg, deadline, today);
-  }
-
-  const verb = /save|fund|budget|invest/i.test(mg.label) ? 'Save' : 'Add';
-  const out: BreakdownOption[] = [];
-  for (const cadence of ['weekly', 'monthly'] as const) {
-    const periods = periodsUntil(deadline, cadence, 7, today);
-    if (periods < 2) continue;
-    const amountPerPeriod = friendlyAmount(remaining / periods);
-    if (amountPerPeriod <= 0) continue;
-    const per = cadence === 'weekly' ? 'per week' : 'per month';
-    out.push({
-      cadence,
-      periods,
-      amountPerPeriod,
-      label: `${verb} ${fmtAmount(amountPerPeriod, mg.unit)} ${per}`,
-      summary: `${periods} × ${fmtAmount(amountPerPeriod, mg.unit)}`,
-    });
-  }
-  return out;
-}
-
-// Case: recurring habits. The stated target repeats as-is on the cadence
-// named in the title — never divided by the weeks remaining, since the
-// "amount" is a per-occurrence dose (30 min of no-phone time every single
-// morning), not a cumulative sum being paid off over time.
-function suggestHabitCadence(mg: TrackableItem, deadline: string, today: Date): BreakdownOption[] {
-  const target = mg.target as number;
-  const daily = DAILY_HABIT_CUE.test(mg.label);
-  const cadence: Cadence = daily ? 'custom' : 'weekly';
-  const intervalDays = daily ? 1 : undefined;
-  const periods = periodsUntil(deadline, cadence, intervalDays ?? 7, today);
-  if (periods < 1) return [];
-  const per = daily ? 'each day' : 'each week';
-  return [{
-    cadence,
-    intervalDays,
-    periods,
-    amountPerPeriod: target,
-    label: `${fmtAmount(target, mg.unit)} ${per}`,
-    summary: `Every ${daily ? 'day' : 'week'} until ${new Date(deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} (${periods} ${daily ? 'days' : 'weeks'})`,
-  }];
 }
 
 // ── Progress ──────────────────────────────────────────────────
@@ -468,32 +376,43 @@ export function commitmentProgress(step: Commitment, deadline?: string): number 
 
 // Fraction complete (0..1) for one TrackableItem.
 //
-// Hierarchy-aware when `goal` is passed: a top-level Milestone that HAS
-// children Measurables (goal.items.filter(i => i.parentId === m.id)) folds
-// in the average of its children's own fractions instead of reading its own
-// (binary, type 'check') done flag alone — this is what makes goalProgress /
-// isCompleted / milestoneCheckpoints correct once items are nested, without
-// double-counting (see those functions below, which iterate top-level items
-// only and rely on this recursion to already include each child's share).
-// `goal` is optional because every UI card today only ever renders a LEAF
-// item (a top-level binary Milestone with no children of its own, or a
-// quantified Measurable child, which never has children) — those callers
-// can omit it and get the plain per-item fraction below.
-//  - `done` is an explicit override checked first (a manually-marked-done
-//    Measurable), same as old milestoneFraction.
+// `goal` is REQUIRED, not optional — every UI call site has a Goal in scope
+// (it's the screen/card's own prop), and an earlier optional-with-a-fallback
+// signature was a footgun: a 'commitment'-type CHILD has no deadline of its
+// own (it lives on its parent, see itemDeadline) and omitting `goal` made
+// this silently fall back to `m.deadline` (always undefined on a child),
+// which — per commitmentProgress's own "no deadline -> expected 0 -> already
+// done if completions.length > 0" fallback — could misread a 3-of-52-done
+// commitment as 100% complete. Making `goal` required and letting the
+// compiler catch every omission is safer than trusting every future call
+// site to remember to pass it.
+//
+// Hierarchy-aware: a top-level Milestone that HAS children Measurables
+// (goal.items.filter(i => i.parentId === m.id)) folds in the average of its
+// children's own fractions instead of reading its own (binary, type 'check')
+// done flag alone — this is what makes goalProgress / isCompleted /
+// milestoneCheckpoints correct once items are nested, without double-counting
+// (see those functions below, which iterate top-level items only and rely on
+// this recursion to already include each child's share).
+//  - The children-average branch is checked BEFORE `done` deliberately: once
+//    a Milestone has children, it is a pure container and its own `done`
+//    flag is not an independent completion path — see newMilestone/UI call
+//    sites, which should not offer a manual done-toggle on a Milestone that
+//    has children at all (only on a leaf/childless Milestone), so the
+//    affordance and this math stay in agreement.
+//  - `done` is an explicit override checked next (a manually-marked-done,
+//    childless Measurable/Milestone), same as old milestoneFraction.
 //  - 'check' / 'number' / 'ladder' read exactly as the old measurableFraction
 //    did — a 'number' item's commitments (if any) only ever move `current`,
 //    they don't change how the fraction is computed.
 //  - 'commitment' averages commitmentProgress across every attached
 //    commitment, resolving the deadline via itemDeadline (walks up to the
-//    parent Milestone) when `goal` is available.
-export function measurableFraction(m: TrackableItem, goal?: Goal): number {
-  if (goal) {
-    const children = goal.items.filter((it) => it.parentId === m.id);
-    if (children.length > 0) {
-      const sum = children.reduce((acc, c) => acc + measurableFraction(c, goal), 0);
-      return sum / children.length;
-    }
+//    parent Milestone).
+export function measurableFraction(m: TrackableItem, goal: Goal): number {
+  const children = goal.items.filter((it) => it.parentId === m.id);
+  if (children.length > 0) {
+    const sum = children.reduce((acc, c) => acc + measurableFraction(c, goal), 0);
+    return sum / children.length;
   }
   if (m.done) return 1;
   switch (m.type) {
@@ -507,7 +426,7 @@ export function measurableFraction(m: TrackableItem, goal?: Goal): number {
       return m.weeks.filter((w) => w.done).length / m.weeks.length;
     case 'commitment': {
       if (m.commitments.length === 0) return 0;
-      const deadline = goal ? itemDeadline(m, goal) : m.deadline;
+      const deadline = itemDeadline(m, goal);
       const sum = m.commitments.reduce((acc, s) => acc + commitmentProgress(s, deadline), 0);
       return Math.min(1, sum / m.commitments.length);
     }
@@ -516,8 +435,8 @@ export function measurableFraction(m: TrackableItem, goal?: Goal): number {
 // Back-compat alias used by the milestone-flavored call sites.
 export const milestoneFraction = measurableFraction;
 
-export function milestonePercent(mg: TrackableItem): number {
-  return Math.round(measurableFraction(mg) * 100);
+export function milestonePercent(mg: TrackableItem, goal: Goal): number {
+  return Math.round(measurableFraction(mg, goal) * 100);
 }
 
 export type ReminderFrequency = 'Daily' | 'Weekly' | 'Monthly';

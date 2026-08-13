@@ -25,8 +25,9 @@
 import { normalizeYears, ITEMS_SCHEMA_VERSION } from '../store/migration';
 import {
   goalProgress, isCompleted, measurableFraction, commitmentStreak, commitmentProgress,
-  milestoneCheckpoints, itemDeadline, Goal,
+  milestoneCheckpoints, itemDeadline, Goal, newId,
 } from '../store/models';
+import { TEMPLATE_CATEGORIES, instantiateTemplate } from '../store/goalTemplates';
 
 // Key-order-independent structural equality — plain JSON.stringify would
 // spuriously fail two structurally-identical objects whose keys were built
@@ -324,6 +325,106 @@ assert(resolvedFraction > 0 && resolvedFraction < 1, `commitment-driven child fr
 // Cross-check against calling commitmentProgress directly with the resolved deadline.
 const expectedFraction = commitmentProgress(cD.commitments[0], '2026-12-31');
 assert(Math.abs(resolvedFraction - expectedFraction) < 1e-9, 'measurableFraction(child, goal) matches commitmentProgress computed with the parent-resolved deadline directly');
+
+// ── 5. Regression: a freshly-created goal must never be re-inverted ─────
+//
+// Bug: addGoal/addGoalFull/instantiateTemplate built a Goal with no
+// `itemsSchema`, so on the very next rehydrate mergeState's normalizeYears
+// (-> invertItemsForGoal) treated it as pre-v6 legacy data and re-inverted
+// it — demoting a real top-level Milestone into a synthesized parent's
+// child, and severing a Measurable's `parentId` by pointing it at a NEW
+// synthetic parent. Fixed by stamping `itemsSchema: ITEMS_SCHEMA_VERSION` on
+// every goal-construction call site. This proves it stays fixed: run a
+// freshly-built goal (exactly the shape addGoal/addGoalFull now produce)
+// through normalizeYears twice and require byte-for-byte (structural)
+// equality both times — any re-invert would change item count/ids/shape.
+
+const freshGoal: Goal = {
+  id: newId(),
+  title: 'New Goal',
+  colorIndex: 0,
+  reminder: { on: false, frequency: 'Daily' },
+  chat: [],
+  pendingActions: [],
+  items: [],
+  itemsSchema: ITEMS_SCHEMA_VERSION,
+};
+const freshYears = [{ year: 2026, motto: '', goals: [freshGoal] }];
+const freshOnce = normalizeYears(freshYears as any);
+const freshTwice = normalizeYears(freshOnce as any);
+assert(
+  deepEqual(freshTwice, freshOnce),
+  'a freshly-created (itemsSchema-stamped) goal survives two normalizeYears passes unchanged — never re-inverted',
+);
+assert(
+  freshOnce[0].goals[0].items.length === 0,
+  `a freshly-created empty goal stays empty after normalizeYears — got ${freshOnce[0].goals[0].items.length} items`,
+);
+
+// ── 6. Regression: a template-instantiated goal survives rehydrate ──────
+//
+// Exercises the REAL instantiateTemplate (store/goalTemplates.ts), which now
+// stamps itemsSchema too — a template with both a plain Milestone (mkCheck)
+// and a Milestone+Measurable pair (mkBuildUpMilestone) must come back from
+// normalizeYears with the same item count, the same top-level Milestone
+// still a Milestone, and the Measurable's parentId still pointing at its
+// REAL parent (not a freshly synthesized one).
+const halfMarathonTemplate = TEMPLATE_CATEGORIES
+  .flatMap((c) => c.templates)
+  .find((t) => t.id === 'health-run-half')!;
+const templateGoal = instantiateTemplate(halfMarathonTemplate, 0);
+assert(templateGoal.itemsSchema === ITEMS_SCHEMA_VERSION, 'instantiateTemplate stamps itemsSchema on the built goal');
+
+const templateYears = [{ year: 2026, motto: '', goals: [templateGoal] }];
+const templateNormalized = normalizeYears(templateYears as any);
+const templateGoalOut = templateNormalized[0].goals[0];
+assert(
+  templateGoalOut.items.length === templateGoal.items.length,
+  `template goal item count unchanged by normalizeYears — expected ${templateGoal.items.length}, got ${templateGoalOut.items.length}`,
+);
+assert(
+  deepEqual(templateGoalOut.items, templateGoal.items),
+  'template goal items are byte-for-byte unchanged after normalizeYears (not re-inverted)',
+);
+const templateMeasurable = templateGoal.items.find((it) => it.parentId != null)!;
+assert(!!templateMeasurable, 'template goal has at least one Measurable child (the build-up ramp)');
+const templateMeasurableOut = templateGoalOut.items.find((it) => it.id === templateMeasurable.id)!;
+assert(
+  !!templateMeasurableOut && templateMeasurableOut.parentId === templateMeasurable.parentId,
+  'template Measurable\'s parentId still points at its REAL original parent, not a newly synthesized one'
+);
+const templateMilestone = templateGoal.items.find((it) => it.milestone && it.parentId == null)!;
+assert(!!templateMilestone, 'template goal has at least one top-level Milestone');
+const templateMilestoneOut = templateGoalOut.items.find((it) => it.id === templateMilestone.id)!;
+assert(
+  !!templateMilestoneOut && templateMilestoneOut.milestone === true && templateMilestoneOut.parentId == null,
+  'template Milestone is still a top-level Milestone after normalizeYears (not demoted into a child)'
+);
+
+// ── 7. measurableFraction(child, goal) end-to-end deadline resolution ───
+//
+// Now that `goal` is a required argument (bug 3's fix), the only way to call
+// measurableFraction on a commitment-driven child is through the real
+// parent-deadline resolution path — there is no more optional-arg footgun
+// to have a runtime test for (npx tsc --noEmit already enforces every call
+// site passes a goal). This re-asserts, through the real signature, that a
+// child's fraction differs meaningfully depending on which deadline is used
+// — i.e. the parent-resolved deadline is genuinely driving the computation,
+// not being silently ignored.
+const cD2 = deadlineGoal.items.find((it) => it.id === 'cD')!;
+const fractionWithRealParentDeadline = measurableFraction(cD2, deadlineGoal);
+// Hypothetical: what the SAME commitment would read as if resolved against
+// no deadline at all (the old broken fallback) — expected floors to 0,
+// so completions.length > 0 makes commitmentProgress read 100%.
+const fractionWithNoDeadline = commitmentProgress(cD2.commitments[0], undefined);
+assert(
+  fractionWithNoDeadline === 1,
+  `sanity: with no deadline, commitmentProgress reads false-positive 100% (the bug this guards against) — got ${fractionWithNoDeadline}`,
+);
+assert(
+  fractionWithRealParentDeadline < fractionWithNoDeadline,
+  `measurableFraction resolved through the real parent deadline (${fractionWithRealParentDeadline}) must read LOWER than the broken no-deadline fallback (${fractionWithNoDeadline}) — proves the parent deadline is actually driving the math`
+);
 
 // ── Result ───────────────────────────────────────────────────────────
 

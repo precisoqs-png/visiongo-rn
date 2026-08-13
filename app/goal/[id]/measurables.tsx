@@ -8,14 +8,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../../store/useThemeStore';
 import { useAppStore } from '../../../store/useAppStore';
 import { GOAL_NOTE_COLORS, hexAlpha } from '../../../theme/themes';
-import { goalProgress, goalProgressPercent, Measurable, Cadence, StepSchedule, DEFAULT_SCHEDULE } from '../../../store/models';
+import { goalProgress, goalProgressPercent, Measurable, Commitment, Cadence, StepSchedule, DEFAULT_SCHEDULE } from '../../../store/models';
 import { MeasurableCard } from '../../../components/goal/MeasurableCard';
 import { AddMeasurableForm } from '../../../components/goal/AddMeasurableForm';
 import { CoachChat } from '../../../components/goal/CoachChat';
 import { InfoPopover } from '../../../components/shared/InfoPopover';
 import { StepScheduleSheet } from '../../../components/goal/StepScheduleSheet';
 import {
-  syncWeeklyTargetNotifications, syncMeasurableReminders,
+  syncWeeklyTargetNotifications, syncMeasurableReminders, syncCommitmentNotifications,
   requestNotificationPermission, alertNotificationsUnavailable,
 } from '../../../services/notificationService';
 
@@ -93,6 +93,56 @@ export default function MeasurablesListScreen() {
     resyncMeasurableNotifications();
   };
 
+  const resyncCommitmentNotifications = () => {
+    const fresh = useAppStore.getState().getGoal(id!);
+    if (fresh && useAppStore.getState().notificationsMasterOn) {
+      void syncCommitmentNotifications(fresh);
+    }
+  };
+
+  // A specific Commitment's own reminder, nested inside a measurable —
+  // same pattern as milestones.tsx's scheduleForCommitment, wired here too
+  // now that commitments live on the child Measurable this screen renders.
+  const [scheduleForCommitment, setScheduleForCommitment] = useState<{ item: Measurable; step: Commitment } | null>(null);
+
+  const saveCommitmentSchedule = async (
+    patch: { cadence: Cadence; intervalDays?: number; schedule: StepSchedule },
+  ) => {
+    const target = scheduleForCommitment;
+    if (!target) return;
+    const apply = (schedule: StepSchedule) => updateMeasurable({
+      ...target.item,
+      commitments: target.item.commitments.map((s) => (
+        s.id === target.step.id ? { ...s, cadence: patch.cadence, intervalDays: patch.intervalDays, schedule } : s
+      )),
+    }, id!);
+    if (patch.schedule.on) {
+      const granted = await requestNotificationPermission();
+      if (!granted) {
+        alertNotificationsUnavailable();
+        apply({ ...patch.schedule, on: false });
+        setScheduleForCommitment(null);
+        return;
+      }
+    }
+    apply(patch.schedule);
+    setScheduleForCommitment(null);
+    resyncCommitmentNotifications();
+  };
+
+  const turnOffCommitmentReminder = () => {
+    const target = scheduleForCommitment;
+    if (!target) return;
+    updateMeasurable({
+      ...target.item,
+      commitments: target.item.commitments.map((s) => (
+        s.id === target.step.id ? { ...s, schedule: { ...s.schedule, on: false } } : s
+      )),
+    }, id!);
+    setScheduleForCommitment(null);
+    resyncCommitmentNotifications();
+  };
+
   if (!hydrated || !goal) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: p.bg }}>
@@ -165,12 +215,14 @@ export default function MeasurablesListScreen() {
               <MeasurableCard
                 key={m.id}
                 measurable={m}
+                goal={goal}
                 goalTargetDate={goal.targetDate}
                 palette={p}
                 noteColor={noteColor}
-                onUpdate={(m) => { updateMeasurable(m, goal.id); resyncWeekNotifications(); }}
-                onDelete={(mid) => { deleteMeasurable(mid, goal.id); resyncWeekNotifications(); }}
+                onUpdate={(m) => { updateMeasurable(m, goal.id); resyncWeekNotifications(); resyncCommitmentNotifications(); }}
+                onDelete={(mid) => { deleteMeasurable(mid, goal.id); resyncWeekNotifications(); resyncCommitmentNotifications(); }}
                 onOpenSchedule={(m) => setScheduleForMeasurable(m)}
+                onOpenCommitmentSchedule={(m, step) => setScheduleForCommitment({ item: m, step })}
               />
             ))
           )}
@@ -200,6 +252,16 @@ export default function MeasurablesListScreen() {
         onSave={(patch) => { void saveMeasurableSchedule(patch); }}
         onTurnOff={turnOffMeasurableReminder}
         onDismiss={() => setScheduleForMeasurable(null)}
+      />
+
+      {/* Reminder sheet for one Commitment nested inside a measurable. */}
+      <StepScheduleSheet
+        visible={!!scheduleForCommitment}
+        step={scheduleForCommitment?.step ?? null}
+        palette={p}
+        onSave={(patch) => { void saveCommitmentSchedule(patch); }}
+        onTurnOff={turnOffCommitmentReminder}
+        onDismiss={() => setScheduleForCommitment(null)}
       />
     </LinearGradient>
   );

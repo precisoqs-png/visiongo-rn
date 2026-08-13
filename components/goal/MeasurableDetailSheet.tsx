@@ -1,12 +1,15 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Modal, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Measurable } from '../../store/models';
+import { Measurable, Goal } from '../../store/models';
 import { Palette } from '../../theme/themes';
 import { MeasurableCard } from './MeasurableCard';
 
 interface Props {
   measurable: Measurable | null;
+  // Required — passed straight through to MeasurableCard, which needs it
+  // for measurableFraction. See its doc comment in store/models.ts.
+  goal: Goal;
   goalTargetDate?: string;
   palette: Palette;
   // The parent goal's own color — passed straight through to MeasurableCard
@@ -22,7 +25,7 @@ interface Props {
 // gets in the old list view (MeasurableCard, unchanged), just surfaced in a
 // modal since the bubble itself is too small for steppers/ladder weeks.
 export function MeasurableDetailSheet({
-  measurable, goalTargetDate, palette: p, noteColor, onUpdate, onDelete, onDismiss,
+  measurable, goal, goalTargetDate, palette: p, noteColor, onUpdate, onDelete, onDismiss,
 }: Props) {
   return (
     <Modal visible={!!measurable} transparent animationType="fade" onRequestClose={onDismiss}>
@@ -43,6 +46,7 @@ export function MeasurableDetailSheet({
           {measurable && (
             <MeasurableCard
               measurable={measurable}
+              goal={goal}
               goalTargetDate={goalTargetDate}
               palette={p}
               noteColor={noteColor}

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, PanResponder, Text, View, StyleSheet, Platform } from 'react-native';
 import {
-  Measurable, measurableFraction, steppedValue, formatNumber,
+  Measurable, Goal, measurableFraction, steppedValue, formatNumber,
 } from '../../store/models';
 import { Point, clampCenter } from '../board/RadialBoard';
 import { Palette, hexAlpha } from '../../theme/themes';
@@ -52,6 +52,9 @@ function fitLabelFontSize(size: number, label: string): number {
 
 interface Props {
   measurable: Measurable;
+  // Required — measurableFraction needs it to fold in children/resolve a
+  // child's parent-deadline. See its doc comment in store/models.ts.
+  goal: Goal;
   size: number;
   center: Point;
   palette: Palette;
@@ -72,12 +75,12 @@ interface Props {
 // press that stays still past HOLD_MS ticks the measurable off (or, for a
 // ladder, advances it to the next week) instead of opening it.
 export function MeasurableBubble({
-  measurable: m, size, center, palette: p, noteColor, canvasSize, onTap, onTick, onDragStart, onDragEnd,
+  measurable: m, goal, size, center, palette: p, noteColor, canvasSize, onTap, onTick, onDragStart, onDragEnd,
 }: Props) {
   const pan = useRef(new Animated.ValueXY()).current;
   const { scale: popScale, pulse } = useCompletionPulse();
   const { scale: burstScale, opacity: burstOpacity, fire: fireBurst } = useCompletionBurst();
-  const frac = measurableFraction(m);
+  const frac = measurableFraction(m, goal);
 
   // Fires the celebratory burst on the 0->1 transition only — however it
   // happened (hold-to-tick here, or an edit made in MeasurableDetailSheet's

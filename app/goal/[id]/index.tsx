@@ -130,7 +130,7 @@ export default function GoalCanvasScreen() {
   useEffect(() => {
     if (!goal) return;
     const measurables = goal.items.filter((it) => it.parentId == null);
-    const frac = new Map<string, number>(measurables.map((m) => [m.id, measurableFraction(m)]));
+    const frac = new Map<string, number>(measurables.map((m) => [m.id, measurableFraction(m, goal)]));
     if (seenFracRef.current === null) {
       // First render of this screen for this goal — anything already
       // complete is a resting chip from the start, not a transition.
@@ -212,7 +212,7 @@ export default function GoalCanvasScreen() {
   // CompletionFlight overlays instead — see below).
   const flightIds = new Set(Object.keys(measurableFlights));
   const activeMeasurables = goalMeasurables.filter(
-    (m) => measurableFraction(m) < 1 && !flightIds.has(m.id),
+    (m) => measurableFraction(m, goal) < 1 && !flightIds.has(m.id),
   );
   const completedMeasurables = goalMeasurables.filter(
     (m) => settledCompletedIds.includes(m.id) && !flightIds.has(m.id),
@@ -274,7 +274,7 @@ export default function GoalCanvasScreen() {
 
         {activeMeasurables.map((m, idx) => {
           const bubbleSize = Math.round(
-            (MIN_BUBBLE + measurableFraction(m) * (MAX_BUBBLE - MIN_BUBBLE)) * layout.scale,
+            (MIN_BUBBLE + measurableFraction(m, goal) * (MAX_BUBBLE - MIN_BUBBLE)) * layout.scale,
           );
           const saved = goal.measurableBubblePositions?.[m.id];
           const raw = saved
@@ -290,6 +290,7 @@ export default function GoalCanvasScreen() {
             <MeasurableBubble
               key={m.id}
               measurable={m}
+              goal={goal}
               size={bubbleSize}
               center={center}
               palette={p}
@@ -416,6 +417,7 @@ export default function GoalCanvasScreen() {
 
       <MeasurableDetailSheet
         measurable={openMeasurable}
+        goal={goal}
         goalTargetDate={goal.targetDate}
         palette={p}
         noteColor={noteColor}

@@ -283,7 +283,13 @@ export function invertItemsForGoal(goal: Goal): Goal {
       // Completion is captured on the OLD fraction semantics (before any
       // field changes) so the synthesized parent starts out done/not-done
       // exactly as the old milestone read.
-      const wasDone = measurableFraction(item) >= 1;
+      // Pre-invert `goal.items` never has any `parentId` set (that's the
+      // shape this function is about to introduce), so passing the
+      // in-progress `goal` here as the required `goal` arg is equivalent to
+      // the old optional-arg omission: measurableFraction's children lookup
+      // finds nothing and falls through to reading `item` on its own, same
+      // as before.
+      const wasDone = measurableFraction(item, goal) >= 1;
       const parentId = newId();
       nextItems.push({
         id: parentId,
@@ -313,8 +319,9 @@ export function invertItemsForGoal(goal: Goal): Goal {
     }
     // Plain quantified item (number/ladder, e.g. template mkNumber output)
     // -> wrapped with a synthesized binary Milestone parent. Same id on the
-    // reparented Measurable; new id on the synthesized parent.
-    const wasDone = measurableFraction(item) >= 1;
+    // reparented Measurable; new id on the synthesized parent. Same
+    // pre-invert-shape reasoning as the `goal` arg above applies here too.
+    const wasDone = measurableFraction(item, goal) >= 1;
     const parentId = newId();
     nextItems.push({
       id: parentId,

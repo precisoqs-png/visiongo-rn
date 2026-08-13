@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  Measurable, Commitment, measurableFraction, measurableStep, steppedValue, formatNumber,
+  Measurable, Commitment, Goal, measurableFraction, measurableStep, steppedValue, formatNumber,
   isMeasurableDeadlineOutdated, buildLadderWeeks, milestonePercent,
 } from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
@@ -12,6 +12,11 @@ import { CommitmentsBlock } from './CommitmentsBlock';
 
 interface Props {
   measurable: Measurable;
+  // The parent goal — required so measurableFraction can resolve a child's
+  // parent-deadline and fold a Milestone's children into its own fraction.
+  // See measurableFraction's doc comment in store/models.ts for why this is
+  // no longer optional.
+  goal: Goal;
   // The parent goal's CURRENT "Achieve by" date — compared against what a
   // ladder's weeks were actually paced against, to flag it as outdated.
   goalTargetDate?: string;
@@ -66,10 +71,10 @@ function fmtDeadlineShared(iso: string): string {
 }
 
 export function MeasurableCard({
-  measurable: m, goalTargetDate, palette, noteColor, onUpdate, onDelete, onOpenSchedule, onOpenCommitmentSchedule, onAskCoach,
+  measurable: m, goal, goalTargetDate, palette, noteColor, onUpdate, onDelete, onOpenSchedule, onOpenCommitmentSchedule, onAskCoach,
 }: Props) {
   const p = palette;
-  const frac = measurableFraction(m);
+  const frac = measurableFraction(m, goal);
   // Commitments start collapsed so the flat list reads as one row per item —
   // expanding is opt-in, not a permanently-visible nested section.
   const [commitmentsOpen, setCommitmentsOpen] = useState(false);
@@ -90,15 +95,23 @@ export function MeasurableCard({
   // below, which already covers the ladder case via `sizedForGoalDate`.
   const deadlineOutdated = m.milestone && m.type !== 'ladder' && isMeasurableDeadlineOutdated(m, goalTargetDate);
 
+  // A Milestone with children is a pure container — its fraction comes
+  // entirely from the average of its children (see measurableFraction,
+  // which checks for children BEFORE `m.done`), so its own `done` flag is
+  // not an independent completion path once it has any. Only a leaf/
+  // childless Milestone gets a manual done-toggle; one with children shows
+  // its checkbox read-only, reflecting the folded-in fraction instead.
+  const hasChildren = goal.items.some((it) => it.parentId === m.id);
+
   return (
     <View style={[styles.card, { backgroundColor: p.surface }]}>
-      {m.type === 'check' && <CheckRow m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} onOpenSchedule={onOpenSchedule} />}
+      {m.type === 'check' && <CheckRow m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} onOpenSchedule={onOpenSchedule} readOnly={hasChildren} frac={frac} />}
       {m.type === 'number' && <NumberRow m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} />}
       {m.type === 'ladder' && (
         <LadderRows m={m} goalTargetDate={goalTargetDate} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} />
       )}
       {m.type === 'commitment' && (
-        <CommitmentTypeRow m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} onAskCoach={onAskCoach} />
+        <CommitmentTypeRow m={m} goal={goal} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} onAskCoach={onAskCoach} />
       )}
 
       {m.milestone && m.deadline && (
@@ -127,10 +140,13 @@ export function MeasurableCard({
         </View>
       )}
 
-      {/* Recurring commitments — only ever present on a milestone-flagged
-          item (a plain measurable's `commitments` is always empty), so this
-          never renders on measurables.tsx's cards. */}
-      {m.milestone && onOpenCommitmentSchedule && (
+      {/* Recurring commitments — gated on actually having any, not on
+          `m.milestone`. Post-invert, commitments live on the child
+          Measurable (parentId set, milestone unset) — gating on `m.milestone`
+          here meant nobody could ever see or tick a migrated goal's
+          commitments/build-up ramp weeks on its card. A plain measurable
+          with no commitments still renders nothing, same as before. */}
+      {m.commitments.length > 0 && onOpenCommitmentSchedule && (
         <CommitmentsBlock
           item={m}
           palette={p}
@@ -160,12 +176,12 @@ export function MeasurableCard({
 // A former "effort" Milestone — no current/target of its own, entirely
 // driven by its attached Commitments (see measurableFraction's 'commitment'
 // branch). `done` is a manual override a user can still flip directly.
-function CommitmentTypeRow({ m, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule, onAskCoach }: {
-  m: Measurable; p: Palette; noteColor: string; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number;
+function CommitmentTypeRow({ m, goal, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule, onAskCoach }: {
+  m: Measurable; goal: Goal; p: Palette; noteColor: string; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number;
   onOpenSchedule?: (m: Measurable) => void; onAskCoach?: (m: Measurable) => void;
 }) {
   const { scale, pulse } = useCompletionPulse();
-  const pct = milestonePercent(m);
+  const pct = milestonePercent(m, goal);
   return (
     <View>
       <View style={[styles.row, { marginBottom: 8 }]}>
@@ -198,34 +214,43 @@ function CommitmentTypeRow({ m, p, noteColor, onUpdate, onDelete, frac, onOpenSc
   );
 }
 
-function CheckRow({ m, p, noteColor, onUpdate, onDelete, onOpenSchedule }: {
+function CheckRow({ m, p, noteColor, onUpdate, onDelete, onOpenSchedule, readOnly, frac }: {
   m: Measurable; p: Palette; noteColor: string; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void;
   onOpenSchedule?: (m: Measurable) => void;
+  // True for a Milestone that has children — its checkbox reflects the
+  // folded-in child fraction and cannot be tapped; see the hasChildren
+  // comment at the MeasurableCard call site.
+  readOnly?: boolean;
+  frac?: number;
 }) {
   const { scale, pulse } = useCompletionPulse();
+  const shown = readOnly ? (frac ?? 0) >= 1 : m.done;
   return (
     <View style={styles.row}>
       <Animated.View style={{ transform: [{ scale }] }}>
         <TouchableOpacity
+          disabled={readOnly}
           style={[
             styles.checkbox,
-            { borderColor: m.done ? noteColor : p.line },
-            m.done && { backgroundColor: noteColor },
+            { borderColor: shown ? noteColor : p.line },
+            shown && { backgroundColor: noteColor },
+            readOnly && { opacity: 0.7 },
           ]}
           onPress={() => {
+            if (readOnly) return;
             const next = !m.done;
             onUpdate({ ...m, done: next });
             pulse(next);
           }}
         >
-          {m.done && <Ionicons name="checkmark" size={13} color={p.surface} />}
+          {shown && <Ionicons name="checkmark" size={13} color={p.surface} />}
         </TouchableOpacity>
       </Animated.View>
       <Text
         style={[
           styles.checkLabel,
-          { color: m.done ? p.muted : p.text },
-          m.done && { textDecorationLine: 'line-through' },
+          { color: shown ? p.muted : p.text },
+          shown && { textDecorationLine: 'line-through' },
         ]}
       >
         {m.label}
