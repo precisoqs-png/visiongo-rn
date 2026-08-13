@@ -11,7 +11,7 @@ import {
   DEFAULT_SCHEDULE, currentBuildUpWeek, isStepDoneThisPeriod, currentStepPeriodDueDate,
   formatNumber, isCompleted,
 } from './models';
-import { normalizeYears, LegacyYears } from './migration';
+import { normalizeYears, LegacyYears, ITEMS_SCHEMA_VERSION } from './migration';
 import { GOAL_NOTE_COLORS as COLORS } from '../theme/themes';
 
 export const COACH_DAILY_LIMIT = 20;
@@ -26,7 +26,31 @@ export const COACH_DAILY_LIMIT = 20;
 // merged into one Goal.items: TrackableItem[] array — a measurable becomes a
 // plain item, a milestone becomes an item with `milestone: true` and its
 // `steps` renamed to `commitments`. See normalizeYears.
-const STORE_VERSION = 5;
+// v6: Milestones/Measurables model INVERTS — a top-level Milestone becomes a
+// pure binary win, the quantified thing becomes a child Measurable with
+// `parentId`. See migration.ts's invertItemsForGoal / ITEMS_SCHEMA_VERSION.
+const STORE_VERSION = 6;
+
+// Best-effort raw copy of a persisted blob to AsyncStorage, taken right
+// before the v6 invert migration runs on it for the first time — a safety
+// net so a data-shape bug in the migration doesn't lose anyone's goals
+// silently. Fire-and-forget (never awaited, errors swallowed) so it can
+// never block or deadlock the synchronous `merge` path zustand calls this
+// from. Only fires when some goal actually lacks the itemsSchema marker
+// (i.e. the invert is genuinely about to run on this blob) — not on every
+// rehydrate forever.
+const PRE_V6_BACKUP_KEY = 'visiongo-app-data.pre-v6-backup';
+function backupBeforeV6Invert(state: { years?: LegacyYears }): void {
+  try {
+    const years = state.years ?? [];
+    const needsInvert = years.some((y) =>
+      (y.goals ?? []).some((g) => (g as { itemsSchema?: number }).itemsSchema !== ITEMS_SCHEMA_VERSION));
+    if (!needsInvert) return;
+    void AsyncStorage.setItem(PRE_V6_BACKUP_KEY, JSON.stringify(state)).catch(() => {});
+  } catch {
+    // Never let a backup attempt block or throw into the migrate/merge path.
+  }
+}
 
 function todayKey(): string {
   const d = new Date();
@@ -682,14 +706,9 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
   if (a.kind === 'addMilestone') {
     const title = (a.label ?? '').trim();
     if (!title) return goal;
+    // A Milestone is now a pure binary win — title + optional deadline only.
     const mg = newMilestone({
       label: title,
-      kind: a.milestoneKind ?? (a.target != null ? 'numeric' : 'effort'),
-      target: a.target,
-      current: a.target != null ? 0 : undefined,
-      unit: a.unit,
-      step: a.step && a.step > 0 ? a.step : undefined,
-      // Fall back to the parent goal's date so a breakdown can still be sized.
       deadline: a.deadline ?? goal.targetDate,
       // Only an inherited (not coach-specified) deadline should ever be
       // flagged outdated later — the coach naming its own date is deliberate.
@@ -701,10 +720,10 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
   if (a.kind === 'addCommitment') {
     const label = (a.label ?? '').trim();
     if (!label) return goal;
-    // Attach to the named milestone item, or the only one if the coach did
-    // not say.
-    const list = goal.items.filter((it) => it.milestone);
-    const target = resolveMilestone(a, goal) ?? (list.length === 1 ? list[0] : undefined);
+    // Commitments now live on the child Measurable, not the top-level
+    // Milestone — resolve via resolveMeasurable (parentId set).
+    const list = goal.items.filter((it) => it.parentId != null);
+    const target = resolveMeasurable(a, goal) ?? (list.length === 1 ? list[0] : undefined);
     if (!target) return goal;
     const step = newCommitment({
       label,
@@ -722,9 +741,11 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
   if (a.kind === 'removeMilestone') {
     const target = resolveMilestone(a, goal);
     if (!target) return goal;
+    // Removing a Milestone removes its children too — an orphaned Measurable
+    // with a dangling parentId would never resolve or render again.
     return {
       ...goal,
-      items: goal.items.filter((it) => it.id !== target.id),
+      items: goal.items.filter((it) => it.id !== target.id && it.parentId !== target.id),
     };
   }
 
@@ -732,7 +753,27 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
     const type = a.type ?? 'check';
     const label = (a.label ?? '').trim();
     if (!label) return goal;
-    const m = newMeasurable({ type, label, unit: a.unit ?? '' });
+
+    if (type === 'check') {
+      // A binary check is a top-level Milestone.
+      const mg = newMilestone({ label, deadline: goal.targetDate, sizedForGoalDate: goal.targetDate });
+      return { ...goal, items: [...goal.items, mg] };
+    }
+
+    // A quantified (number/ladder) item is a Measurable — it MUST have a
+    // parent Milestone. Resolve one by name if the coach named it, or the
+    // only Milestone on the goal if there's exactly one; otherwise
+    // auto-create a same-titled Milestone parent rather than leaving an
+    // orphan.
+    const milestones = goal.items.filter((it) => it.milestone);
+    let parent = resolveMilestone(a, goal) ?? (milestones.length === 1 ? milestones[0] : undefined);
+    let nextItems = goal.items;
+    if (!parent) {
+      parent = newMilestone({ label, deadline: goal.targetDate, sizedForGoalDate: goal.targetDate });
+      nextItems = [...nextItems, parent];
+    }
+
+    const m = newMeasurable({ type, label, unit: a.unit ?? '', parentId: parent.id });
     if (type === 'number') {
       m.target = a.target ?? 1;
       m.step = a.step && a.step > 0 ? a.step : 1;
@@ -743,7 +784,7 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
       m.weeks = buildLadderWeeks(a.ladderStart ?? 0, end, a.ladderWeeks ?? 4, goal.targetDate);
       m.sizedForGoalDate = goal.targetDate;
     }
-    return { ...goal, items: [...goal.items, m] };
+    return { ...goal, items: [...nextItems, m] };
   }
 
   const existing = resolveMeasurable(a, goal);
@@ -793,6 +834,7 @@ type LegacyState = Omit<AppState, 'years'> & { years?: LegacyYears };
 function migrateState(persisted: unknown, _version: number): AppState {
   const state = persisted as LegacyState;
   if (!state?.years) return state as AppState;
+  backupBeforeV6Invert(state);
   return { ...state, years: normalizeYears(state.years) } as AppState;
 }
 
@@ -802,5 +844,6 @@ function migrateState(persisted: unknown, _version: number): AppState {
 function mergeState(persisted: unknown, current: AppState): AppState {
   const state = persisted as LegacyState;
   if (!state?.years) return { ...current, ...(state as object) } as AppState;
+  backupBeforeV6Invert(state);
   return { ...current, ...state, years: normalizeYears(state.years) } as AppState;
 }

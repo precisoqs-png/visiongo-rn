@@ -8,14 +8,28 @@
 // v1: measurables gained a per-measurable `step`, and coach `suggestions`
 // became `pendingActions`. v2: goals gained `milestones`, each with its own
 // accountable steps. v5: `measurables` + `milestones` merged into one
-// `items` array. Saved data predating any of these must be backfilled or the
-// +/- controls freeze, the goal screen reads an undefined array, or the
-// progress math reads a shape that no longer exists.
+// `items` array. v6: the Milestones/Measurables model INVERTS — a top-level
+// `milestone: true` item used to be the quantified one (current/target/
+// commitments); now a top-level Milestone is a pure binary win (type
+// 'check', no target/unit/commitments) and the quantified item becomes a
+// child Measurable (`parentId` pointing at its Milestone) carrying the old
+// commitments. See invertItemsForGoal below. Saved data predating any of
+// these must be backfilled or the +/- controls freeze, the goal screen reads
+// an undefined array, or the progress math reads a shape that no longer
+// exists.
 
 import {
   YearData, Goal, TrackableItem, CoachAction, PendingAction,
-  Commitment, Reminder, DEFAULT_SCHEDULE, newId,
+  Commitment, Reminder, DEFAULT_SCHEDULE, newId, measurableFraction,
 } from './models';
+
+// Bumped only when the shape of Goal.items itself changes (not on every
+// STORE_VERSION bump) — see invertItemsForGoal. A goal already stamped with
+// this exact value is left untouched by the invert pass, which is what makes
+// normalizeYears a hard no-op on already-migrated data even though
+// mergeState (useAppStore.ts) calls it on EVERY rehydrate, not just when a
+// stored version number says to.
+export const ITEMS_SCHEMA_VERSION = 6;
 
 interface LegacySuggestion {
   id: string;
@@ -196,30 +210,36 @@ function migrateLegacyMilestone(mg: LegacyMilestone): TrackableItem {
 export function normalizeYears(years: LegacyYears): YearData[] {
   return (years ?? []).map((y) => ({
     ...y,
-    goals: (y.goals ?? []).map(({ suggestions, minorGoals, measurables, milestones, items, ...g }): Goal => ({
-      ...g,
-      // Goals persisted before the reminder feature existed have no
-      // `reminder` key at all — every screen that reads goal.reminder.on
-      // (Settings, the milestones screen, notificationService) assumes it's
-      // always present, so backfill it here rather than scattering `?.`
-      // guards across every read site.
-      reminder: g.reminder ?? ({ on: false, frequency: 'Daily' } as Reminder),
-      pendingActions: g.pendingActions
-        ? g.pendingActions.map(migratePendingAction)
-        : (suggestions ?? []).map(legacySuggestionToPending),
-      // v5: `measurables` + `milestones` (itself `minorGoals` pre-v3) merge
-      // into one `items` array. A goal already on the new shape (`items`
-      // present) is re-backfilled field-by-field for idempotency rather than
-      // re-derived from the old arrays (which have already been dropped from
-      // the destructured `g` above, so the stale duplicates never linger in
-      // the re-saved blob either way).
-      items: items
-        ? items.map(normalizeItem)
-        : [
-            ...(measurables ?? []).map(migrateLegacyMeasurable),
-            ...(milestones ?? minorGoals ?? []).map(migrateLegacyMilestone),
-          ],
-    })),
+    goals: (y.goals ?? []).map(({ suggestions, minorGoals, measurables, milestones, items, ...g }): Goal => {
+      const unified: Goal = {
+        ...g,
+        // Goals persisted before the reminder feature existed have no
+        // `reminder` key at all — every screen that reads goal.reminder.on
+        // (Settings, the milestones screen, notificationService) assumes it's
+        // always present, so backfill it here rather than scattering `?.`
+        // guards across every read site.
+        reminder: g.reminder ?? ({ on: false, frequency: 'Daily' } as Reminder),
+        pendingActions: g.pendingActions
+          ? g.pendingActions.map(migratePendingAction)
+          : (suggestions ?? []).map(legacySuggestionToPending),
+        // v5: `measurables` + `milestones` (itself `minorGoals` pre-v3) merge
+        // into one `items` array. A goal already on the new shape (`items`
+        // present) is re-backfilled field-by-field for idempotency rather
+        // than re-derived from the old arrays (which have already been
+        // dropped from the destructured `g` above, so the stale duplicates
+        // never linger in the re-saved blob either way).
+        items: items
+          ? items.map(normalizeItem)
+          : [
+              ...(measurables ?? []).map(migrateLegacyMeasurable),
+              ...(milestones ?? minorGoals ?? []).map(migrateLegacyMilestone),
+            ],
+      };
+      // v6: invert the Milestones/Measurables model — see invertItemsForGoal.
+      // Runs after the v5 unify above so it always sees the current `items`
+      // shape, and is itself gated on `itemsSchema` for idempotency.
+      return invertItemsForGoal(unified);
+    }),
   }));
 }
 
@@ -238,6 +258,85 @@ function normalizeItem(m: TrackableItem): TrackableItem {
       schedule: { ...DEFAULT_SCHEDULE, ...(s.schedule ?? {}) },
     })),
   };
+}
+
+// Inverts one goal's `items` from the pre-v6 shape (a `milestone: true` item
+// was the quantified one, carrying current/target/commitments; a plain
+// `type: 'check'` item was a one-off win) to the target shape (a top-level
+// Milestone is a pure binary win; the quantified thing becomes a child
+// Measurable with `parentId` pointing at its Milestone). Hard no-op once
+// `goal.itemsSchema === ITEMS_SCHEMA_VERSION` — required because mergeState
+// (useAppStore.ts) runs normalizeYears on EVERY rehydrate, not just when a
+// stored version number says a migration is due.
+//
+// Every reparented item keeps its ORIGINAL id (measurableBubblePositions and
+// notification identifiers are keyed by item id) — only synthesized parent
+// Milestones get a new id.
+export function invertItemsForGoal(goal: Goal): Goal {
+  if (goal.itemsSchema === ITEMS_SCHEMA_VERSION) return goal;
+
+  const nextItems: TrackableItem[] = [];
+  for (const item of goal.items) {
+    if (item.milestone) {
+      // Former quantified Milestone (numeric or effort, carries commitments)
+      // -> child Measurable under a freshly synthesized binary parent.
+      // Completion is captured on the OLD fraction semantics (before any
+      // field changes) so the synthesized parent starts out done/not-done
+      // exactly as the old milestone read.
+      const wasDone = measurableFraction(item) >= 1;
+      const parentId = newId();
+      nextItems.push({
+        id: parentId,
+        type: 'check',
+        label: item.label,
+        done: wasDone,
+        current: 0,
+        target: 0,
+        unit: '',
+        step: 1,
+        weeks: [],
+        commitments: [],
+        deadline: item.deadline,
+        milestone: true,
+      }, {
+        ...item,
+        milestone: undefined,
+        deadline: undefined,
+        parentId,
+      });
+      continue;
+    }
+    if (item.type === 'check') {
+      // Plain one-off win -> top-level Milestone, same id, no other changes.
+      nextItems.push({ ...item, milestone: true });
+      continue;
+    }
+    // Plain quantified item (number/ladder, e.g. template mkNumber output)
+    // -> wrapped with a synthesized binary Milestone parent. Same id on the
+    // reparented Measurable; new id on the synthesized parent.
+    const wasDone = measurableFraction(item) >= 1;
+    const parentId = newId();
+    nextItems.push({
+      id: parentId,
+      type: 'check',
+      label: item.label,
+      done: wasDone,
+      current: 0,
+      target: 0,
+      unit: '',
+      step: 1,
+      weeks: [],
+      commitments: [],
+      deadline: item.deadline,
+      milestone: true,
+    }, {
+      ...item,
+      deadline: undefined,
+      parentId,
+    });
+  }
+
+  return { ...goal, items: nextItems, itemsSchema: ITEMS_SCHEMA_VERSION };
 }
 
 function legacySuggestionToPending(s: LegacySuggestion): PendingAction {

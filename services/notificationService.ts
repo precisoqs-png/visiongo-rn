@@ -327,7 +327,10 @@ export async function syncCommitmentNotifications(goal: Goal): Promise<void> {
   if (!SUPPORTED) return;
   try {
     await cancelCommitmentNotifications(goal.id);
-    for (const mg of goal.items.filter((it) => it.milestone)) {
+    // Commitments now live on child Measurables (parentId set), not
+    // top-level Milestones — filtering on the old `milestone` flag would
+    // silently cancel every scheduled push and never recreate it.
+    for (const mg of goal.items.filter((it) => it.commitments.length > 0)) {
       for (const step of mg.commitments) {
         if (!step.schedule.on) continue;
         await scheduleCommitment(goal, mg, step);
