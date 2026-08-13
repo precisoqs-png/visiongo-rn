@@ -11,6 +11,7 @@ import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import { useThemeStore } from '../../store/useThemeStore';
 import { useAppStore } from '../../store/useAppStore';
+import { validateBackupShape } from '../../store/migration';
 import { THEMES, THEME_ORDER, ThemeKey, GOAL_NOTE_COLORS, FONTS, hexAlpha } from '../../theme/themes';
 import { ReminderFrequency } from '../../store/models';
 import {
@@ -33,6 +34,9 @@ export default function SettingsScreen() {
 
   const resetOnboarding = useAppStore((s) => s.resetOnboarding);
   const importBackup = useAppStore((s) => s.importBackup);
+  const restorePreImportSnapshot = useAppStore((s) => s.restorePreImportSnapshot);
+
+  const [canUndoImport, setCanUndoImport] = useState(false);
 
   const [showNotifications, setShowNotifications] = useState(false);
 
@@ -85,15 +89,16 @@ export default function SettingsScreen() {
       Alert.alert('Import failed', 'That file is not valid JSON.');
       return;
     }
-    const data = parsed as { years?: unknown };
-    if (!data || typeof data !== 'object' || !Array.isArray(data.years)) {
-      Alert.alert('Import failed', 'That file does not look like a VisionGo backup (missing a "years" list).');
+    const shapeError = validateBackupShape(parsed);
+    if (shapeError) {
+      Alert.alert('Import failed', shapeError);
       return;
     }
 
     const doImport = () => {
       try {
         importBackup(parsed as { years: any; selectedYear?: number; hasCompletedOnboarding?: boolean });
+        setCanUndoImport(true);
       } catch {
         Alert.alert('Import failed', 'The backup file was readable but its data could not be restored.');
       }
@@ -238,6 +243,20 @@ export default function SettingsScreen() {
           <Text style={[styles.settingsRowText, { color: p.text }]}>Import Backup</Text>
           <Ionicons name="download-outline" size={16} color={p.muted} />
         </TouchableOpacity>
+        {canUndoImport && (
+          <TouchableOpacity
+            style={[styles.settingsRow, { backgroundColor: p.surface }]}
+            onPress={async () => {
+              const restored = await restorePreImportSnapshot();
+              setCanUndoImport(false);
+              if (!restored) Alert.alert('Nothing to undo', 'No prior state was found to restore.');
+            }}
+            activeOpacity={0.75}
+          >
+            <Text style={[styles.settingsRowText, { color: p.text }]}>Undo Last Import</Text>
+            <Ionicons name="arrow-undo-outline" size={16} color={p.muted} />
+          </TouchableOpacity>
+        )}
         <Text style={[styles.tip, { color: p.muted, paddingHorizontal: 22 }]}>
           Everything stays on this device — export a JSON file to keep elsewhere, or import one to replace all
           current data.
