@@ -9,9 +9,9 @@ import {
   newId, newMeasurable, newMilestone, newCommitment, buildLadderWeeks,
   resolveMeasurable, resolveMilestone, periodKey,
   DEFAULT_SCHEDULE, currentBuildUpWeek, isStepDoneThisPeriod, currentStepPeriodDueDate,
-  formatNumber, isCompleted,
+  formatNumber, isCompleted, removeItemCascade,
 } from './models';
-import { normalizeYears, LegacyYears } from './migration';
+import { normalizeYears, LegacyYears, ITEMS_SCHEMA_VERSION } from './migration';
 import { GOAL_NOTE_COLORS as COLORS } from '../theme/themes';
 
 export const COACH_DAILY_LIMIT = 20;
@@ -26,7 +26,43 @@ export const COACH_DAILY_LIMIT = 20;
 // merged into one Goal.items: TrackableItem[] array — a measurable becomes a
 // plain item, a milestone becomes an item with `milestone: true` and its
 // `steps` renamed to `commitments`. See normalizeYears.
-const STORE_VERSION = 5;
+// v6: Milestones/Measurables model INVERTS — a top-level Milestone becomes a
+// pure binary win, the quantified thing becomes a child Measurable with
+// `parentId`. See migration.ts's invertItemsForGoal / ITEMS_SCHEMA_VERSION.
+const STORE_VERSION = 6;
+
+// Best-effort raw copy of a persisted blob to AsyncStorage, taken right
+// before the v6 invert migration runs on it for the first time — a safety
+// net so a data-shape bug in the migration doesn't lose anyone's goals
+// silently. Fire-and-forget (never awaited, errors swallowed) so it can
+// never block or deadlock the synchronous `merge` path zustand calls this
+// from. Only fires when some goal actually lacks the itemsSchema marker
+// (i.e. the invert is genuinely about to run on this blob) — not on every
+// rehydrate forever.
+const PRE_V6_BACKUP_KEY = 'visiongo-app-data.pre-v6-backup';
+function backupBeforeV6Invert(state: { years?: LegacyYears }): void {
+  try {
+    const years = state.years ?? [];
+    const needsInvert = years.some((y) =>
+      (y.goals ?? []).some((g) => (g as { itemsSchema?: number }).itemsSchema !== ITEMS_SCHEMA_VERSION));
+    if (!needsInvert) return;
+    // Defensive, in addition to the needsInvert gate above: this backup must
+    // be taken exactly once per device, ever — the first pre-invert state,
+    // never a later (already-migrated, or worse re-re-inverted) one. Before
+    // this repo's bug 1 fix, a freshly-created goal was missing itemsSchema
+    // and made needsInvert a false positive on nearly every rehydrate, which
+    // kept clobbering the one genuine backup with post-migration data. That
+    // false positive is now fixed at the source, but this existence check
+    // stays as a second line of defense against any future gap in the same
+    // gate re-triggering the same clobber.
+    void AsyncStorage.getItem(PRE_V6_BACKUP_KEY).then((existing) => {
+      if (existing != null) return;
+      return AsyncStorage.setItem(PRE_V6_BACKUP_KEY, JSON.stringify(state));
+    }).catch(() => {});
+  } catch {
+    // Never let a backup attempt block or throw into the migrate/merge path.
+  }
+}
 
 function todayKey(): string {
   const d = new Date();
@@ -194,10 +230,17 @@ export const useAppStore = create<AppState>()(
         const existing = get().years.find((y) => y.year === year);
         if (!existing) get().selectYear(year);
         const colorIndex = (get().years.find((y) => y.year === year)?.goals.length ?? 0) % COLORS.length;
+        // Stamped with the current itemsSchema so this goal is never re-run
+        // through invertItemsForGoal on the next rehydrate — a fresh goal
+        // has no legacy shape to invert, and mistakenly re-inverting it
+        // would demote its Milestone into a synthesized parent's child and
+        // sever a Measurable's parentId (see the bug this guards against in
+        // store/migration.ts's ITEMS_SCHEMA_VERSION comment).
         const goal: Goal = {
           id: newId(), title, colorIndex,
           reminder: { on: false, frequency: 'Daily' },
           chat: [], pendingActions: [], items: [],
+          itemsSchema: ITEMS_SCHEMA_VERSION,
         };
         set((s) => ({
           years: s.years.map((y) =>
@@ -211,12 +254,16 @@ export const useAppStore = create<AppState>()(
         const year = get().selectedYear;
         const existing = get().years.find((y) => y.year === year);
         if (!existing) get().selectYear(year);
+        // Stamped here too (not just relied on from the caller) — same
+        // reasoning as addGoal above: a goal entering the store for the
+        // first time must never look re-migratable.
+        const stamped: Goal = { ...goal, itemsSchema: ITEMS_SCHEMA_VERSION };
         set((s) => ({
           years: s.years.map((y) =>
-            y.year === year ? { ...y, goals: [...y.goals, goal] } : y
+            y.year === year ? { ...y, goals: [...y.goals, stamped] } : y
           ),
         }));
-        return goal.id;
+        return stamped.id;
       },
 
       updateGoal: (goal) => {
@@ -252,8 +299,11 @@ export const useAppStore = create<AppState>()(
       },
 
       deleteMeasurable: (mid, goalId) => {
+        // Cascades: deleting a top-level Milestone from the Milestones tab
+        // goes through this same action, and must also drop any child
+        // Measurable pointing at it — see removeItemCascade's comment.
         get()._patchGoal(goalId, (g) => ({
-          ...g, items: g.items.filter((it) => it.id !== mid),
+          ...g, items: removeItemCascade(g.items, mid),
         }));
       },
 
@@ -269,9 +319,10 @@ export const useAppStore = create<AppState>()(
       },
 
       deleteMilestone: (mgId, goalId) => {
+        // Same cascade as deleteMeasurable — see removeItemCascade's comment.
         get()._patchGoal(goalId, (g) => ({
           ...g,
-          items: g.items.filter((it) => it.id !== mgId),
+          items: removeItemCascade(g.items, mgId),
         }));
       },
 
@@ -546,7 +597,15 @@ export const useAppStore = create<AppState>()(
       },
 
       completeOnboarding: (year, motto, goals) => {
-        const yd: YearData = { year, motto: motto || 'Dream it. Plan it. Live it.', goals };
+        // Stamp itemsSchema on every incoming goal as a final safety net,
+        // independent of whether the caller already did it — same reasoning
+        // as addGoalFull above: a goal entering the store for the first time
+        // must never look re-migratable to the next rehydrate's
+        // normalizeYears pass. Every current caller (app/onboarding.tsx)
+        // already stamps this itself before calling in, so this is
+        // belt-and-braces, not a fix for an exploitable gap today.
+        const stampedGoals = goals.map((g) => ({ ...g, itemsSchema: ITEMS_SCHEMA_VERSION }));
+        const yd: YearData = { year, motto: motto || 'Dream it. Plan it. Live it.', goals: stampedGoals };
         set((s) => ({
           years: s.years.filter((y) => y.year !== year).concat(yd).sort((a, b) => a.year - b.year),
           selectedYear: year,
@@ -682,14 +741,9 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
   if (a.kind === 'addMilestone') {
     const title = (a.label ?? '').trim();
     if (!title) return goal;
+    // A Milestone is now a pure binary win — title + optional deadline only.
     const mg = newMilestone({
       label: title,
-      kind: a.milestoneKind ?? (a.target != null ? 'numeric' : 'effort'),
-      target: a.target,
-      current: a.target != null ? 0 : undefined,
-      unit: a.unit,
-      step: a.step && a.step > 0 ? a.step : undefined,
-      // Fall back to the parent goal's date so a breakdown can still be sized.
       deadline: a.deadline ?? goal.targetDate,
       // Only an inherited (not coach-specified) deadline should ever be
       // flagged outdated later — the coach naming its own date is deliberate.
@@ -701,10 +755,10 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
   if (a.kind === 'addCommitment') {
     const label = (a.label ?? '').trim();
     if (!label) return goal;
-    // Attach to the named milestone item, or the only one if the coach did
-    // not say.
-    const list = goal.items.filter((it) => it.milestone);
-    const target = resolveMilestone(a, goal) ?? (list.length === 1 ? list[0] : undefined);
+    // Commitments now live on the child Measurable, not the top-level
+    // Milestone — resolve via resolveMeasurable (parentId set).
+    const list = goal.items.filter((it) => it.parentId != null);
+    const target = resolveMeasurable(a, goal) ?? (list.length === 1 ? list[0] : undefined);
     if (!target) return goal;
     const step = newCommitment({
       label,
@@ -722,9 +776,14 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
   if (a.kind === 'removeMilestone') {
     const target = resolveMilestone(a, goal);
     if (!target) return goal;
+    // Removing a Milestone removes its children too — an orphaned Measurable
+    // with a dangling parentId would never resolve or render again. See
+    // removeItemCascade's comment (store/models.ts) for the full rationale;
+    // the user-facing delete paths in useAppStore/index.tsx use the same
+    // helper for consistency.
     return {
       ...goal,
-      items: goal.items.filter((it) => it.id !== target.id),
+      items: removeItemCascade(goal.items, target.id),
     };
   }
 
@@ -732,7 +791,27 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
     const type = a.type ?? 'check';
     const label = (a.label ?? '').trim();
     if (!label) return goal;
-    const m = newMeasurable({ type, label, unit: a.unit ?? '' });
+
+    if (type === 'check') {
+      // A binary check is a top-level Milestone.
+      const mg = newMilestone({ label, deadline: goal.targetDate, sizedForGoalDate: goal.targetDate });
+      return { ...goal, items: [...goal.items, mg] };
+    }
+
+    // A quantified (number/ladder) item is a Measurable — it MUST have a
+    // parent Milestone. Resolve one by name if the coach named it, or the
+    // only Milestone on the goal if there's exactly one; otherwise
+    // auto-create a same-titled Milestone parent rather than leaving an
+    // orphan.
+    const milestones = goal.items.filter((it) => it.milestone);
+    let parent = resolveMilestone(a, goal) ?? (milestones.length === 1 ? milestones[0] : undefined);
+    let nextItems = goal.items;
+    if (!parent) {
+      parent = newMilestone({ label, deadline: goal.targetDate, sizedForGoalDate: goal.targetDate });
+      nextItems = [...nextItems, parent];
+    }
+
+    const m = newMeasurable({ type, label, unit: a.unit ?? '', parentId: parent.id });
     if (type === 'number') {
       m.target = a.target ?? 1;
       m.step = a.step && a.step > 0 ? a.step : 1;
@@ -743,14 +822,24 @@ function applyCoachAction(goal: Goal, a: CoachAction): Goal {
       m.weeks = buildLadderWeeks(a.ladderStart ?? 0, end, a.ladderWeeks ?? 4, goal.targetDate);
       m.sizedForGoalDate = goal.targetDate;
     }
-    return { ...goal, items: [...goal.items, m] };
+    return { ...goal, items: [...nextItems, m] };
   }
 
   const existing = resolveMeasurable(a, goal);
   if (!existing) return goal;
 
   if (a.kind === 'removeTask') {
-    return { ...goal, items: goal.items.filter((it) => it.id !== existing.id) };
+    // Route through removeItemCascade for consistency with every other
+    // delete path (deleteMeasurable, deleteMilestone, deleteMeasurableInPlace,
+    // removeMilestone above) even though it's a no-op today: resolveMeasurable
+    // (used to find `existing`) currently can never resolve an item that HAS
+    // children — nothing in this model gives a plain Measurable its own
+    // children, so `existing` here is always childless and a plain filter by
+    // id is equivalent to the cascade. Fixed anyway as defense-in-depth, so
+    // this can't quietly regress into a live orphan-leaving bug if
+    // resolveMeasurable's resolution logic or the model ever changes to let
+    // it match an item with children.
+    return { ...goal, items: removeItemCascade(goal.items, existing.id) };
   }
 
   const patched: TrackableItem = { ...existing };
@@ -793,6 +882,7 @@ type LegacyState = Omit<AppState, 'years'> & { years?: LegacyYears };
 function migrateState(persisted: unknown, _version: number): AppState {
   const state = persisted as LegacyState;
   if (!state?.years) return state as AppState;
+  backupBeforeV6Invert(state);
   return { ...state, years: normalizeYears(state.years) } as AppState;
 }
 
@@ -802,5 +892,6 @@ function migrateState(persisted: unknown, _version: number): AppState {
 function mergeState(persisted: unknown, current: AppState): AppState {
   const state = persisted as LegacyState;
   if (!state?.years) return { ...current, ...(state as object) } as AppState;
+  backupBeforeV6Invert(state);
   return { ...current, ...state, years: normalizeYears(state.years) } as AppState;
 }

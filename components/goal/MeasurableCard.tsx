@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  Measurable, Commitment, measurableFraction, measurableStep, steppedValue, formatNumber,
-  isMeasurableDeadlineOutdated, buildLadderWeeks, milestonePercent,
+  Measurable, Commitment, Goal, measurableFraction, measurableStep, steppedValue, formatNumber,
+  isMeasurableDeadlineOutdated, buildLadderWeeks, milestonePercent, newCommitment,
 } from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
 import { useCompletionPulse } from '../shared/useCompletionPulse';
@@ -12,6 +12,11 @@ import { CommitmentsBlock } from './CommitmentsBlock';
 
 interface Props {
   measurable: Measurable;
+  // The parent goal — required so measurableFraction can resolve a child's
+  // parent-deadline and fold a Milestone's children into its own fraction.
+  // See measurableFraction's doc comment in store/models.ts for why this is
+  // no longer optional.
+  goal: Goal;
   // The parent goal's CURRENT "Achieve by" date — compared against what a
   // ladder's weeks were actually paced against, to flag it as outdated.
   goalTargetDate?: string;
@@ -55,6 +60,85 @@ function ScheduleBell({ m, p, onOpenSchedule }: { m: Measurable; p: Palette; onO
   );
 }
 
+// Row-level shortcut to the item's commitment reminder, so "is a reminder
+// set for this?" and "open/create it" are both available without expanding
+// CommitmentsBlock. One schedule per row is the right granularity per
+// product decision — a build-up ladder's ~12 weeks each already get
+// per-week check-ins inside CommitmentsBlock/BuildUpStepRow, not per-week
+// reminders, and that's deliberately untouched here.
+//
+// Three cases, all handled here rather than punting to CommitmentsBlock:
+//  - Zero commitments (the COMMON case for a freshly created child
+//    Measurable — every mkNumber/mkBuildUpMilestone-built item starts with
+//    either none or exactly one): render the bell anyway and let tapping it
+//    CREATE a first commitment (reusing newCommitment with the same
+//    "Same each time"/weekly default CommitmentForm starts on) and
+//    immediately open its schedule sheet. Without this, the row bell would
+//    be absent for exactly the case a user is most likely to want it —
+//    "settable from the row without expanding" only holds if it works for
+//    a brand-new item, not just one that already has a commitment.
+//  - Exactly one commitment: the unambiguous case — the bell reflects and
+//    edits that commitment's own schedule.
+//  - Two or more commitments: this is an ORDINARY user-reachable state, not
+//    a coach-only edge case — CommitmentsBlock's own "+ Commitment" pill
+//    (CommitmentForm/addStep) is a plain in-app button any user can press
+//    repeatedly; the gate that reveals it (`commitments.length > 0 ||
+//    parentId != null`) is not capped at one. A single row-level bell
+//    cannot honestly represent 2+ independent schedules (which one is "the"
+//    reminder? what does tapping it edit?) — hard-targeting commitments[0]
+//    here previously meant the bell could read "off" while a DIFFERENT
+//    commitment's push was genuinely scheduled, and deleting commitments[0]
+//    would silently re-point the bell at a commitment with an unrelated
+//    on/off state. So for 2+, no row bell renders at all — the multi-
+//    commitment case is left to CommitmentsBlock's own expanded view, which
+//    already renders one correctly-targeted bell per commitment.
+function CommitmentScheduleBell({ m, p, onUpdate, onOpenCommitmentSchedule }: {
+  m: Measurable; p: Palette; onUpdate: (m: Measurable) => void;
+  onOpenCommitmentSchedule?: (m: Measurable, step: Commitment) => void;
+}) {
+  if (!onOpenCommitmentSchedule) return null;
+
+  if (m.commitments.length === 0) {
+    const createAndOpen = () => {
+      const step = newCommitment({ label: m.label, cadence: 'weekly' });
+      const next = { ...m, commitments: [step] };
+      onUpdate(next);
+      onOpenCommitmentSchedule(next, step);
+    };
+    return (
+      <TouchableOpacity
+        onPress={createAndOpen}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityLabel={`Add a commitment reminder for ${m.label}`}
+        style={styles.bellTarget}
+      >
+        <Ionicons name="notifications-circle-outline" size={17} color={p.muted} />
+      </TouchableOpacity>
+    );
+  }
+
+  if (m.commitments.length > 1) return null;
+
+  const primary = m.commitments[0];
+  const on = !!primary.schedule.on;
+  return (
+    <TouchableOpacity
+      onPress={() => onOpenCommitmentSchedule(m, primary)}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      // "commitment reminder" (not just "reminder", which ScheduleBell above
+      // already uses for the item's OWN reminder) — the two bells render
+      // adjacently in the same row and must read as distinct controls to
+      // accessibility tooling too, not just visually. See the distinct icon
+      // (notifications-circle vs notifications) for the sighted version of
+      // the same distinction.
+      accessibilityLabel={`Edit commitment reminder for ${primary.label}`}
+      style={[styles.bellTarget, on && { backgroundColor: `${p.accent}1f` }]}
+    >
+      <Ionicons name={on ? 'notifications-circle' : 'notifications-circle-outline'} size={17} color={on ? p.accent : p.muted} />
+    </TouchableOpacity>
+  );
+}
+
 // Include the year only when it is not the current one — "by Jul 29" is
 // ambiguous for a deadline that is actually next year.
 function fmtDeadlineShared(iso: string): string {
@@ -66,10 +150,10 @@ function fmtDeadlineShared(iso: string): string {
 }
 
 export function MeasurableCard({
-  measurable: m, goalTargetDate, palette, noteColor, onUpdate, onDelete, onOpenSchedule, onOpenCommitmentSchedule, onAskCoach,
+  measurable: m, goal, goalTargetDate, palette, noteColor, onUpdate, onDelete, onOpenSchedule, onOpenCommitmentSchedule, onAskCoach,
 }: Props) {
   const p = palette;
-  const frac = measurableFraction(m);
+  const frac = measurableFraction(m, goal);
   // Commitments start collapsed so the flat list reads as one row per item —
   // expanding is opt-in, not a permanently-visible nested section.
   const [commitmentsOpen, setCommitmentsOpen] = useState(false);
@@ -90,15 +174,23 @@ export function MeasurableCard({
   // below, which already covers the ladder case via `sizedForGoalDate`.
   const deadlineOutdated = m.milestone && m.type !== 'ladder' && isMeasurableDeadlineOutdated(m, goalTargetDate);
 
+  // A Milestone with children is a pure container — its fraction comes
+  // entirely from the average of its children (see measurableFraction,
+  // which checks for children BEFORE `m.done`), so its own `done` flag is
+  // not an independent completion path once it has any. Only a leaf/
+  // childless Milestone gets a manual done-toggle; one with children shows
+  // its checkbox read-only, reflecting the folded-in fraction instead.
+  const hasChildren = goal.items.some((it) => it.parentId === m.id);
+
   return (
     <View style={[styles.card, { backgroundColor: p.surface }]}>
-      {m.type === 'check' && <CheckRow m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} onOpenSchedule={onOpenSchedule} />}
-      {m.type === 'number' && <NumberRow m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} />}
+      {m.type === 'check' && <CheckRow m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} onOpenSchedule={onOpenSchedule} onOpenCommitmentSchedule={onOpenCommitmentSchedule} readOnly={hasChildren} frac={frac} />}
+      {m.type === 'number' && <NumberRow m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} onOpenCommitmentSchedule={onOpenCommitmentSchedule} />}
       {m.type === 'ladder' && (
-        <LadderRows m={m} goalTargetDate={goalTargetDate} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} />
+        <LadderRows m={m} goalTargetDate={goalTargetDate} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} onOpenCommitmentSchedule={onOpenCommitmentSchedule} />
       )}
       {m.type === 'commitment' && (
-        <CommitmentTypeRow m={m} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} onAskCoach={onAskCoach} />
+        <CommitmentTypeRow m={m} goal={goal} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} onOpenCommitmentSchedule={onOpenCommitmentSchedule} onAskCoach={onAskCoach} />
       )}
 
       {m.milestone && m.deadline && (
@@ -127,10 +219,21 @@ export function MeasurableCard({
         </View>
       )}
 
-      {/* Recurring commitments — only ever present on a milestone-flagged
-          item (a plain measurable's `commitments` is always empty), so this
-          never renders on measurables.tsx's cards. */}
-      {m.milestone && onOpenCommitmentSchedule && (
+      {/* Recurring commitments — gated on "can this item ever have
+          commitments", not on `m.milestone` and not on already having some.
+          Post-invert, commitments live on the child Measurable (parentId
+          set, milestone unset) — gating on `m.milestone` alone meant nobody
+          could ever see or tick a migrated goal's commitments/build-up ramp
+          weeks on its card. Gating on `m.commitments.length > 0` alone (a
+          later fix) went too far the other way: CommitmentsBlock is also the
+          ONLY add-commitment affordance (its empty state + "+ Commitment"
+          pill), so a Measurable with zero commitments so far could never
+          gain its first one. `m.parentId != null` covers that — every
+          Measurable (a quantified child) can always open the block to add
+          one, whether or not it has any yet; a top-level childless Milestone
+          (parentId absent, and per newMilestone always has zero commitments
+          of its own to begin with) still renders nothing, same as before. */}
+      {(m.commitments.length > 0 || m.parentId != null) && onOpenCommitmentSchedule && (
         <CommitmentsBlock
           item={m}
           palette={p}
@@ -160,12 +263,12 @@ export function MeasurableCard({
 // A former "effort" Milestone — no current/target of its own, entirely
 // driven by its attached Commitments (see measurableFraction's 'commitment'
 // branch). `done` is a manual override a user can still flip directly.
-function CommitmentTypeRow({ m, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule, onAskCoach }: {
-  m: Measurable; p: Palette; noteColor: string; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number;
-  onOpenSchedule?: (m: Measurable) => void; onAskCoach?: (m: Measurable) => void;
+function CommitmentTypeRow({ m, goal, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule, onOpenCommitmentSchedule, onAskCoach }: {
+  m: Measurable; goal: Goal; p: Palette; noteColor: string; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number;
+  onOpenSchedule?: (m: Measurable) => void; onOpenCommitmentSchedule?: (m: Measurable, step: Commitment) => void; onAskCoach?: (m: Measurable) => void;
 }) {
   const { scale, pulse } = useCompletionPulse();
-  const pct = milestonePercent(m);
+  const pct = milestonePercent(m, goal);
   return (
     <View>
       <View style={[styles.row, { marginBottom: 8 }]}>
@@ -181,6 +284,7 @@ function CommitmentTypeRow({ m, p, noteColor, onUpdate, onDelete, frac, onOpenSc
         <Text style={[styles.numLabel, { color: m.done ? p.muted : p.text }]}>{m.label}</Text>
         <Text style={[styles.ladderPct, { color: noteColor }]}>{pct}%</Text>
         <ScheduleBell m={m} p={p} onOpenSchedule={onOpenSchedule} />
+        <CommitmentScheduleBell m={m} p={p} onUpdate={onUpdate} onOpenCommitmentSchedule={onOpenCommitmentSchedule} />
         <TouchableOpacity onPress={() => onDelete(m.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.deleteCircle}>
           <Ionicons name="close" size={12} color={p.muted} />
         </TouchableOpacity>
@@ -198,39 +302,50 @@ function CommitmentTypeRow({ m, p, noteColor, onUpdate, onDelete, frac, onOpenSc
   );
 }
 
-function CheckRow({ m, p, noteColor, onUpdate, onDelete, onOpenSchedule }: {
+function CheckRow({ m, p, noteColor, onUpdate, onDelete, onOpenSchedule, onOpenCommitmentSchedule, readOnly, frac }: {
   m: Measurable; p: Palette; noteColor: string; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void;
   onOpenSchedule?: (m: Measurable) => void;
+  onOpenCommitmentSchedule?: (m: Measurable, step: Commitment) => void;
+  // True for a Milestone that has children — its checkbox reflects the
+  // folded-in child fraction and cannot be tapped; see the hasChildren
+  // comment at the MeasurableCard call site.
+  readOnly?: boolean;
+  frac?: number;
 }) {
   const { scale, pulse } = useCompletionPulse();
+  const shown = readOnly ? (frac ?? 0) >= 1 : m.done;
   return (
     <View style={styles.row}>
       <Animated.View style={{ transform: [{ scale }] }}>
         <TouchableOpacity
+          disabled={readOnly}
           style={[
             styles.checkbox,
-            { borderColor: m.done ? noteColor : p.line },
-            m.done && { backgroundColor: noteColor },
+            { borderColor: shown ? noteColor : p.line },
+            shown && { backgroundColor: noteColor },
+            readOnly && { opacity: 0.7 },
           ]}
           onPress={() => {
+            if (readOnly) return;
             const next = !m.done;
             onUpdate({ ...m, done: next });
             pulse(next);
           }}
         >
-          {m.done && <Ionicons name="checkmark" size={13} color={p.surface} />}
+          {shown && <Ionicons name="checkmark" size={13} color={p.surface} />}
         </TouchableOpacity>
       </Animated.View>
       <Text
         style={[
           styles.checkLabel,
-          { color: m.done ? p.muted : p.text },
-          m.done && { textDecorationLine: 'line-through' },
+          { color: shown ? p.muted : p.text },
+          shown && { textDecorationLine: 'line-through' },
         ]}
       >
         {m.label}
       </Text>
       <ScheduleBell m={m} p={p} onOpenSchedule={onOpenSchedule} />
+      <CommitmentScheduleBell m={m} p={p} onUpdate={onUpdate} onOpenCommitmentSchedule={onOpenCommitmentSchedule} />
       <TouchableOpacity
         onPress={() => onDelete(m.id)}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -242,9 +357,10 @@ function CheckRow({ m, p, noteColor, onUpdate, onDelete, onOpenSchedule }: {
   );
 }
 
-function NumberRow({ m, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule }: {
+function NumberRow({ m, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule, onOpenCommitmentSchedule }: {
   m: Measurable; p: Palette; noteColor: string; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number;
   onOpenSchedule?: (m: Measurable) => void;
+  onOpenCommitmentSchedule?: (m: Measurable, step: Commitment) => void;
 }) {
   // Each measurable carries its own increment — "145 / 150 days" ticks by 1,
   // while "$5000 saved" can tick by 50. No global guess from the target.
@@ -258,6 +374,7 @@ function NumberRow({ m, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule }
       <View style={[styles.row, { marginBottom: 10 }]}>
         <Text style={[styles.numLabel, { color: p.text }]}>{m.label}</Text>
         <ScheduleBell m={m} p={p} onOpenSchedule={onOpenSchedule} />
+        <CommitmentScheduleBell m={m} p={p} onUpdate={onUpdate} onOpenCommitmentSchedule={onOpenCommitmentSchedule} />
         <TouchableOpacity
           onPress={() => onDelete(m.id)}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -307,10 +424,11 @@ function fmtDeadline(iso: string): string {
   });
 }
 
-function LadderRows({ m, goalTargetDate, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule }: {
+function LadderRows({ m, goalTargetDate, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule, onOpenCommitmentSchedule }: {
   m: Measurable; goalTargetDate?: string; p: Palette; noteColor: string;
   onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number;
   onOpenSchedule?: (m: Measurable) => void;
+  onOpenCommitmentSchedule?: (m: Measurable, step: Commitment) => void;
 }) {
   const fmt = formatNumber;
   const doneCount = m.weeks.filter((w) => w.done).length;
@@ -332,6 +450,7 @@ function LadderRows({ m, goalTargetDate, p, noteColor, onUpdate, onDelete, frac,
           {doneCount}/{m.weeks.length} wks
         </Text>
         <ScheduleBell m={m} p={p} onOpenSchedule={onOpenSchedule} />
+        <CommitmentScheduleBell m={m} p={p} onUpdate={onUpdate} onOpenCommitmentSchedule={onOpenCommitmentSchedule} />
         <TouchableOpacity
           onPress={() => onDelete(m.id)}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}

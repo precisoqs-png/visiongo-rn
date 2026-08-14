@@ -43,6 +43,11 @@ export default function SettingsScreen() {
       // zustand's persist middleware would have written to disk).
       const state = useAppStore.getState();
       const payload = {
+        // Lets a future importer (and a human eyeballing the file) tell at a
+        // glance whether this backup predates the Milestones/Measurables
+        // invert migration — importBackup always runs normalizeYears on
+        // import regardless, but this makes the shape self-describing.
+        schemaVersion: 6,
         years: state.years,
         selectedYear: state.selectedYear,
         hasCompletedOnboarding: state.hasCompletedOnboarding,

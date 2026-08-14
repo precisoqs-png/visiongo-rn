@@ -1,12 +1,13 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, PanResponder, Text, View, StyleSheet, Platform } from 'react-native';
 import {
-  Measurable, measurableFraction, steppedValue, formatNumber,
+  Measurable, Goal, measurableFraction, steppedValue, formatNumber,
 } from '../../store/models';
 import { Point, clampCenter } from '../board/RadialBoard';
 import { Palette, hexAlpha } from '../../theme/themes';
 import { useCompletionPulse } from '../shared/useCompletionPulse';
 import { useCompletionBurst } from '../shared/useCompletionBurst';
+import { ProgressRing } from '../shared/ProgressRing';
 
 // A press-and-hold that stays put ticks the measurable off; moving past this
 // many px before the hold timer fires cancels the tick and starts a drag
@@ -52,6 +53,9 @@ function fitLabelFontSize(size: number, label: string): number {
 
 interface Props {
   measurable: Measurable;
+  // Required — measurableFraction needs it to fold in children/resolve a
+  // child's parent-deadline. See its doc comment in store/models.ts.
+  goal: Goal;
   size: number;
   center: Point;
   palette: Palette;
@@ -62,6 +66,16 @@ interface Props {
   canvasSize: { w: number; h: number };
   onTap: () => void;
   onTick: () => void;
+  // True for a Milestone that has children Measurables — mirrors
+  // MeasurableCard's own `hasChildren`/`readOnly` rule (see its comment):
+  // once a Milestone has children, its fraction comes entirely from the
+  // average of theirs (measurableFraction checks for children before
+  // `done`), so its own `done` flag is not an independent completion path.
+  // With this true, the hold-gesture neither fires the completion pulse nor
+  // calls `onTick` — ticking would flip a `done` flag that isn't read by
+  // anything, and the pulse would celebrate a gesture that moved
+  // goalProgress by exactly zero.
+  tickDisabled?: boolean;
   onDragStart?: () => void;
   onDragEnd: (center: Point) => void;
 }
@@ -72,12 +86,12 @@ interface Props {
 // press that stays still past HOLD_MS ticks the measurable off (or, for a
 // ladder, advances it to the next week) instead of opening it.
 export function MeasurableBubble({
-  measurable: m, size, center, palette: p, noteColor, canvasSize, onTap, onTick, onDragStart, onDragEnd,
+  measurable: m, goal, size, center, palette: p, noteColor, canvasSize, onTap, onTick, tickDisabled, onDragStart, onDragEnd,
 }: Props) {
   const pan = useRef(new Animated.ValueXY()).current;
   const { scale: popScale, pulse } = useCompletionPulse();
   const { scale: burstScale, opacity: burstOpacity, fire: fireBurst } = useCompletionBurst();
-  const frac = measurableFraction(m);
+  const frac = measurableFraction(m, goal);
 
   // Fires the celebratory burst on the 0->1 transition only — however it
   // happened (hold-to-tick here, or an edit made in MeasurableDetailSheet's
@@ -102,6 +116,8 @@ export function MeasurableBubble({
   onTapRef.current = onTap;
   const onTickRef = useRef(onTick);
   onTickRef.current = onTick;
+  const tickDisabledRef = useRef(tickDisabled);
+  tickDisabledRef.current = tickDisabled;
   const onDragStartRef = useRef(onDragStart);
   onDragStartRef.current = onDragStart;
   const onDragEndRef = useRef(onDragEnd);
@@ -127,6 +143,7 @@ export function MeasurableBubble({
         clearHold();
         holdTimer.current = setTimeout(() => {
           if (draggingRef.current) return; // already turned into a drag
+          if (tickDisabledRef.current) return; // Milestone-with-children: no independent tick
           holdFiredRef.current = true;
           pulse(true);
           onTickRef.current();
@@ -176,6 +193,11 @@ export function MeasurableBubble({
   ).current;
 
   const fillHeight = size * frac;
+  // Ring stroke width scales with bubble size so it stays legible on both
+  // the small canvas thumbnails and a large detail-view bubble, clamped so
+  // it never gets thin enough to disappear or thick enough to swallow a
+  // small bubble's interior.
+  const ringStroke = Math.min(5, Math.max(2, size * 0.045));
 
   return (
     <Animated.View
@@ -200,7 +222,7 @@ export function MeasurableBubble({
           {
             width: size, height: size, borderRadius: size / 2,
             backgroundColor: hexAlpha(noteColor, 0.16),
-            borderColor: noteColor, borderWidth: 1.5, overflow: 'hidden',
+            overflow: 'hidden',
           },
         ]}
       >
@@ -225,6 +247,34 @@ export function MeasurableBubble({
             </Text>
           )}
         </View>
+      </View>
+      {/* Progress ring drawn as a sibling of (not inside) the clipped circle
+          above — an SVG stroke can't be clipped by the circle's own
+          overflow:'hidden' the way the bottom fill is, and doesn't need to
+          be. It replaces the old flat 1.5px border with a proportional arc:
+          at frac 0 the fill arc has zero length so only the faint track
+          shows (reading as a plain outline, same as the old border did at
+          rest), and at frac 1 the fill arc closes into a full ring — so a
+          childless Milestone (frac always exactly 0 or 1) looks the same as
+          it always has, binary. A Milestone with children gets a visible
+          partial arc for any fraction in between, which is the whole point:
+          it reads as "X% done" at a glance the way the thin bottom-fill
+          sliver alone did not. */}
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        <ProgressRing
+          size={size}
+          progress={frac}
+          // 0.4 rather than the original 0.25 — round 6 traded a solid 1.5px
+          // `noteColor` border for this ring's "track" at rest (frac=0), and
+          // a reviewer flagged it reading fainter/thicker than the old
+          // border. Bumped to 0.4 to bring the resting/childless-Milestone-
+          // at-0% state closer to the old border's visual weight; the filled
+          // arc itself stays full-opacity `noteColor` (unaffected), so this
+          // doesn't cut into progress-arc contrast when partially filled.
+          trackColor={hexAlpha(noteColor, 0.4)}
+          fillColor={noteColor}
+          strokeWidth={ringStroke}
+        />
       </View>
       <Animated.View
         pointerEvents="none"
