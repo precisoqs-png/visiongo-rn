@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet, Platform, KeyboardAvoidingView,
 } from 'react-native';
@@ -58,6 +58,8 @@ export default function MeasurablesListScreen() {
   // sheet stays open on one measurable at a time, driven from here rather
   // than per-card, so permission-requesting stays in one place.
   const [scheduleForMeasurable, setScheduleForMeasurable] = useState<Measurable | null>(null);
+
+  const coachScrollRef = useRef<ScrollView>(null);
 
   const resyncMeasurableNotifications = () => {
     const fresh = useAppStore.getState().getGoal(id!);
@@ -178,7 +180,7 @@ export default function MeasurablesListScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
+      <ScrollView ref={coachScrollRef} contentContainerStyle={{ paddingBottom: 60 }}>
         <LinearGradient
           colors={[hexAlpha(noteColor, 0.4), hexAlpha(noteColor, 0.1)]}
           style={styles.headerGradient}
@@ -255,7 +257,12 @@ export default function MeasurablesListScreen() {
         </View>
 
         <View style={styles.section}>
-          <CoachChat goal={goal} palette={p} onGoalEdited={resyncWeekNotifications} />
+          <CoachChat
+            goal={goal}
+            palette={p}
+            onGoalEdited={resyncWeekNotifications}
+            onRequestScrollToEnd={() => coachScrollRef.current?.scrollToEnd({ animated: true })}
+          />
         </View>
       </ScrollView>
       </KeyboardAvoidingView>

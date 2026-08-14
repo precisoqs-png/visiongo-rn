@@ -18,6 +18,11 @@ interface Props {
   // on an effort milestone). Sent once, then cleared via onSeedConsumed.
   seedMessage?: string | null;
   onSeedConsumed?: () => void;
+  // The host screen's own ScrollView carries the chat (this component is
+  // just a View of bubbles) — asking it to scroll to bottom is the only way
+  // a new reply, a finished typewriter, or fresh pendingActions chips ever
+  // become visible under the 58%-height keyboard-up coach sheet.
+  onRequestScrollToEnd?: () => void;
 }
 
 // ── Pulsing thinking dots ────────────────────────────────────
@@ -103,7 +108,7 @@ function TypewriterText({ text, color, speed = 30, onDone }: TypewriterProps) {
 // ── Main chat component ──────────────────────────────────
 
 export function CoachChat({
-  goal, palette: p, onGoalEdited, seedMessage, onSeedConsumed,
+  goal, palette: p, onGoalEdited, seedMessage, onSeedConsumed, onRequestScrollToEnd,
 }: Props) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -125,6 +130,28 @@ export function CoachChat({
     const t = setTimeout(() => inputRef.current?.focus(), 400);
     return () => clearTimeout(t);
   }, []);
+
+  // Scroll the host's ScrollView to the bottom on the next frame — deferred
+  // so it runs after the just-appended bubble/chips have actually laid out,
+  // not against the ScrollView's pre-append content height.
+  const scrollToEnd = () => {
+    requestAnimationFrame(() => onRequestScrollToEnd?.());
+  };
+
+  // A new message (either side) always means new content below the fold.
+  const chatLength = goal.chat.length;
+  useEffect(() => {
+    scrollToEnd();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatLength]);
+
+  // The coach's confirmation chips are the whole point of a reply — they
+  // must never render invisibly below the fold.
+  const pendingCount = goal.pendingActions.length;
+  useEffect(() => {
+    if (pendingCount > 0) scrollToEnd();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingCount]);
 
   // Derive today's remaining count reactively so the UI updates without a send
   const todayKey = (() => {
@@ -249,7 +276,10 @@ export function CoachChat({
                 text={msg.text}
                 color={textColor}
                 speed={30}
-                onDone={() => setStreamingId(null)}
+                onDone={() => {
+                  setStreamingId(null);
+                  scrollToEnd();
+                }}
               />
             ) : (
               <Text style={[styles.bubbleText, { color: textColor }]}>{msg.text}</Text>

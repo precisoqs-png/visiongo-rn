@@ -112,6 +112,7 @@ export default function GoalCanvasScreen() {
   const [size, setSize] = useState({ w: 390, h: 640 });
   const [openMeasurable, setOpenMeasurable] = useState<Measurable | null>(null);
   const [coachOpen, setCoachOpen] = useState(false);
+  const coachScrollRef = useRef<ScrollView>(null);
 
   // ── Completion flights (measurables) ───────────────────────────
   //
@@ -495,8 +496,16 @@ export default function GoalCanvasScreen() {
               style={{ flex: 1 }}
               behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             >
-              <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
-                <CoachChat goal={goal} palette={p} />
+              <ScrollView
+                ref={coachScrollRef}
+                contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 24 }}
+                keyboardShouldPersistTaps="handled"
+              >
+                <CoachChat
+                  goal={goal}
+                  palette={p}
+                  onRequestScrollToEnd={() => coachScrollRef.current?.scrollToEnd({ animated: true })}
+                />
               </ScrollView>
             </KeyboardAvoidingView>
           </TouchableOpacity>

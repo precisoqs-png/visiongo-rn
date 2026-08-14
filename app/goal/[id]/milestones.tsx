@@ -79,6 +79,8 @@ export default function GoalDetailScreen() {
     return unsub;
   }, []);
 
+  const coachScrollRef = useRef<ScrollView>(null);
+
   // The bell must actually schedule/cancel the reminder, not just flip the flag.
   // Turning it on also schedules a push notification for each weekly target.
   const toggleReminder = async () => {
@@ -325,7 +327,7 @@ export default function GoalDetailScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
+      <ScrollView ref={coachScrollRef} contentContainerStyle={{ paddingBottom: 60 }}>
 
         <LinearGradient
           colors={[hexAlpha(noteColor, 0.4), hexAlpha(noteColor, 0.1)]}
@@ -533,6 +535,7 @@ export default function GoalDetailScreen() {
             onGoalEdited={() => { resyncWeekNotifications(); resyncStepNotifications(); }}
             seedMessage={coachSeed}
             onSeedConsumed={() => setCoachSeed(null)}
+            onRequestScrollToEnd={() => coachScrollRef.current?.scrollToEnd({ animated: true })}
           />
         </View>
 
