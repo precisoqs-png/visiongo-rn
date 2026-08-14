@@ -12,6 +12,7 @@ import { GOAL_NOTE_COLORS, FONTS } from '../theme/themes';
 import { TEMPLATE_CATEGORIES, GoalTemplate, instantiateTemplate } from '../store/goalTemplates';
 import { Goal } from '../store/models';
 import { ITEMS_SCHEMA_VERSION } from '../store/migration';
+import { CalendarPicker } from '../components/shared/CalendarPicker';
 
 const { width } = Dimensions.get('window');
 const NOW = new Date().getFullYear();
@@ -40,11 +41,14 @@ export default function OnboardingScreen() {
   // never doubles as "advance to the next step".
   const [customGoals, setCustomGoals] = useState<string[]>([]);
   const [customGoalDraft, setCustomGoalDraft] = useState('');
+  // 'YYYY-MM-DD', or undefined if skipped — applied to every goal below.
+  const [targetDate, setTargetDate] = useState<string | undefined>(undefined);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
 
-  const STEPS = 5; // 0=welcome 1=year 2=motto 3=goals 4=ready
+  const STEPS = 6; // 0=welcome 1=year 2=motto 3=goals 4=deadline 5=ready
 
   const animate = (cb: () => void) => {
     Animated.parallel([
@@ -104,6 +108,12 @@ export default function OnboardingScreen() {
           // invertItemsForGoal's goal-level short-circuit in store/migration.ts.
           itemsSchema: ITEMS_SCHEMA_VERSION,
         });
+      }
+      // Applied to every goal so build-up ladders pace off a real deadline
+      // instead of today, and the coach's first reply never has to burn
+      // itself asking the question onboarding should already have answered.
+      if (targetDate) {
+        for (const g of goals) g.targetDate = targetDate;
       }
       const effectiveMotto = motto.trim() || 'Dream it. Plan it. Live it.';
       completeOnboarding(selectedYear, effectiveMotto, goals);
@@ -189,6 +199,13 @@ export default function OnboardingScreen() {
           />
         )}
         {step === 4 && (
+          <DeadlineStep
+            p={p} year={selectedYear} targetDate={targetDate}
+            onSetTargetDate={setTargetDate}
+            onOpenPicker={() => setShowDatePicker(true)}
+          />
+        )}
+        {step === 5 && (
           <ReadyStep
             p={p} year={selectedYear} motto={motto || 'Dream it. Plan it. Live it.'}
             selectedTemplates={selectedTemplates}
@@ -205,6 +222,15 @@ export default function OnboardingScreen() {
         </TouchableOpacity>
       </View>
       </KeyboardAvoidingView>
+
+      <CalendarPicker
+        visible={showDatePicker}
+        value={targetDate}
+        palette={p}
+        onSelect={(iso) => { setTargetDate(iso); setShowDatePicker(false); }}
+        onClear={() => { setTargetDate(undefined); setShowDatePicker(false); }}
+        onDismiss={() => setShowDatePicker(false)}
+      />
     </LinearGradient>
   );
 }
@@ -398,6 +424,79 @@ function GoalsStep({
 
         <View style={{ height: 24 }} />
       </ScrollView>
+    </View>
+  );
+}
+
+function toISO(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function DeadlineStep({ p, year, targetDate, onSetTargetDate, onOpenPicker }: any) {
+  const threeMonths = () => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 3);
+    return toISO(d);
+  };
+  const sixMonths = () => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 6);
+    return toISO(d);
+  };
+  const endOfYear = () => toISO(new Date(year, 11, 31));
+
+  const chips: { label: string; value: string }[] = [
+    { label: '3 months', value: threeMonths() },
+    { label: '6 months', value: sixMonths() },
+    { label: `End of ${year}`, value: endOfYear() },
+  ];
+
+  return (
+    <View style={styles.stepCenter}>
+      <Text style={[styles.eyebrow, { color: p.muted }]}>STEP 4 OF 4</Text>
+      <Text style={[styles.heading, { color: p.text }]}>When do you want{"\n"}to achieve this by?</Text>
+      <Text style={[styles.body, { color: p.muted }]}>
+        Applied to every goal you just picked — you can change it per goal later.
+      </Text>
+      <View style={styles.chipGrid}>
+        {chips.map((c) => {
+          const active = targetDate === c.value;
+          return (
+            <TouchableOpacity
+              key={c.label}
+              style={[
+                styles.mottoChip,
+                { borderColor: active ? p.accent : p.line, backgroundColor: active ? `${p.accent}18` : p.surface },
+              ]}
+              onPress={() => onSetTargetDate(active ? undefined : c.value)}
+            >
+              <Text style={[styles.mottoChipText, { color: active ? p.accent : p.text }]}>{c.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+        <TouchableOpacity
+          style={[
+            styles.mottoChip,
+            {
+              borderColor: targetDate && !chips.some((c) => c.value === targetDate) ? p.accent : p.line,
+              backgroundColor: targetDate && !chips.some((c) => c.value === targetDate) ? `${p.accent}18` : p.surface,
+            },
+          ]}
+          onPress={onOpenPicker}
+        >
+          <Text style={[
+            styles.mottoChipText,
+            { color: targetDate && !chips.some((c) => c.value === targetDate) ? p.accent : p.text },
+          ]}>
+            {targetDate && !chips.some((c) => c.value === targetDate)
+              ? new Date(targetDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+              : 'Pick a date'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+      <TouchableOpacity onPress={() => onSetTargetDate(undefined)} style={styles.skipBtn}>
+        <Text style={[styles.skipText, { color: p.muted }]}>Skip for now</Text>
+      </TouchableOpacity>
     </View>
   );
 }
