@@ -116,6 +116,16 @@ export interface TrackableItem {
   // Milestone's id. Absent on a top-level Milestone. See the Goal →
   // Milestone → Measurable model below.
   parentId?: string;
+  // When this item's own `schedule` carries a reminder cadence, the Tasks
+  // tab emits one dated task per period instead of a persistent Anytime
+  // row (see allTasks in useAppStore.ts) — these are the periods already
+  // ticked off, same completions-tracking pattern as Commitment.completions.
+  // Absent for items created before this existed; treated as empty.
+  reminderCompletions?: string[];
+  // When set, anchors this item's own reminder periods (custom cadence
+  // only needs it — weekly/monthly derive their boundaries from "now").
+  // Absent for items created before this existed.
+  createdAt?: string;
 }
 
 // Back-compat type aliases — every call site written against the old
@@ -354,6 +364,60 @@ export function currentStepPeriodDueDate(step: Commitment, when: Date = new Date
       return end;
     }
   }
+}
+
+/**
+ * The same period-key/due-date pair as periodKey/currentStepPeriodDueDate
+ * above, but for a plain number item's OWN reminder cadence (item.cadence/
+ * item.schedule) rather than a Commitment — used by allTasks() to turn a
+ * number measurable with a reminder on into one dated Tasks-tab row per
+ * period instead of a single persistent Anytime row. Falls back to
+ * 'weekly' if the item somehow has no cadence set (schedule.on implies one
+ * was chosen, so this only guards stale/partial data).
+ */
+export function numberItemPeriodKey(item: TrackableItem, when: Date = new Date()): string {
+  const cadence = item.cadence ?? 'weekly';
+  switch (cadence) {
+    case 'weekly':
+      return isoWeekKey(when);
+    case 'monthly':
+      return `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, '0')}`;
+    case 'custom': {
+      const start = new Date(item.createdAt ?? when.toISOString());
+      const days = Math.floor((when.getTime() - start.getTime()) / 86400000);
+      const idx = Math.max(0, Math.floor(days / cadenceIntervalDays({ cadence, intervalDays: item.intervalDays })));
+      return `${(item.createdAt ?? when.toISOString()).slice(0, 10)}+${idx}`;
+    }
+  }
+}
+
+export function numberItemPeriodDueDate(item: TrackableItem, when: Date = new Date()): Date {
+  const cadence = item.cadence ?? 'weekly';
+  switch (cadence) {
+    case 'weekly': {
+      const t = new Date(when.getFullYear(), when.getMonth(), when.getDate());
+      const day = t.getDay() || 7;
+      t.setDate(t.getDate() + (7 - day));
+      t.setHours(23, 59, 59, 999);
+      return t;
+    }
+    case 'monthly':
+      return new Date(when.getFullYear(), when.getMonth() + 1, 0, 23, 59, 59, 999);
+    case 'custom': {
+      const start = new Date(item.createdAt ?? when.toISOString());
+      const intervalDays = cadenceIntervalDays({ cadence, intervalDays: item.intervalDays });
+      const days = Math.floor((when.getTime() - start.getTime()) / 86400000);
+      const idx = Math.max(0, Math.floor(days / intervalDays));
+      const end = new Date(start);
+      end.setDate(end.getDate() + (idx + 1) * intervalDays);
+      end.setHours(23, 59, 59, 999);
+      return end;
+    }
+  }
+}
+
+export function isNumberItemDoneThisPeriod(item: TrackableItem, when: Date = new Date()): boolean {
+  return (item.reminderCompletions ?? []).includes(numberItemPeriodKey(item, when));
 }
 
 /** How many periods of this cadence fit between now and the deadline. */
@@ -721,6 +785,8 @@ export function newMeasurable(
     step: 1,
     weeks: [],
     commitments: [],
+    createdAt: new Date().toISOString(),
+    reminderCompletions: [],
     ...init,
   };
 }
