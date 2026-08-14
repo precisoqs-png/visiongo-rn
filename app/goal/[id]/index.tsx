@@ -20,6 +20,7 @@ import { MeasurableBubble, tickMeasurable } from '../../../components/goal/Measu
 import { MeasurableDetailSheet } from '../../../components/goal/MeasurableDetailSheet';
 import { StepScheduleSheet } from '../../../components/goal/StepScheduleSheet';
 import { CoachChat } from '../../../components/goal/CoachChat';
+import { DecompCard } from '../../../components/goal/DecompCard';
 import { SegmentedControl } from '../../../components/shared/SegmentedControl';
 import { CompletionFlight, CompletedChip } from '../../../components/shared/CompletionFlight';
 import { FONTS, GOAL_NOTE_COLORS } from '../../../theme/themes';
@@ -112,6 +113,7 @@ export default function GoalCanvasScreen() {
   const [size, setSize] = useState({ w: 390, h: 640 });
   const [openMeasurable, setOpenMeasurable] = useState<Measurable | null>(null);
   const [coachOpen, setCoachOpen] = useState(false);
+  const [coachSeed, setCoachSeed] = useState<string | null>(null);
   const coachScrollRef = useRef<ScrollView>(null);
 
   // ── Completion flights (measurables) ───────────────────────────
@@ -394,9 +396,11 @@ export default function GoalCanvasScreen() {
 
         {goalMeasurables.length === 0 && (
           <View style={[styles.emptyHint, { top: cy + CENTER_SIZE / 2 + 24 }]}>
-            <Text style={[styles.emptyHintText, { color: p.muted }]}>
-              No measurables yet — ask the Coach to add some, or open Milestones to add one.
-            </Text>
+            <DecompCard
+              goal={goal}
+              palette={p}
+              onAskCoach={(seed) => { setCoachSeed(seed); setCoachOpen(true); }}
+            />
           </View>
         )}
 
@@ -504,6 +508,8 @@ export default function GoalCanvasScreen() {
                 <CoachChat
                   goal={goal}
                   palette={p}
+                  seedMessage={coachSeed}
+                  onSeedConsumed={() => setCoachSeed(null)}
                   onRequestScrollToEnd={() => coachScrollRef.current?.scrollToEnd({ animated: true })}
                 />
               </ScrollView>
@@ -565,7 +571,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center',
   },
   overflowHintText: { fontSize: 12, fontWeight: '700' },
-  emptyHintText: { fontSize: 13, lineHeight: 19, textAlign: 'center' },
   coachFab: {
     position: 'absolute', bottom: 20, right: 20,
     width: 62, height: 62, borderRadius: 31,
