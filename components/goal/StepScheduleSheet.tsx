@@ -217,7 +217,17 @@ export function StepScheduleSheet({
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={{ maxHeight: 400 }} keyboardShouldPersistTaps="handled">
+          {/* Cadence/day pickers only — the WHAT TIME wheels below are
+              deliberately OUTSIDE this ScrollView. A drag-to-scroll wheel
+              nested inside another vertical ScrollView is a well-known RN
+              gesture conflict: the outer ScrollView's pan responder can win
+              the touch before it ever reaches the wheel, so every drag just
+              scrolls the sheet and the wheel never commits a new value —
+              this was the actual cause of "the time can't be changed" on a
+              measurable's reminder. Keeping the wheel's own ScrollView as
+              the only vertical scroll surface in this region removes the
+              conflict outright rather than working around it. */}
+          <ScrollView style={{ maxHeight: 220 }} keyboardShouldPersistTaps="handled">
             {isBuildUp ? (
               <Text style={[styles.preview, { color: p.muted, marginTop: 0 }]}>
                 This step builds up week by week — each week's reminder fires on that
@@ -311,7 +321,9 @@ export function StepScheduleSheet({
                 />
               </>
             )}
+          </ScrollView>
 
+          <View>
             <Text style={[styles.eyebrow, { color: p.muted }]}>WHAT TIME</Text>
             {(() => {
               const hour12 = to12Hour(schedule.hour);
@@ -371,7 +383,7 @@ export function StepScheduleSheet({
                 schedule either way.
               </Text>
             )}
-          </ScrollView>
+          </View>
 
           <View style={styles.actions}>
             <TouchableOpacity
