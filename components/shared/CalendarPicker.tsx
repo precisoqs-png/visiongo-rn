@@ -67,6 +67,15 @@ export function CalendarPicker({ visible, value, palette: p, onSelect, onClear, 
     d === today.getDate() && viewMonth === today.getMonth() && viewYear === today.getFullYear();
   const isSelected = (d: number) =>
     !!selected && d === selected.d && viewMonth === selected.m && viewYear === selected.y;
+  // Every use of this picker (onboarding, a goal's "Achieve by", a
+  // Milestone's deadline) is a future target — a past date is never valid,
+  // and picking one silently used to land the user in an all-red Overdue
+  // list on first run.
+  const isPast = (d: number) => {
+    const cell = new Date(viewYear, viewMonth, d);
+    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    return cell < startOfToday;
+  };
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss}>
@@ -97,6 +106,7 @@ export function CalendarPicker({ visible, value, palette: p, onSelect, onClear, 
               <View key={i} style={styles.cell}>
                 {d != null && (
                   <TouchableOpacity
+                    disabled={isPast(d)}
                     style={[
                       styles.dayBtn,
                       isToday(d) && { borderWidth: 1, borderColor: p.accent },
@@ -107,7 +117,7 @@ export function CalendarPicker({ visible, value, palette: p, onSelect, onClear, 
                     <Text
                       style={[
                         styles.dayText,
-                        { color: isSelected(d) ? p.surface : p.text },
+                        { color: isSelected(d) ? p.surface : isPast(d) ? `${p.muted}66` : p.text },
                       ]}
                     >
                       {d}

@@ -133,8 +133,8 @@ const TOPICS: Topic[] = [
     body:
       'Turn reminders on in Settings. Choose daily, weekly, or monthly check ins per ' +
       'goal, get automatic reminders for weekly build up targets, and set reminders for ' +
-      'individual milestones using the bell icon. Reminders only work on iPhone and ' +
-      'Android, not on web.',
+      'individual Measurables and Commitments using their own bell icon. Reminders only ' +
+      'work on iPhone and Android, not on web.',
   },
   {
     key: 'settings-themes',

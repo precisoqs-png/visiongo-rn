@@ -203,6 +203,7 @@ export default function OnboardingScreen() {
             p={p} year={selectedYear} targetDate={targetDate}
             onSetTargetDate={setTargetDate}
             onOpenPicker={() => setShowDatePicker(true)}
+            onSkip={() => { setTargetDate(undefined); advance(); }}
           />
         )}
         {step === 5 && (
@@ -432,7 +433,7 @@ function toISO(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function DeadlineStep({ p, year, targetDate, onSetTargetDate, onOpenPicker }: any) {
+function DeadlineStep({ p, year, targetDate, onSetTargetDate, onOpenPicker, onSkip }: any) {
   const threeMonths = () => {
     const d = new Date();
     d.setMonth(d.getMonth() + 3);
@@ -494,7 +495,7 @@ function DeadlineStep({ p, year, targetDate, onSetTargetDate, onOpenPicker }: an
           </Text>
         </TouchableOpacity>
       </View>
-      <TouchableOpacity onPress={() => onSetTargetDate(undefined)} style={styles.skipBtn}>
+      <TouchableOpacity onPress={onSkip} style={styles.skipBtn}>
         <Text style={[styles.skipText, { color: p.muted }]}>Skip for now</Text>
       </TouchableOpacity>
     </View>
