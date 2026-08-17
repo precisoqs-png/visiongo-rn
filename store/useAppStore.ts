@@ -475,8 +475,15 @@ export const useAppStore = create<AppState>()(
         for (const goal of yd.goals) {
           for (const m of goal.items) {
             if (m.commitments.length === 0) {
+              // A top-level Milestone with children is a pure container —
+              // its own `done` is not an independent completion path (see
+              // measurableFraction), so it must not also emit a checkbox
+              // task: ticking it here would strike it through while
+              // goalProgress and the card/bubble (which already disable
+              // this same tick) never move, a dead end with no real effect.
+              const hasChildren = goal.items.some((it) => it.parentId === m.id);
               // A plain check/number/ladder item — same bucketing as before.
-              if (m.type === 'check') {
+              if (m.type === 'check' && !hasChildren) {
                 const dueDate = goal.targetDate ? localDate(goal.targetDate) : undefined;
                 const item: TaskItem = {
                   id: `task-${m.id}`, measurableId: m.id, goalId: goal.id,
