@@ -2,7 +2,6 @@ import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { hexAlpha } from '../../theme/themes';
 import type { Point } from '../board/RadialBoard';
 
 const CONFETTI_COUNT = 8;
@@ -79,12 +78,21 @@ export function CompletionFlight({
         <View
           style={{
             width: size, height: size, borderRadius: size / 2,
-            backgroundColor: hexAlpha(color, 0.35),
+            // Solid, not a wash — a translucent fill read as "empty" at a
+            // glance, indistinguishable from an in-progress bubble that
+            // just happens to be light. A finished thing should look
+            // unambiguously finished.
+            backgroundColor: color,
             borderColor: color, borderWidth: 1.5,
             alignItems: 'center', justifyContent: 'center',
           }}
         >
-          <Ionicons name="checkmark" size={size * 0.32} color={color} />
+          <Ionicons
+            name="checkmark"
+            size={size * 0.32}
+            color="#fff"
+            style={checkmarkShadow}
+          />
         </View>
       </Animated.View>
       {confetti.map((c, i) => {
@@ -129,22 +137,42 @@ export function CompletedChip({
         styles.chip,
         {
           left, top, width: size, height: size, borderRadius: size / 2,
-          backgroundColor: hexAlpha(color, 0.35),
+          // Solid fill (not the old 35% wash) so a finished chip is
+          // unmistakably distinct from an in-progress bubble at a glance —
+          // white text/icon on top needs the fill to actually be dark/
+          // saturated enough to read against, which a translucent tint
+          // over the page background couldn't guarantee for every note
+          // color (some GOAL_NOTE_COLORS are pale pastels).
+          backgroundColor: color,
           borderColor: color,
         },
         Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : undefined,
       ]}
     >
-      <Ionicons name="checkmark" size={Math.max(11, size * 0.22)} color={color} />
+      <Ionicons
+        name="checkmark"
+        size={Math.max(11, size * 0.22)}
+        color="#fff"
+        style={checkmarkShadow}
+      />
       <Text
         numberOfLines={1}
-        style={[styles.chipLabel, { color, fontSize: Math.max(9, size * 0.15) }]}
+        style={[styles.chipLabel, { color: '#fff', fontSize: Math.max(9, size * 0.15) }, checkmarkShadow]}
       >
         {label}
       </Text>
     </TouchableOpacity>
   );
 }
+
+// A pale GOAL_NOTE_COLORS pastel behind a pure-white glyph can still read
+// low-contrast — this subtle dark shadow keeps the tick/label legible
+// against every note color without needing a per-color contrast branch.
+const checkmarkShadow = {
+  textShadowColor: 'rgba(0,0,0,0.35)',
+  textShadowOffset: { width: 0, height: 1 },
+  textShadowRadius: 2,
+};
 
 const styles = StyleSheet.create({
   chip: {
