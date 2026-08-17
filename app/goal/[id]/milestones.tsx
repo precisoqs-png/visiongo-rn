@@ -81,6 +81,7 @@ export default function GoalDetailScreen() {
   }, []);
 
   const coachScrollRef = useRef<ScrollView>(null);
+  const coachNearBottomRef = useRef(false);
 
   // The bell must actually schedule/cancel the reminder, not just flip the flag.
   // Turning it on also schedules a push notification for each weekly target.
@@ -328,7 +329,16 @@ export default function GoalDetailScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-      <ScrollView ref={coachScrollRef} contentContainerStyle={{ paddingBottom: 60 }}>
+      <ScrollView
+        ref={coachScrollRef}
+        contentContainerStyle={{ paddingBottom: 60 }}
+        onScroll={(e) => {
+          const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+          coachNearBottomRef.current =
+            contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
+        }}
+        scrollEventThrottle={100}
+      >
 
         <LinearGradient
           colors={[hexAlpha(noteColor, 0.4), hexAlpha(noteColor, 0.1)]}
@@ -518,6 +528,7 @@ export default function GoalDetailScreen() {
             seedMessage={coachSeed}
             onSeedConsumed={() => setCoachSeed(null)}
             onRequestScrollToEnd={() => coachScrollRef.current?.scrollToEnd({ animated: true })}
+            isNearBottom={() => coachNearBottomRef.current}
           />
         </View>
 

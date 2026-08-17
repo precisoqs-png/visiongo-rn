@@ -115,6 +115,7 @@ export default function GoalCanvasScreen() {
   const [coachOpen, setCoachOpen] = useState(false);
   const [coachSeed, setCoachSeed] = useState<string | null>(null);
   const coachScrollRef = useRef<ScrollView>(null);
+  const coachNearBottomRef = useRef(true);
 
   // ── Completion flights (measurables) ───────────────────────────
   //
@@ -504,6 +505,12 @@ export default function GoalCanvasScreen() {
                 ref={coachScrollRef}
                 contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 24 }}
                 keyboardShouldPersistTaps="handled"
+                onScroll={(e) => {
+                  const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+                  coachNearBottomRef.current =
+                    contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
+                }}
+                scrollEventThrottle={100}
               >
                 <CoachChat
                   goal={goal}
@@ -511,6 +518,7 @@ export default function GoalCanvasScreen() {
                   seedMessage={coachSeed}
                   onSeedConsumed={() => setCoachSeed(null)}
                   onRequestScrollToEnd={() => coachScrollRef.current?.scrollToEnd({ animated: true })}
+                  isNearBottom={() => coachNearBottomRef.current}
                 />
               </ScrollView>
             </KeyboardAvoidingView>

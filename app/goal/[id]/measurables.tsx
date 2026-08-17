@@ -60,6 +60,7 @@ export default function MeasurablesListScreen() {
   const [scheduleForMeasurable, setScheduleForMeasurable] = useState<Measurable | null>(null);
 
   const coachScrollRef = useRef<ScrollView>(null);
+  const coachNearBottomRef = useRef(false);
 
   const resyncMeasurableNotifications = () => {
     const fresh = useAppStore.getState().getGoal(id!);
@@ -180,7 +181,16 @@ export default function MeasurablesListScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-      <ScrollView ref={coachScrollRef} contentContainerStyle={{ paddingBottom: 60 }}>
+      <ScrollView
+        ref={coachScrollRef}
+        contentContainerStyle={{ paddingBottom: 60 }}
+        onScroll={(e) => {
+          const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+          coachNearBottomRef.current =
+            contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
+        }}
+        scrollEventThrottle={100}
+      >
         <LinearGradient
           colors={[hexAlpha(noteColor, 0.4), hexAlpha(noteColor, 0.1)]}
           style={styles.headerGradient}
@@ -262,6 +272,7 @@ export default function MeasurablesListScreen() {
             palette={p}
             onGoalEdited={resyncWeekNotifications}
             onRequestScrollToEnd={() => coachScrollRef.current?.scrollToEnd({ animated: true })}
+            isNearBottom={() => coachNearBottomRef.current}
           />
         </View>
       </ScrollView>

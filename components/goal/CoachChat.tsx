@@ -23,6 +23,12 @@ interface Props {
   // a new reply, a finished typewriter, or fresh pendingActions chips ever
   // become visible under the 58%-height keyboard-up coach sheet.
   onRequestScrollToEnd?: () => void;
+  // Whether that ScrollView is currently scrolled near its own bottom —
+  // read (not subscribed to) at the moment a reply/typewriter/pendingActions
+  // update lands, so a user actively reading earlier history never gets
+  // yanked away by content arriving below them. The user's OWN just-sent
+  // message always scrolls regardless, same as any chat app.
+  isNearBottom?: () => boolean;
 }
 
 // ── Pulsing thinking dots ────────────────────────────────────
@@ -108,7 +114,7 @@ function TypewriterText({ text, color, speed = 30, onDone }: TypewriterProps) {
 // ── Main chat component ──────────────────────────────────
 
 export function CoachChat({
-  goal, palette: p, onGoalEdited, seedMessage, onSeedConsumed, onRequestScrollToEnd,
+  goal, palette: p, onGoalEdited, seedMessage, onSeedConsumed, onRequestScrollToEnd, isNearBottom,
 }: Props) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -138,18 +144,40 @@ export function CoachChat({
     requestAnimationFrame(() => onRequestScrollToEnd?.());
   };
 
+  // Scroll only when it won't yank the user away from something they're
+  // reading: always for their own just-sent message (last bubble is
+  // 'user'), otherwise only if they're already near the bottom.
+  const scrollToEndIfWanted = () => {
+    const lastSender = goal.chat[goal.chat.length - 1]?.sender;
+    if (lastSender === 'user' || (isNearBottom?.() ?? true)) scrollToEnd();
+  };
+
+  // On milestones.tsx/measurables.tsx the "host ScrollView" is the WHOLE
+  // goal screen, not just the chat — so the very first render (mount) must
+  // never auto-scroll, or simply opening those screens yanks straight past
+  // the header and every card down to the coach input. Each effect below
+  // gets its OWN mount guard rather than a shared one — both fire in the
+  // same mount commit, so a single shared ref would already read "mounted"
+  // by the time the second effect's mount-time run checked it.
+  const didMountChatRef = useRef(false);
+  const didMountPendingRef = useRef(false);
+
   // A new message (either side) always means new content below the fold.
   const chatLength = goal.chat.length;
   useEffect(() => {
-    scrollToEnd();
+    if (!didMountChatRef.current) { didMountChatRef.current = true; return; }
+    scrollToEndIfWanted();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatLength]);
 
   // The coach's confirmation chips are the whole point of a reply — they
-  // must never render invisibly below the fold.
+  // must never render invisibly below the fold, but only when the user is
+  // already there; someone scrolled up reading history shouldn't be
+  // yanked down just because a chip appeared.
   const pendingCount = goal.pendingActions.length;
   useEffect(() => {
-    if (pendingCount > 0) scrollToEnd();
+    if (!didMountPendingRef.current) { didMountPendingRef.current = true; return; }
+    if (pendingCount > 0) scrollToEndIfWanted();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingCount]);
 
@@ -278,7 +306,7 @@ export function CoachChat({
                 speed={30}
                 onDone={() => {
                   setStreamingId(null);
-                  scrollToEnd();
+                  scrollToEndIfWanted();
                 }}
               />
             ) : (
