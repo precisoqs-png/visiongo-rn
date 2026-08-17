@@ -23,8 +23,8 @@ export function DecompCard({ goal, palette: p, onAskCoach }: Props) {
         <Text style={[styles.decompTitle, { color: p.text }]}>Nothing here yet</Text>
         <Text style={[styles.decompBody, { color: p.muted }]}>
           Let the coach break "{goal.title}" into concrete steps and a recurring
-          commitment — or add a milestone yourself. Measurables live on the
-          goal's bubble canvas.
+          commitment — or add one yourself from the Milestones tab. Measurables
+          live on the goal's bubble canvas.
         </Text>
       </View>
       <TouchableOpacity

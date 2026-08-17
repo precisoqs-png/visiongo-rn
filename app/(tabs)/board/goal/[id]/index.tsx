@@ -18,6 +18,7 @@ import {
 } from '../../../../../components/board/RadialBoard';
 import { MeasurableBubble, tickMeasurable } from '../../../../../components/goal/MeasurableBubble';
 import { MilestoneDrillInSheet } from '../../../../../components/goal/MilestoneDrillInSheet';
+import { AddMilestoneItemForm } from '../../../../../components/goal/AddMilestoneItemForm';
 import { StepScheduleSheet } from '../../../../../components/goal/StepScheduleSheet';
 import { CoachChat } from '../../../../../components/goal/CoachChat';
 import { DecompCard } from '../../../../../components/goal/DecompCard';
@@ -63,6 +64,7 @@ export default function GoalCanvasScreen() {
   const p = palette;
 
   const updateGoal = useAppStore((s) => s.updateGoal);
+  const addMeasurable = useAppStore((s) => s.addMeasurable);
   const selectedYear = useAppStore((s) => s.selectedYear);
   const goal = useAppStore((s) =>
     s.years.find((y) => y.year === s.selectedYear)?.goals.find((g) => g.id === id),
@@ -114,6 +116,7 @@ export default function GoalCanvasScreen() {
   const [openMeasurable, setOpenMeasurable] = useState<Measurable | null>(null);
   const [coachOpen, setCoachOpen] = useState(false);
   const [coachSeed, setCoachSeed] = useState<string | null>(null);
+  const [addMilestoneOpen, setAddMilestoneOpen] = useState(false);
   const coachScrollRef = useRef<ScrollView>(null);
   const coachNearBottomRef = useRef(true);
 
@@ -509,6 +512,21 @@ export default function GoalCanvasScreen() {
         )}
       </View>
 
+      {/* Add-milestone FAB — only once the goal has at least one Milestone
+          already. An empty goal shows the DecompCard instead (see above),
+          which is its own single call to action; showing both here would
+          give an empty goal two competing "what do I do first" prompts. */}
+      {goalMeasurables.length > 0 && (
+        <TouchableOpacity
+          style={[styles.addMilestoneFab, { backgroundColor: p.surface, borderColor: p.line }]}
+          onPress={() => setAddMilestoneOpen(true)}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="add" size={20} color={p.text} />
+          <Text style={[styles.addMilestoneFabText, { color: p.text }]}>Milestone</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Coach bubble — a small dark FAB that slides up the same coach chat
           the milestones page embeds inline, reused as-is. */}
       <TouchableOpacity
@@ -520,6 +538,37 @@ export default function GoalCanvasScreen() {
         <Text style={[styles.coachFabText, { color: p.isDark ? p.bg : '#fff' }]}>Coach</Text>
       </TouchableOpacity>
       </Animated.View>
+
+      <Modal
+        visible={addMilestoneOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAddMilestoneOpen(false)}
+      >
+        <TouchableOpacity style={styles.coachBackdrop} activeOpacity={1} onPress={() => setAddMilestoneOpen(false)}>
+          <TouchableOpacity
+            activeOpacity={1}
+            style={[styles.addMilestoneSheet, { backgroundColor: p.bg }]}
+            onPress={(e) => e.stopPropagation?.()}
+          >
+            <View style={styles.coachHandleRow}>
+              <View style={[styles.coachHandle, { backgroundColor: p.line }]} />
+              <TouchableOpacity
+                onPress={() => setAddMilestoneOpen(false)}
+                style={styles.coachClose}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="chevron-down" size={18} color={p.muted} />
+              </TouchableOpacity>
+            </View>
+            <AddMilestoneItemForm
+              palette={p}
+              goalTargetDate={goal.targetDate}
+              onAdd={(m) => { addMeasurable(m, goal.id); setAddMilestoneOpen(false); }}
+            />
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
 
       <Modal visible={coachOpen} transparent animationType="slide" onRequestClose={() => setCoachOpen(false)}>
         <TouchableOpacity style={styles.coachBackdrop} activeOpacity={1} onPress={() => setCoachOpen(false)}>
@@ -641,6 +690,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25, shadowRadius: 12, elevation: 6,
   },
   coachFabText: { fontSize: 9, fontWeight: '700', marginTop: 2 },
+  addMilestoneFab: {
+    position: 'absolute', bottom: 20, left: 20,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    height: 44, borderRadius: 22, borderWidth: 1, paddingHorizontal: 14,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12, shadowRadius: 8, elevation: 4,
+  },
+  addMilestoneFabText: { fontSize: 13, fontWeight: '700' },
+  addMilestoneSheet: {
+    borderTopLeftRadius: 22, borderTopRightRadius: 22,
+    paddingTop: 8, paddingHorizontal: 18, paddingBottom: 24,
+  },
   coachBackdrop: { flex: 1, backgroundColor: '#00000070', justifyContent: 'flex-end' },
   coachSheet: {
     height: '58%', borderTopLeftRadius: 22, borderTopRightRadius: 22,
