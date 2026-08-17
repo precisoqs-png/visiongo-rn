@@ -9,15 +9,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../../store/useThemeStore';
 import { useAppStore } from '../../../store/useAppStore';
 import {
-  Measurable, TrackableItem, BoardPosition, Commitment, Cadence, StepSchedule, measurableFraction,
-  removeItemCascade,
+  Measurable, TrackableItem, BoardPosition, Commitment, Cadence, StepSchedule, DEFAULT_SCHEDULE,
+  measurableFraction, removeItemCascade,
 } from '../../../store/models';
 import { GoalNote } from '../../../components/board/GoalNote';
 import {
   Point, clampCenter, computeRadialLayout, MIN_BUBBLE, MAX_BUBBLE, CENTER_SIZE,
 } from '../../../components/board/RadialBoard';
 import { MeasurableBubble, tickMeasurable } from '../../../components/goal/MeasurableBubble';
-import { MeasurableDetailSheet } from '../../../components/goal/MeasurableDetailSheet';
+import { MilestoneDrillInSheet } from '../../../components/goal/MilestoneDrillInSheet';
 import { StepScheduleSheet } from '../../../components/goal/StepScheduleSheet';
 import { CoachChat } from '../../../components/goal/CoachChat';
 import { DecompCard } from '../../../components/goal/DecompCard';
@@ -25,7 +25,7 @@ import { SegmentedControl } from '../../../components/shared/SegmentedControl';
 import { CompletionFlight, CompletedChip } from '../../../components/shared/CompletionFlight';
 import { FONTS, GOAL_NOTE_COLORS } from '../../../theme/themes';
 import {
-  syncCommitmentNotifications, requestNotificationPermission, alertNotificationsUnavailable,
+  syncCommitmentNotifications, syncMeasurableReminders, requestNotificationPermission, alertNotificationsUnavailable,
 } from '../../../services/notificationService';
 
 const TOP_SAFE = 90;
@@ -281,6 +281,47 @@ export default function GoalCanvasScreen() {
     resyncCommitmentNotifications();
   };
 
+  // Reminder sheet for an item's OWN schedule (a Milestone's or a
+  // Measurable's, whichever ScheduleBell was tapped inside the drill-in
+  // sheet) — separate from scheduleForCommitment above, same pattern.
+  const [scheduleForItem, setScheduleForItem] = useState<Measurable | null>(null);
+
+  const resyncItemNotifications = () => {
+    const fresh = useAppStore.getState().getGoal(id!);
+    if (fresh && useAppStore.getState().notificationsMasterOn) {
+      void syncMeasurableReminders(fresh);
+    }
+  };
+
+  const saveItemSchedule = async (
+    patch: { cadence: Cadence; intervalDays?: number; schedule: StepSchedule },
+  ) => {
+    const target = scheduleForItem;
+    if (!target) return;
+    const fresh = useAppStore.getState().getGoal(id!)?.items.find((it) => it.id === target.id) ?? target;
+    if (patch.schedule.on) {
+      const granted = await requestNotificationPermission();
+      if (!granted) {
+        alertNotificationsUnavailable();
+        updateMeasurableInPlace({ ...fresh, ...patch, schedule: { ...patch.schedule, on: false } });
+        setScheduleForItem(null);
+        return;
+      }
+    }
+    updateMeasurableInPlace({ ...fresh, ...patch });
+    setScheduleForItem(null);
+    resyncItemNotifications();
+  };
+
+  const turnOffItemReminder = () => {
+    const target = scheduleForItem;
+    if (!target) return;
+    const fresh = useAppStore.getState().getGoal(id!)?.items.find((it) => it.id === target.id) ?? target;
+    updateMeasurableInPlace({ ...fresh, schedule: { ...(fresh.schedule ?? DEFAULT_SCHEDULE), on: false } });
+    setScheduleForItem(null);
+    resyncItemNotifications();
+  };
+
   if (!hydrated || !goal) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: p.bg }}>
@@ -526,16 +567,29 @@ export default function GoalCanvasScreen() {
         </TouchableOpacity>
       </Modal>
 
-      <MeasurableDetailSheet
-        measurable={openMeasurable}
+      <MilestoneDrillInSheet
+        milestone={openMeasurable}
         goal={goal}
         goalTargetDate={goal.targetDate}
         palette={p}
         noteColor={noteColor}
-        onUpdate={updateMeasurableInPlace}
-        onDelete={(mid) => { deleteMeasurableInPlace(mid); setOpenMeasurable(null); }}
+        onUpdateItem={updateMeasurableInPlace}
+        onDeleteItem={(mid) => { deleteMeasurableInPlace(mid); setOpenMeasurable(null); }}
         onDismiss={() => setOpenMeasurable(null)}
+        onOpenSchedule={(m) => setScheduleForItem(m)}
         onOpenCommitmentSchedule={(m, step) => setScheduleForCommitment({ item: m, step })}
+      />
+
+      {/* Reminder sheet for an item's OWN schedule (the Milestone's or a
+          child Measurable's, whichever bell was tapped inside the drill-in
+          sheet above). */}
+      <StepScheduleSheet
+        visible={!!scheduleForItem}
+        step={scheduleForItem}
+        palette={p}
+        onSave={(patch) => { void saveItemSchedule(patch); }}
+        onTurnOff={turnOffItemReminder}
+        onDismiss={() => setScheduleForItem(null)}
       />
 
       {/* Reminder sheet for one Commitment nested inside whichever item is
