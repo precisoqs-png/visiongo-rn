@@ -5,19 +5,19 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useThemeStore } from '../../../store/useThemeStore';
-import { useAppStore } from '../../../store/useAppStore';
-import { GOAL_NOTE_COLORS, hexAlpha } from '../../../theme/themes';
-import { goalProgress, goalProgressPercent, Measurable, Commitment, Cadence, StepSchedule, DEFAULT_SCHEDULE } from '../../../store/models';
-import { MeasurableCard } from '../../../components/goal/MeasurableCard';
-import { AddMeasurableForm } from '../../../components/goal/AddMeasurableForm';
-import { CoachChat } from '../../../components/goal/CoachChat';
-import { InfoPopover } from '../../../components/shared/InfoPopover';
-import { StepScheduleSheet } from '../../../components/goal/StepScheduleSheet';
+import { useThemeStore } from '../../../../../store/useThemeStore';
+import { useAppStore } from '../../../../../store/useAppStore';
+import { GOAL_NOTE_COLORS, hexAlpha } from '../../../../../theme/themes';
+import { goalProgress, goalProgressPercent, Measurable, Commitment, Cadence, StepSchedule, DEFAULT_SCHEDULE } from '../../../../../store/models';
+import { MeasurableCard } from '../../../../../components/goal/MeasurableCard';
+import { AddMeasurableForm } from '../../../../../components/goal/AddMeasurableForm';
+import { CoachChat } from '../../../../../components/goal/CoachChat';
+import { InfoPopover } from '../../../../../components/shared/InfoPopover';
+import { StepScheduleSheet } from '../../../../../components/goal/StepScheduleSheet';
 import {
   syncWeeklyTargetNotifications, syncMeasurableReminders, syncCommitmentNotifications,
   requestNotificationPermission, alertNotificationsUnavailable,
-} from '../../../services/notificationService';
+} from '../../../../../services/notificationService';
 
 // The list-form view for Measurables — the only place to add one, since the
 // bubble canvas itself has no "add" affordance. Editing/ticking a measurable

@@ -7,20 +7,20 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useThemeStore } from '../../../store/useThemeStore';
-import { useAppStore } from '../../../store/useAppStore';
-import { GOAL_NOTE_COLORS, hexAlpha, FONTS } from '../../../theme/themes';
+import { useThemeStore } from '../../../../../store/useThemeStore';
+import { useAppStore } from '../../../../../store/useAppStore';
+import { GOAL_NOTE_COLORS, hexAlpha, FONTS } from '../../../../../theme/themes';
 import {
   goalProgress, goalProgressPercent, isCompleted, Commitment, TrackableItem,
   Cadence, StepSchedule, DEFAULT_SCHEDULE,
-} from '../../../store/models';
-import { MeasurableCard } from '../../../components/goal/MeasurableCard';
-import { AddMilestoneItemForm } from '../../../components/goal/AddMilestoneItemForm';
-import { InfoPopover } from '../../../components/shared/InfoPopover';
-import { StepScheduleSheet, ReminderTarget } from '../../../components/goal/StepScheduleSheet';
-import { CoachChat } from '../../../components/goal/CoachChat';
-import { DecompCard } from '../../../components/goal/DecompCard';
-import { CalendarPicker } from '../../../components/shared/CalendarPicker';
+} from '../../../../../store/models';
+import { MeasurableCard } from '../../../../../components/goal/MeasurableCard';
+import { AddMilestoneItemForm } from '../../../../../components/goal/AddMilestoneItemForm';
+import { InfoPopover } from '../../../../../components/shared/InfoPopover';
+import { StepScheduleSheet, ReminderTarget } from '../../../../../components/goal/StepScheduleSheet';
+import { CoachChat } from '../../../../../components/goal/CoachChat';
+import { DecompCard } from '../../../../../components/goal/DecompCard';
+import { CalendarPicker } from '../../../../../components/shared/CalendarPicker';
 import {
   requestNotificationPermission,
   scheduleGoalNotification,
@@ -31,7 +31,7 @@ import {
   syncMeasurableReminders,
   cancelEverythingForGoal,
   alertNotificationsUnavailable,
-} from '../../../services/notificationService';
+} from '../../../../../services/notificationService';
 
 function localDate(iso: string): Date {
   const [y, mo, d] = iso.slice(0, 10).split('-').map(Number);

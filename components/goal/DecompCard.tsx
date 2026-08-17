@@ -13,7 +13,7 @@ interface Props {
 // The empty-goal card that seeds the coach with a real "break this down"
 // prompt — originally only on the Milestones screen, two taps deep from
 // where a user actually lands after onboarding. Shared so the goal canvas
-// (app/goal/[id]/index.tsx) can show the same card in place of its old
+// (app/(tabs)/board/goal/[id]/index.tsx) can show the same card in place of its old
 // plain-text empty hint, instead of drifting into its own copy.
 export function DecompCard({ goal, palette: p, onAskCoach }: Props) {
   return (

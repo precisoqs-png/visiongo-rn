@@ -5,17 +5,17 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useThemeStore } from '../../store/useThemeStore';
-import { useAppStore } from '../../store/useAppStore';
-import { BoardPosition } from '../../store/models';
-import { cancelEverythingForGoal } from '../../services/notificationService';
-import { RadialBoard } from '../../components/board/RadialBoard';
-import { GridBoard } from '../../components/board/GridBoard';
-import { MonthBoard } from '../../components/board/MonthBoard';
-import { TemplatePicker } from '../../components/board/TemplatePicker';
-import { GoalActionSheet } from '../../components/board/GoalActionSheet';
-import { SegmentedControl } from '../../components/shared/SegmentedControl';
-import { FONTS } from '../../theme/themes';
+import { useThemeStore } from '../../../store/useThemeStore';
+import { useAppStore } from '../../../store/useAppStore';
+import { BoardPosition } from '../../../store/models';
+import { cancelEverythingForGoal } from '../../../services/notificationService';
+import { RadialBoard } from '../../../components/board/RadialBoard';
+import { GridBoard } from '../../../components/board/GridBoard';
+import { MonthBoard } from '../../../components/board/MonthBoard';
+import { TemplatePicker } from '../../../components/board/TemplatePicker';
+import { GoalActionSheet } from '../../../components/board/GoalActionSheet';
+import { SegmentedControl } from '../../../components/shared/SegmentedControl';
+import { FONTS } from '../../../theme/themes';
 
 export default function BoardScreen() {
   const router = useRouter();
@@ -134,7 +134,7 @@ export default function BoardScreen() {
             <RadialBoard
               yearData={yd}
               palette={p}
-              onGoalPress={(id) => router.push(`/goal/${id}`)}
+              onGoalPress={(id) => router.push(`/board/goal/${id}`)}
               onGoalMove={handleGoalMove}
               onGoalDelete={handleGoalDelete}
               onAddGoal={() => setPickerVisible(true)}
@@ -145,7 +145,7 @@ export default function BoardScreen() {
             <GridBoard
               yearData={yd}
               palette={p}
-              onGoalPress={(id) => router.push(`/goal/${id}`)}
+              onGoalPress={(id) => router.push(`/board/goal/${id}`)}
               onGoalLongPress={handleGoalLongPress}
               onAddGoal={() => setPickerVisible(true)}
             />
@@ -154,7 +154,7 @@ export default function BoardScreen() {
           <MonthBoard
             yearData={yd}
             palette={p}
-            onGoalPress={(id) => router.push(`/goal/${id}`)}
+            onGoalPress={(id) => router.push(`/board/goal/${id}`)}
           />
         )}
       </View>

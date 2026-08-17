@@ -6,27 +6,27 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useThemeStore } from '../../../store/useThemeStore';
-import { useAppStore } from '../../../store/useAppStore';
+import { useThemeStore } from '../../../../../store/useThemeStore';
+import { useAppStore } from '../../../../../store/useAppStore';
 import {
   Measurable, TrackableItem, BoardPosition, Commitment, Cadence, StepSchedule, DEFAULT_SCHEDULE,
   measurableFraction, removeItemCascade,
-} from '../../../store/models';
-import { GoalNote } from '../../../components/board/GoalNote';
+} from '../../../../../store/models';
+import { GoalNote } from '../../../../../components/board/GoalNote';
 import {
   Point, clampCenter, computeRadialLayout, MIN_BUBBLE, MAX_BUBBLE, CENTER_SIZE,
-} from '../../../components/board/RadialBoard';
-import { MeasurableBubble, tickMeasurable } from '../../../components/goal/MeasurableBubble';
-import { MilestoneDrillInSheet } from '../../../components/goal/MilestoneDrillInSheet';
-import { StepScheduleSheet } from '../../../components/goal/StepScheduleSheet';
-import { CoachChat } from '../../../components/goal/CoachChat';
-import { DecompCard } from '../../../components/goal/DecompCard';
-import { SegmentedControl } from '../../../components/shared/SegmentedControl';
-import { CompletionFlight, CompletedChip } from '../../../components/shared/CompletionFlight';
-import { FONTS, GOAL_NOTE_COLORS } from '../../../theme/themes';
+} from '../../../../../components/board/RadialBoard';
+import { MeasurableBubble, tickMeasurable } from '../../../../../components/goal/MeasurableBubble';
+import { MilestoneDrillInSheet } from '../../../../../components/goal/MilestoneDrillInSheet';
+import { StepScheduleSheet } from '../../../../../components/goal/StepScheduleSheet';
+import { CoachChat } from '../../../../../components/goal/CoachChat';
+import { DecompCard } from '../../../../../components/goal/DecompCard';
+import { SegmentedControl } from '../../../../../components/shared/SegmentedControl';
+import { CompletionFlight, CompletedChip } from '../../../../../components/shared/CompletionFlight';
+import { FONTS, GOAL_NOTE_COLORS } from '../../../../../theme/themes';
 import {
   syncCommitmentNotifications, syncMeasurableReminders, requestNotificationPermission, alertNotificationsUnavailable,
-} from '../../../services/notificationService';
+} from '../../../../../services/notificationService';
 
 const TOP_SAFE = 90;
 const BOTTOM_SAFE = 120;
@@ -102,7 +102,7 @@ export default function GoalCanvasScreen() {
   };
 
   // Same SSR/hydration gate as the milestones page (see its comment) — this
-  // is the URL /goal/[id] resolves to first, so it needs it too.
+  // is the URL /board/goal/[id] resolves to first, so it needs it too.
   const [hydrated, setHydrated] = useState(useAppStore.persist.hasHydrated());
   React.useEffect(() => {
     const unsub = useAppStore.persist.onFinishHydration(() => setHydrated(true));
@@ -386,7 +386,7 @@ export default function GoalCanvasScreen() {
             { key: 'measurables', label: 'Measurables' },
             { key: 'milestones', label: 'Milestones' },
           ]}
-          onChange={(tab) => router.push(`/goal/${id}/${tab}`)}
+          onChange={(tab) => router.push(`/board/goal/${id}/${tab}`)}
           palette={p}
         />
       </View>
@@ -396,7 +396,7 @@ export default function GoalCanvasScreen() {
         onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
       >
         <View style={[styles.centerWrap, { left: cx - CENTER_SIZE / 2, top: cy - CENTER_SIZE / 2 }]}>
-          <GoalNote goal={goal} size={CENTER_SIZE} palette={p} onPress={() => router.push(`/goal/${id}/milestones`)} />
+          <GoalNote goal={goal} size={CENTER_SIZE} palette={p} onPress={() => router.push(`/board/goal/${id}/milestones`)} />
         </View>
 
         {activeMeasurables.map((m, idx) => {
@@ -609,7 +609,7 @@ export default function GoalCanvasScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, paddingTop: Platform.OS === 'ios' ? 50 : 30 },
   // header/eyebrow/motto/yearRow/yearCenter/yearDiamond/yearNum are a
-  // deliberate 1:1 copy of app/(tabs)/board.tsx's own styles, so this top
+  // deliberate 1:1 copy of app/(tabs)/board/index.tsx's own styles, so this top
   // section reads as the same header, not a re-styled lookalike.
   header: {
     flexDirection: 'row', alignItems: 'flex-start',
