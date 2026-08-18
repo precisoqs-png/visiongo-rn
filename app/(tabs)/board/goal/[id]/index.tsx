@@ -158,7 +158,22 @@ export default function GoalCanvasScreen() {
     const justCompleted = measurables.filter(
       (m) => frac.get(m.id)! >= 1 && (prev.get(m.id) ?? 0) < 1,
     );
+    // The reverse transition — a resting completed chip whose item dropped
+    // back below 100% (e.g. unticking a child, or decrementing a number,
+    // from inside the drill-in sheet without ever leaving the canvas).
+    // activeMeasurables only renders a bubble for fraction < 1, so leaving
+    // a stale id in settledCompletedIds meant the SAME item rendered twice
+    // at once: a live bubble on the canvas and a resting chip in the
+    // completed column, until this screen unmounted.
+    const justUncompleted = new Set(
+      measurables
+        .filter((m) => (prev.get(m.id) ?? 0) >= 1 && frac.get(m.id)! < 1)
+        .map((m) => m.id),
+    );
     seenFracRef.current = frac;
+    if (justUncompleted.size > 0) {
+      setSettledCompletedIds((ids) => ids.filter((mid) => !justUncompleted.has(mid)));
+    }
     if (justCompleted.length === 0) return;
     setMeasurableFlights((current) => {
       const next = { ...current };
