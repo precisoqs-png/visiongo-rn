@@ -28,6 +28,19 @@ function customKey(i: number): string {
   return `c-${i}`;
 }
 
+// Resolves one goal's actual achieve-by date: an explicit per-goal entry
+// wins if present at all — a string is that goal's own date, `null` is an
+// explicit "no date" overriding a shared default that IS set — otherwise
+// (the key is absent entirely) fall back to the shared default.
+function resolveGoalDate(
+  key: string,
+  perGoalDates: Record<string, string | null>,
+  defaultDate: string | undefined,
+): string | undefined {
+  if (!(key in perGoalDates)) return defaultDate;
+  return perGoalDates[key] ?? undefined;
+}
+
 const MOTTO_CHIPS = [
   'MY YEAR OF MOMENTUM',
   'MY YEAR OF GROWTH',
@@ -60,9 +73,15 @@ export default function OnboardingScreen() {
   // sensible default with a per-goal override stays quick for the common
   // case (one date, tap Continue) without forcing that mismatch.
   const [targetDate, setTargetDate] = useState<string | undefined>(undefined);
-  // Sparse — only entries the user explicitly overrode away from the
-  // default. Keyed by goalKey(t)/customGoalKey(i) below.
-  const [perGoalDates, setPerGoalDates] = useState<Record<string, string | undefined>>({});
+  // Sparse — only entries the user explicitly gave their own setting.
+  // Three-way per key, not two: an ABSENT key means "no override, use the
+  // shared default"; an ISO date means "this goal's own date"; `null`
+  // means "this goal explicitly has no date", overriding a shared default
+  // that IS set. Without that third state, "clear this goal's date" had
+  // nowhere to go but back to the shared default — there was no way to
+  // say "every goal gets this date except this one, which gets none".
+  // Keyed by goalKey(t)/customGoalKey(i) below.
+  const [perGoalDates, setPerGoalDates] = useState<Record<string, string | null>>({});
   // Which date the CalendarPicker modal is currently editing: 'default' for
   // the shared date, a goal key for that one goal's override, or null (closed).
   const [editingDateFor, setEditingDateFor] = useState<string | null>(null);
@@ -127,12 +146,12 @@ export default function OnboardingScreen() {
       // fixed 10-week ramp, which can run past the deadline.
       const goals: Goal[] = selectedTemplates.map((t, i) => {
         const g = instantiateTemplate(t, i % GOAL_NOTE_COLORS.length);
-        const date = perGoalDates[templateKey(t)] ?? targetDate;
+        const date = resolveGoalDate(templateKey(t), perGoalDates, targetDate);
         if (date) g.targetDate = date;
         return g;
       });
       customGoals.forEach((title, i) => {
-        const date = perGoalDates[customKey(i)] ?? targetDate;
+        const date = resolveGoalDate(customKey(i), perGoalDates, targetDate);
         goals.push({
           id: require('../store/models').newId(),
           title,
@@ -269,7 +288,7 @@ export default function OnboardingScreen() {
 
       <CalendarPicker
         visible={editingDateFor != null}
-        value={editingDateFor === 'default' ? targetDate : (editingDateFor ? perGoalDates[editingDateFor] ?? targetDate : undefined)}
+        value={editingDateFor === 'default' ? targetDate : (editingDateFor ? resolveGoalDate(editingDateFor, perGoalDates, targetDate) : undefined)}
         palette={p}
         onSelect={(iso) => {
           if (editingDateFor === 'default') setTargetDate(iso);
@@ -277,8 +296,16 @@ export default function OnboardingScreen() {
           setEditingDateFor(null);
         }}
         onClear={() => {
-          if (editingDateFor === 'default') setTargetDate(undefined);
-          else if (editingDateFor) setPerGoalDates((prev) => ({ ...prev, [editingDateFor]: undefined }));
+          if (editingDateFor === 'default') {
+            setTargetDate(undefined);
+          } else if (editingDateFor) {
+            // Explicit "this goal has no date" (null) — distinct from
+            // removing the key entirely (the pill's own long-press,
+            // "revert to the shared default"). Without this, clearing a
+            // per-goal date always fell back to the default, with no way
+            // to say "every goal gets this date except this one".
+            setPerGoalDates((prev) => ({ ...prev, [editingDateFor]: null }));
+          }
           setEditingDateFor(null);
         }}
         onDismiss={() => setEditingDateFor(null)}
@@ -563,8 +590,11 @@ function DeadlineStep({
       {goalRows.length > 0 && (
         <View style={styles.perGoalDateList}>
           {goalRows.map((g) => {
-            const override = perGoalDates[g.key];
-            const resolved = override ?? targetDate;
+            // Has its OWN explicit setting — a date, or an explicit "no
+            // date" (null) — as opposed to no entry at all (falls back to
+            // the shared default).
+            const hasOverride = g.key in perGoalDates;
+            const resolved = resolveGoalDate(g.key, perGoalDates, targetDate);
             return (
               <View key={g.key} style={[styles.perGoalDateRow, { borderColor: p.line }]}>
                 <Text style={styles.templateEmoji}>{g.emoji}</Text>
@@ -574,12 +604,12 @@ function DeadlineStep({
                 <TouchableOpacity
                   style={[
                     styles.perGoalDatePill,
-                    { borderColor: override ? p.accent : p.line, backgroundColor: override ? `${p.accent}18` : 'transparent' },
+                    { borderColor: hasOverride ? p.accent : p.line, backgroundColor: hasOverride ? `${p.accent}18` : 'transparent' },
                   ]}
                   onPress={() => onOpenGoalPicker(g.key)}
-                  onLongPress={override ? () => onClearGoalOverride(g.key) : undefined}
+                  onLongPress={hasOverride ? () => onClearGoalOverride(g.key) : undefined}
                 >
-                  <Text style={[styles.perGoalDatePillText, { color: override ? p.accent : p.muted }]}>
+                  <Text style={[styles.perGoalDatePillText, { color: hasOverride ? p.accent : p.muted }]}>
                     {fmtDate(resolved) ?? 'No date'}
                   </Text>
                 </TouchableOpacity>
