@@ -29,6 +29,14 @@ interface Props {
   // yanked away by content arriving below them. The user's OWN just-sent
   // message always scrolls regardless, same as any chat app.
   isNearBottom?: () => boolean;
+  // Autofocus the composer on mount. Defaults to false: on milestones.tsx
+  // and measurables.tsx the composer is the LAST element of the whole-page
+  // ScrollView, so focusing it triggers RN-web's scroll-into-view and the
+  // native keyboard's layout inset — both silently re-scroll straight to
+  // the bottom, reproducing the exact yank auto-scroll's mount guard was
+  // written to prevent, just via a different path. Only the canvas's coach
+  // MODAL (index.tsx) — a short sheet, not the whole page — passes true.
+  autoFocusInput?: boolean;
 }
 
 // ── Pulsing thinking dots ────────────────────────────────────
@@ -115,6 +123,7 @@ function TypewriterText({ text, color, speed = 30, onDone }: TypewriterProps) {
 
 export function CoachChat({
   goal, palette: p, onGoalEdited, seedMessage, onSeedConsumed, onRequestScrollToEnd, isNearBottom,
+  autoFocusInput = false,
 }: Props) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -133,8 +142,10 @@ export function CoachChat({
   const inputRef = useRef<TextInput>(null);
 
   useEffect(() => {
+    if (!autoFocusInput) return;
     const t = setTimeout(() => inputRef.current?.focus(), 400);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Scroll the host's ScrollView to the bottom on the next frame — deferred
@@ -414,7 +425,7 @@ export function CoachChat({
             multiline
             returnKeyType="send"
             onSubmitEditing={sendMessage}
-            autoFocus={Platform.OS !== 'web'}
+            autoFocus={autoFocusInput && Platform.OS !== 'web'}
           />
           <TouchableOpacity
             style={[

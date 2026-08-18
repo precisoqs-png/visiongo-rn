@@ -19,6 +19,7 @@ import { AddMilestoneItemForm } from '../../../../../components/goal/AddMileston
 import { InfoPopover } from '../../../../../components/shared/InfoPopover';
 import { StepScheduleSheet, ReminderTarget } from '../../../../../components/goal/StepScheduleSheet';
 import { CoachChat } from '../../../../../components/goal/CoachChat';
+import { useNearBottom } from '../../../../../components/shared/useNearBottom';
 import { DecompCard } from '../../../../../components/goal/DecompCard';
 import { CalendarPicker } from '../../../../../components/shared/CalendarPicker';
 import {
@@ -81,7 +82,7 @@ export default function GoalDetailScreen() {
   }, []);
 
   const coachScrollRef = useRef<ScrollView>(null);
-  const coachNearBottomRef = useRef(false);
+  const coachNearBottom = useNearBottom();
 
   // The bell must actually schedule/cancel the reminder, not just flip the flag.
   // Turning it on also schedules a push notification for each weekly target.
@@ -332,11 +333,9 @@ export default function GoalDetailScreen() {
       <ScrollView
         ref={coachScrollRef}
         contentContainerStyle={{ paddingBottom: 60 }}
-        onScroll={(e) => {
-          const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
-          coachNearBottomRef.current =
-            contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
-        }}
+        onScroll={coachNearBottom.onScroll}
+        onLayout={coachNearBottom.onLayout}
+        onContentSizeChange={coachNearBottom.onContentSizeChange}
         scrollEventThrottle={100}
       >
 
@@ -528,7 +527,7 @@ export default function GoalDetailScreen() {
             seedMessage={coachSeed}
             onSeedConsumed={() => setCoachSeed(null)}
             onRequestScrollToEnd={() => coachScrollRef.current?.scrollToEnd({ animated: true })}
-            isNearBottom={() => coachNearBottomRef.current}
+            isNearBottom={() => coachNearBottom.nearBottomRef.current}
           />
         </View>
 

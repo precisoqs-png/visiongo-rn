@@ -12,6 +12,7 @@ import { goalProgress, goalProgressPercent, Measurable, Commitment, Cadence, Ste
 import { MeasurableCard } from '../../../../../components/goal/MeasurableCard';
 import { AddMeasurableForm } from '../../../../../components/goal/AddMeasurableForm';
 import { CoachChat } from '../../../../../components/goal/CoachChat';
+import { useNearBottom } from '../../../../../components/shared/useNearBottom';
 import { InfoPopover } from '../../../../../components/shared/InfoPopover';
 import { StepScheduleSheet } from '../../../../../components/goal/StepScheduleSheet';
 import {
@@ -60,7 +61,7 @@ export default function MeasurablesListScreen() {
   const [scheduleForMeasurable, setScheduleForMeasurable] = useState<Measurable | null>(null);
 
   const coachScrollRef = useRef<ScrollView>(null);
-  const coachNearBottomRef = useRef(false);
+  const coachNearBottom = useNearBottom();
 
   const resyncMeasurableNotifications = () => {
     const fresh = useAppStore.getState().getGoal(id!);
@@ -184,11 +185,9 @@ export default function MeasurablesListScreen() {
       <ScrollView
         ref={coachScrollRef}
         contentContainerStyle={{ paddingBottom: 60 }}
-        onScroll={(e) => {
-          const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
-          coachNearBottomRef.current =
-            contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
-        }}
+        onScroll={coachNearBottom.onScroll}
+        onLayout={coachNearBottom.onLayout}
+        onContentSizeChange={coachNearBottom.onContentSizeChange}
         scrollEventThrottle={100}
       >
         <LinearGradient
@@ -272,7 +271,7 @@ export default function MeasurablesListScreen() {
             palette={p}
             onGoalEdited={resyncWeekNotifications}
             onRequestScrollToEnd={() => coachScrollRef.current?.scrollToEnd({ animated: true })}
-            isNearBottom={() => coachNearBottomRef.current}
+            isNearBottom={() => coachNearBottom.nearBottomRef.current}
           />
         </View>
       </ScrollView>

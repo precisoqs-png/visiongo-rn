@@ -24,9 +24,11 @@ import { CoachChat } from '../../../../../components/goal/CoachChat';
 import { DecompCard } from '../../../../../components/goal/DecompCard';
 import { SegmentedControl } from '../../../../../components/shared/SegmentedControl';
 import { CompletionFlight, CompletedChip } from '../../../../../components/shared/CompletionFlight';
+import { useNearBottom } from '../../../../../components/shared/useNearBottom';
 import { FONTS, GOAL_NOTE_COLORS } from '../../../../../theme/themes';
 import {
-  syncCommitmentNotifications, syncMeasurableReminders, requestNotificationPermission, alertNotificationsUnavailable,
+  syncCommitmentNotifications, syncMeasurableReminders, syncWeeklyTargetNotifications,
+  requestNotificationPermission, alertNotificationsUnavailable,
 } from '../../../../../services/notificationService';
 
 const TOP_SAFE = 90;
@@ -118,7 +120,7 @@ export default function GoalCanvasScreen() {
   const [coachSeed, setCoachSeed] = useState<string | null>(null);
   const [addMilestoneOpen, setAddMilestoneOpen] = useState(false);
   const coachScrollRef = useRef<ScrollView>(null);
-  const coachNearBottomRef = useRef(true);
+  const coachNearBottom = useNearBottom();
 
   // ── Completion flights (measurables) ───────────────────────────
   //
@@ -595,11 +597,9 @@ export default function GoalCanvasScreen() {
                 ref={coachScrollRef}
                 contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 24 }}
                 keyboardShouldPersistTaps="handled"
-                onScroll={(e) => {
-                  const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
-                  coachNearBottomRef.current =
-                    contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
-                }}
+                onScroll={coachNearBottom.onScroll}
+                onLayout={coachNearBottom.onLayout}
+                onContentSizeChange={coachNearBottom.onContentSizeChange}
                 scrollEventThrottle={100}
               >
                 <CoachChat
@@ -608,7 +608,8 @@ export default function GoalCanvasScreen() {
                   seedMessage={coachSeed}
                   onSeedConsumed={() => setCoachSeed(null)}
                   onRequestScrollToEnd={() => coachScrollRef.current?.scrollToEnd({ animated: true })}
-                  isNearBottom={() => coachNearBottomRef.current}
+                  isNearBottom={() => coachNearBottom.nearBottomRef.current}
+                  autoFocusInput
                 />
               </ScrollView>
             </KeyboardAvoidingView>
