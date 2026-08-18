@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../../../../store/useThemeStore';
 import { useAppStore } from '../../../../../store/useAppStore';
@@ -97,13 +98,52 @@ export default function GoalCanvasScreen() {
     Animated.timing(textOpacity, { toValue: 1, duration: 260, delay: 140, useNativeDriver: true }).start();
   }, []);
 
+  // Navigation used to be gated behind the fade-out animation's own
+  // .start() callback — with useNativeDriver true on iOS that callback
+  // comes from the native animation module, and if it's ever dropped (app
+  // backgrounded mid-animation, a permission alert stealing the run loop)
+  // the screen is left faded to invisible with nothing to navigate away
+  // from it. Worse, the year-row back control that triggers this sits
+  // OUTSIDE the faded view (see its JSX below), so it keeps eating touches
+  // at opacity 0 while nothing responds — a real freeze, not just a
+  // visual glitch. `go` is idempotent so the animation's callback and a
+  // bounded safety timer can both call it without double-navigating; the
+  // timer guarantees navigation happens even if the callback never fires.
   const handleBackToBoard = () => {
     textOpacity.setValue(0);
+    let navigated = false;
+    const go = () => {
+      if (navigated) return;
+      navigated = true;
+      router.replace('/(tabs)/board');
+    };
     Animated.parallel([
       Animated.timing(contentScale, { toValue: 0.94, duration: 200, useNativeDriver: true }),
       Animated.timing(contentOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
-    ]).start(() => router.replace('/(tabs)/board'));
+    ]).start(go);
+    setTimeout(go, 260);
   };
+
+  // Defensive reset for the same scenario: if this screen instance is ever
+  // RE-focused (e.g. the animation's dropped callback left it faded out,
+  // or a future back-navigation restores this screen from history) while
+  // contentOpacity/textOpacity are still mid-fade-out, restore them to
+  // visible rather than leaving the canvas stuck invisible. Skips the
+  // very first focus (right after mount) — that one is the deliberate
+  // grow-in entrance animation from 0, not a stuck fade-out to recover.
+  const hasFocusedOnceRef = useRef(false);
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!hasFocusedOnceRef.current) {
+        hasFocusedOnceRef.current = true;
+        return;
+      }
+      contentScale.setValue(1);
+      contentOpacity.setValue(1);
+      textOpacity.setValue(1);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []),
+  );
 
   // Same SSR/hydration gate as the milestones page (see its comment) — this
   // is the URL /board/goal/[id] resolves to first, so it needs it too.
@@ -116,6 +156,11 @@ export default function GoalCanvasScreen() {
 
   const [size, setSize] = useState({ w: 390, h: 640 });
   const [openMeasurable, setOpenMeasurable] = useState<Measurable | null>(null);
+  // The drill-in Modal's own milestone id, remembered ONLY while a
+  // StepScheduleSheet is covering it (see openSchedule/restoreDrillIn
+  // below) — never both non-null at once with openMeasurable, since the
+  // two states are mutually exclusive by construction.
+  const [returnToMilestoneId, setReturnToMilestoneId] = useState<string | null>(null);
   const [coachOpen, setCoachOpen] = useState(false);
   const [coachSeed, setCoachSeed] = useState<string | null>(null);
   const [addMilestoneOpen, setAddMilestoneOpen] = useState(false);
@@ -238,6 +283,12 @@ export default function GoalCanvasScreen() {
     patchGoal((g) => ({ items: removeItemCascade(g.items, measurableId) }));
     resyncWeekNotifications();
     resyncCommitmentNotifications();
+    // Cancels the deleted item's OWN reminder (its ScheduleBell, not a
+    // Commitment's) — syncMeasurableReminders rebuilds every measurable
+    // reminder from the goal's CURRENT items, which by now no longer
+    // includes it, so without this the deleted item's notification kept
+    // firing forever. Same gap fixed in measurables.tsx/milestones.tsx.
+    resyncItemNotifications();
   };
 
   const resyncWeekNotifications = () => {
@@ -295,11 +346,13 @@ export default function GoalCanvasScreen() {
         alertNotificationsUnavailable();
         apply({ ...patch.schedule, on: false });
         setScheduleForCommitment(null);
+        restoreDrillIn();
         return;
       }
     }
     apply(patch.schedule);
     setScheduleForCommitment(null);
+    restoreDrillIn();
     resyncCommitmentNotifications();
   };
 
@@ -314,6 +367,7 @@ export default function GoalCanvasScreen() {
       )),
     });
     setScheduleForCommitment(null);
+    restoreDrillIn();
     resyncCommitmentNotifications();
   };
 
@@ -341,11 +395,13 @@ export default function GoalCanvasScreen() {
         alertNotificationsUnavailable();
         updateMeasurableInPlace({ ...fresh, ...patch, schedule: { ...patch.schedule, on: false } });
         setScheduleForItem(null);
+        restoreDrillIn();
         return;
       }
     }
     updateMeasurableInPlace({ ...fresh, ...patch });
     setScheduleForItem(null);
+    restoreDrillIn();
     resyncItemNotifications();
   };
 
@@ -355,7 +411,35 @@ export default function GoalCanvasScreen() {
     const fresh = useAppStore.getState().getGoal(id!)?.items.find((it) => it.id === target.id) ?? target;
     updateMeasurableInPlace({ ...fresh, schedule: { ...(fresh.schedule ?? DEFAULT_SCHEDULE), on: false } });
     setScheduleForItem(null);
+    restoreDrillIn();
     resyncItemNotifications();
+  };
+
+  // MilestoneDrillInSheet and StepScheduleSheet are BOTH RN Modals — two
+  // Modals visible at once is not just a layout quirk here, it's the
+  // actual cause of the reported freeze: on iOS, presenting a second modal
+  // view controller from a screen that's already presenting one desyncs
+  // RN's internal "am I presented" bookkeeping from UIKit's real state,
+  // and the result is a transparent, fully unresponsive screen that eats
+  // every touch — not a crash, so it looks exactly like a hang. The drill-in
+  // sheet's bell used to just open the schedule sheet on top of itself.
+  // Now it closes the drill-in first and reopens it (restoreDrillIn) once
+  // the schedule sheet is done, so at most one Modal is ever visible.
+  const openItemSchedule = (m: Measurable) => {
+    setReturnToMilestoneId(openMeasurable?.id ?? null);
+    setOpenMeasurable(null);
+    setScheduleForItem(m);
+  };
+  const openCommitmentSchedule = (m: Measurable, step: Commitment) => {
+    setReturnToMilestoneId(openMeasurable?.id ?? null);
+    setOpenMeasurable(null);
+    setScheduleForCommitment({ item: m, step });
+  };
+  const restoreDrillIn = () => {
+    if (!returnToMilestoneId) return;
+    const fresh = useAppStore.getState().getGoal(id!)?.items.find((it) => it.id === returnToMilestoneId);
+    setOpenMeasurable(fresh ?? null);
+    setReturnToMilestoneId(null);
   };
 
   if (!hydrated || !goal) {
@@ -657,31 +741,34 @@ export default function GoalCanvasScreen() {
         onUpdateItem={updateMeasurableInPlace}
         onDeleteItem={(mid) => { deleteMeasurableInPlace(mid); setOpenMeasurable(null); }}
         onDismiss={() => setOpenMeasurable(null)}
-        onOpenSchedule={(m) => setScheduleForItem(m)}
-        onOpenCommitmentSchedule={(m, step) => setScheduleForCommitment({ item: m, step })}
+        onOpenSchedule={openItemSchedule}
+        onOpenCommitmentSchedule={openCommitmentSchedule}
       />
 
       {/* Reminder sheet for an item's OWN schedule (the Milestone's or a
           child Measurable's, whichever bell was tapped inside the drill-in
-          sheet above). */}
+          sheet above). Deliberately never visible at the same time as
+          MilestoneDrillInSheet — see openItemSchedule/restoreDrillIn — two
+          RN Modals stacked at once is what caused the reported freeze. */}
       <StepScheduleSheet
         visible={!!scheduleForItem}
         step={scheduleForItem}
         palette={p}
         onSave={(patch) => { void saveItemSchedule(patch); }}
         onTurnOff={turnOffItemReminder}
-        onDismiss={() => setScheduleForItem(null)}
+        onDismiss={() => { setScheduleForItem(null); restoreDrillIn(); }}
       />
 
       {/* Reminder sheet for one Commitment nested inside whichever item is
-          open above — same component/logic as measurables.tsx's own. */}
+          open above — same component/logic as measurables.tsx's own, same
+          never-stacked-with-the-drill-in-sheet rule. */}
       <StepScheduleSheet
         visible={!!scheduleForCommitment}
         step={scheduleForCommitment?.step ?? null}
         palette={p}
         onSave={(patch) => { void saveCommitmentSchedule(patch); }}
         onTurnOff={turnOffCommitmentReminder}
-        onDismiss={() => setScheduleForCommitment(null)}
+        onDismiss={() => { setScheduleForCommitment(null); restoreDrillIn(); }}
       />
     </LinearGradient>
   );
