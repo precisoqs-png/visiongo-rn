@@ -124,6 +124,15 @@ export function CompletionFlight({
 // whole-goal column and the per-goal canvas's measurable/milestone column.
 // Unlike the small unlabeled circle this replaces, it always shows its own
 // name so a glance at the column says WHAT finished, not just how many.
+// GOAL_NOTE_COLORS (theme/themes.ts) are all pale pastels, and are the same
+// fixed set regardless of which theme/palette is active — so the label
+// color that reads against them is fixed too, not theme-derived. Tried
+// `p.ink` first, but ink itself flips light/dark per theme (it's a button
+// background color, not a guaranteed-dark text color), so on a dark theme
+// it can be just as pale as the pastel it would sit on. A dedicated
+// constant is the only thing that's actually reliable here.
+const CHIP_LABEL_COLOR = '#2b2b2b';
+
 export function CompletedChip({
   label, color, size, left, top, onPress,
 }: {
@@ -157,7 +166,7 @@ export function CompletedChip({
       />
       <Text
         numberOfLines={1}
-        style={[styles.chipLabel, { color: '#fff', fontSize: Math.max(9, size * 0.15) }, checkmarkShadow]}
+        style={[styles.chipLabel, { color: CHIP_LABEL_COLOR, fontSize: Math.max(9, size * 0.15) }]}
       >
         {label}
       </Text>
