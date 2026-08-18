@@ -17,6 +17,17 @@ import { CalendarPicker } from '../components/shared/CalendarPicker';
 const { width } = Dimensions.get('window');
 const NOW = new Date().getFullYear();
 
+// Stable identity for a selection BEFORE it becomes a real Goal (with its
+// own id) — templates already have one, a custom goal gets one from its
+// position in the running list (stable within a session: the goals step
+// is behind you by the time these are used).
+function templateKey(t: GoalTemplate): string {
+  return `t-${t.id}`;
+}
+function customKey(i: number): string {
+  return `c-${i}`;
+}
+
 const MOTTO_CHIPS = [
   'MY YEAR OF MOMENTUM',
   'MY YEAR OF GROWTH',
@@ -41,9 +52,20 @@ export default function OnboardingScreen() {
   // never doubles as "advance to the next step".
   const [customGoals, setCustomGoals] = useState<string[]>([]);
   const [customGoalDraft, setCustomGoalDraft] = useState('');
-  // 'YYYY-MM-DD', or undefined if skipped — applied to every goal below.
+  // 'YYYY-MM-DD', or undefined if skipped — the DEFAULT achieve-by date,
+  // applied to any selected goal that hasn't been given its own override
+  // below. A single shared date (the old behavior) made the plan wrong for
+  // at least one goal the moment a session mixed different-horizon goals
+  // (a marathon and a savings goal don't share a timeline) — a fast
+  // sensible default with a per-goal override stays quick for the common
+  // case (one date, tap Continue) without forcing that mismatch.
   const [targetDate, setTargetDate] = useState<string | undefined>(undefined);
-  const [showDatePicker, setShowDatePicker] = useState(false);
+  // Sparse — only entries the user explicitly overrode away from the
+  // default. Keyed by goalKey(t)/customGoalKey(i) below.
+  const [perGoalDates, setPerGoalDates] = useState<Record<string, string | undefined>>({});
+  // Which date the CalendarPicker modal is currently editing: 'default' for
+  // the shared date, a goal key for that one goal's override, or null (closed).
+  const [editingDateFor, setEditingDateFor] = useState<string | null>(null);
 
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
@@ -89,11 +111,28 @@ export default function OnboardingScreen() {
     if (step < STEPS - 1) {
       animate(() => setStep((s) => s + 1));
     } else {
-      // Build Goal[] from selected templates + every added custom goal
-      const goals: Goal[] = selectedTemplates.map((t, i) =>
-        instantiateTemplate(t, i % GOAL_NOTE_COLORS.length)
-      );
-      for (const title of customGoals) {
+      // Build Goal[] from selected templates + every added custom goal,
+      // each stamped with ITS OWN achieve-by date: an explicit per-goal
+      // override if the user set one, else the shared default, else none.
+      // Applied so the coach's first reply never has to burn itself asking
+      // the question onboarding should already have answered (see
+      // deadlineInstruction in coachService.ts), and so anything ADDED
+      // later against this goal (a ladder from the Measurables tab, a
+      // Milestone deadline) has a real date to pace against. NOT true yet
+      // for a template's own build-up ramp: mkBuildUpMilestone/
+      // buildCommitmentRamp in goalTemplates.ts builds that ramp during
+      // instantiateTemplate() below, BEFORE any date here is known, and
+      // paces it from today over a fixed week count regardless — a 1-month
+      // deadline on a half-marathon template still gets that template's
+      // fixed 10-week ramp, which can run past the deadline.
+      const goals: Goal[] = selectedTemplates.map((t, i) => {
+        const g = instantiateTemplate(t, i % GOAL_NOTE_COLORS.length);
+        const date = perGoalDates[templateKey(t)] ?? targetDate;
+        if (date) g.targetDate = date;
+        return g;
+      });
+      customGoals.forEach((title, i) => {
+        const date = perGoalDates[customKey(i)] ?? targetDate;
         goals.push({
           id: require('../store/models').newId(),
           title,
@@ -102,27 +141,14 @@ export default function OnboardingScreen() {
           chat: [],
           pendingActions: [],
           items: [],
+          ...(date ? { targetDate: date } : {}),
           // Stamped so a Milestone/Measurable added in this same session
           // (before the next rehydrate ever runs normalizeYears) isn't
           // mistaken for pre-v6 legacy data and re-inverted — see
           // invertItemsForGoal's goal-level short-circuit in store/migration.ts.
           itemsSchema: ITEMS_SCHEMA_VERSION,
         });
-      }
-      // Applied to every goal so the coach's first reply never has to burn
-      // itself asking the question onboarding should already have answered
-      // (see deadlineInstruction in coachService.ts), and so anything ADDED
-      // later against this goal (a ladder from the Measurables tab, a
-      // Milestone deadline) has a real date to pace against. NOT true yet
-      // for a template's own build-up ramp: mkBuildUpMilestone/
-      // buildCommitmentRamp in goalTemplates.ts builds that ramp during
-      // instantiateTemplate() above, BEFORE targetDate is known here, and
-      // paces it from today over a fixed week count regardless — a 1-month
-      // deadline on a half-marathon template still gets that template's
-      // fixed 10-week ramp, which can run past the deadline.
-      if (targetDate) {
-        for (const g of goals) g.targetDate = targetDate;
-      }
+      });
       const effectiveMotto = motto.trim() || 'Dream it. Plan it. Live it.';
       completeOnboarding(selectedYear, effectiveMotto, goals);
       navigateToBoard();
@@ -210,8 +236,17 @@ export default function OnboardingScreen() {
           <DeadlineStep
             p={p} year={selectedYear} targetDate={targetDate}
             onSetTargetDate={setTargetDate}
-            onOpenPicker={() => setShowDatePicker(true)}
-            onSkip={() => { setTargetDate(undefined); advance(); }}
+            onOpenPicker={() => setEditingDateFor('default')}
+            selectedTemplates={selectedTemplates}
+            customGoals={customGoals}
+            perGoalDates={perGoalDates}
+            onOpenGoalPicker={(key: string) => setEditingDateFor(key)}
+            onClearGoalOverride={(key: string) => setPerGoalDates((prev) => {
+              const next = { ...prev };
+              delete next[key];
+              return next;
+            })}
+            onSkip={() => { setTargetDate(undefined); setPerGoalDates({}); advance(); }}
           />
         )}
         {step === 5 && (
@@ -233,12 +268,20 @@ export default function OnboardingScreen() {
       </KeyboardAvoidingView>
 
       <CalendarPicker
-        visible={showDatePicker}
-        value={targetDate}
+        visible={editingDateFor != null}
+        value={editingDateFor === 'default' ? targetDate : (editingDateFor ? perGoalDates[editingDateFor] ?? targetDate : undefined)}
         palette={p}
-        onSelect={(iso) => { setTargetDate(iso); setShowDatePicker(false); }}
-        onClear={() => { setTargetDate(undefined); setShowDatePicker(false); }}
-        onDismiss={() => setShowDatePicker(false)}
+        onSelect={(iso) => {
+          if (editingDateFor === 'default') setTargetDate(iso);
+          else if (editingDateFor) setPerGoalDates((prev) => ({ ...prev, [editingDateFor]: iso }));
+          setEditingDateFor(null);
+        }}
+        onClear={() => {
+          if (editingDateFor === 'default') setTargetDate(undefined);
+          else if (editingDateFor) setPerGoalDates((prev) => ({ ...prev, [editingDateFor]: undefined }));
+          setEditingDateFor(null);
+        }}
+        onDismiss={() => setEditingDateFor(null)}
       />
     </LinearGradient>
   );
@@ -441,7 +484,10 @@ function toISO(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function DeadlineStep({ p, year, targetDate, onSetTargetDate, onOpenPicker, onSkip }: any) {
+function DeadlineStep({
+  p, year, targetDate, onSetTargetDate, onOpenPicker, onSkip,
+  selectedTemplates, customGoals, perGoalDates, onOpenGoalPicker, onClearGoalOverride,
+}: any) {
   const threeMonths = () => {
     const d = new Date();
     d.setMonth(d.getMonth() + 3);
@@ -460,12 +506,22 @@ function DeadlineStep({ p, year, targetDate, onSetTargetDate, onOpenPicker, onSk
     { label: `End of ${year}`, value: endOfYear() },
   ];
 
+  const fmtDate = (iso?: string) =>
+    iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null;
+
+  // Same identity scheme used to build the real Goal[] in advance() —
+  // templates keep their own id, a custom goal is keyed by its position.
+  const goalRows: { key: string; emoji: string; title: string }[] = [
+    ...selectedTemplates.map((t: GoalTemplate) => ({ key: `t-${t.id}`, emoji: t.emoji, title: t.title })),
+    ...customGoals.map((title: string, i: number) => ({ key: `c-${i}`, emoji: '✏️', title })),
+  ];
+
   return (
-    <View style={styles.stepCenter}>
+    <ScrollView contentContainerStyle={styles.stepCenter} keyboardShouldPersistTaps="handled">
       <Text style={[styles.eyebrow, { color: p.muted }]}>STEP 4 OF 4</Text>
       <Text style={[styles.heading, { color: p.text }]}>When do you want{"\n"}to achieve this by?</Text>
       <Text style={[styles.body, { color: p.muted }]}>
-        Applied to every goal you just picked — you can change it per goal later.
+        A default for every goal — tap any goal below to give it its own date instead.
       </Text>
       <View style={styles.chipGrid}>
         {chips.map((c) => {
@@ -503,10 +559,43 @@ function DeadlineStep({ p, year, targetDate, onSetTargetDate, onOpenPicker, onSk
           </Text>
         </TouchableOpacity>
       </View>
+
+      {goalRows.length > 0 && (
+        <View style={styles.perGoalDateList}>
+          {goalRows.map((g) => {
+            const override = perGoalDates[g.key];
+            const resolved = override ?? targetDate;
+            return (
+              <View key={g.key} style={[styles.perGoalDateRow, { borderColor: p.line }]}>
+                <Text style={styles.templateEmoji}>{g.emoji}</Text>
+                <Text style={[styles.templateTitle, { color: p.text, flex: 1 }]} numberOfLines={1}>
+                  {g.title}
+                </Text>
+                <TouchableOpacity
+                  style={[
+                    styles.perGoalDatePill,
+                    { borderColor: override ? p.accent : p.line, backgroundColor: override ? `${p.accent}18` : 'transparent' },
+                  ]}
+                  onPress={() => onOpenGoalPicker(g.key)}
+                  onLongPress={override ? () => onClearGoalOverride(g.key) : undefined}
+                >
+                  <Text style={[styles.perGoalDatePillText, { color: override ? p.accent : p.muted }]}>
+                    {fmtDate(resolved) ?? 'No date'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            );
+          })}
+          <Text style={[styles.perGoalHint, { color: p.muted }]}>
+            Tap a goal's date to give it its own; hold to clear back to the default.
+          </Text>
+        </View>
+      )}
+
       <TouchableOpacity onPress={onSkip} style={styles.skipBtn}>
         <Text style={[styles.skipText, { color: p.muted }]}>Skip for now</Text>
       </TouchableOpacity>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -580,6 +669,17 @@ const styles = StyleSheet.create({
     width: '100%', borderRadius: 14, padding: 14, fontSize: 16,
     textAlign: 'center', borderWidth: 1, minHeight: 70, marginTop: 4,
   },
+  // Deadline step — per-goal date overrides
+  perGoalDateList: { width: '100%', marginTop: 6 },
+  perGoalDateRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderBottomWidth: 1, paddingVertical: 10,
+  },
+  perGoalDatePill: {
+    borderWidth: 1, borderRadius: 14, paddingVertical: 6, paddingHorizontal: 10,
+  },
+  perGoalDatePillText: { fontSize: 12, fontWeight: '600' },
+  perGoalHint: { fontSize: 11, textAlign: 'center', marginTop: 10, lineHeight: 15 },
   // Goals step
   counter: { borderRadius: 20, paddingVertical: 6, paddingHorizontal: 16 },
   counterText: { fontSize: 13, fontWeight: '700' },
