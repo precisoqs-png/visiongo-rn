@@ -502,7 +502,16 @@ export default function GoalDetailScreen() {
                 palette={p}
                 noteColor={noteColor}
                 onUpdate={(m) => { updateMeasurable(m, goal.id); resyncStepNotifications(); resyncWeekNotifications(); }}
-                onDelete={(mid) => { deleteMeasurable(mid, goal.id); resyncStepNotifications(); }}
+                onDelete={(mid) => {
+                  deleteMeasurable(mid, goal.id);
+                  resyncStepNotifications();
+                  resyncWeekNotifications();
+                  // Cancels the deleted item's OWN reminder — syncMeasurableReminders
+                  // rebuilds every measurable reminder from the goal's CURRENT items,
+                  // which by now no longer includes it, so this was the missing piece
+                  // that otherwise left its notification firing forever.
+                  resyncMeasurableNotifications();
+                }}
                 onOpenSchedule={(m) => setScheduleForItem(m)}
                 onOpenCommitmentSchedule={(item, step) => setScheduleForCommitment({ item, step })}
                 onAskCoach={askCoachAbout}
