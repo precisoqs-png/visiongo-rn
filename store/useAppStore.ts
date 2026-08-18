@@ -10,6 +10,7 @@ import {
   resolveMeasurable, resolveMilestone, periodKey,
   DEFAULT_SCHEDULE, currentBuildUpWeek, isStepDoneThisPeriod, currentStepPeriodDueDate,
   formatNumber, isCompleted, removeItemCascade,
+  steppedValue, numberItemPeriodKey, numberItemPeriodDueDate, isNumberItemDoneThisPeriod,
 } from './models';
 import { normalizeYears, LegacyYears, ITEMS_SCHEMA_VERSION } from './migration';
 import { GOAL_NOTE_COLORS as COLORS } from '../theme/themes';
@@ -166,6 +167,15 @@ export interface TaskItem {
   milestoneId?: string;
   stepId?: string;
   rampWeekId?: string;
+  // A number-measurable task — tapping it increments `current` by the
+  // item's own step rather than setting a `done` flag (see completeTaskItem).
+  // With no reminder cadence this is a persistent Anytime row that stays
+  // in the list, showing its own progress, until current reaches target.
+  // With a cadence set, `periodKey` names the period this instance is for
+  // (see numberItemPeriodKey in store/models.ts) and it behaves like any
+  // other dated task once ticked.
+  numberTask?: boolean;
+  periodKey?: string;
 }
 
 export type TaskGroupKey = 'Overdue' | 'This Week' | 'This Month' | 'Upcoming' | 'Anytime';
@@ -465,8 +475,15 @@ export const useAppStore = create<AppState>()(
         for (const goal of yd.goals) {
           for (const m of goal.items) {
             if (m.commitments.length === 0) {
+              // A top-level Milestone with children is a pure container —
+              // its own `done` is not an independent completion path (see
+              // measurableFraction), so it must not also emit a checkbox
+              // task: ticking it here would strike it through while
+              // goalProgress and the card/bubble (which already disable
+              // this same tick) never move, a dead end with no real effect.
+              const hasChildren = goal.items.some((it) => it.parentId === m.id);
               // A plain check/number/ladder item — same bucketing as before.
-              if (m.type === 'check') {
+              if (m.type === 'check' && !hasChildren) {
                 const dueDate = goal.targetDate ? localDate(goal.targetDate) : undefined;
                 const item: TaskItem = {
                   id: `task-${m.id}`, measurableId: m.id, goalId: goal.id,
@@ -491,6 +508,39 @@ export const useAppStore = create<AppState>()(
                   else if (due <= weekEnd) buckets['This Week'].push(item);
                   else if (due <= monthEnd) buckets['This Month'].push(item);
                   else buckets['Upcoming'].push(item);
+                }
+              } else if (m.type === 'number' && m.current < m.target) {
+                // A plain number measurable's own daily action — the thing
+                // most templates actually ask the user to do — was
+                // otherwise invisible on Tasks. See numberTask handling in
+                // completeTaskItem for how a tap moves `current`.
+                if (m.schedule?.on && m.cadence) {
+                  if (!isNumberItemDoneThisPeriod(m, now)) {
+                    const due = numberItemPeriodDueDate(m, now);
+                    const item: TaskItem = {
+                      id: `task-${m.id}-${numberItemPeriodKey(m, now)}`,
+                      measurableId: m.id, goalId: goal.id,
+                      goalTitle: goal.title, goalColorIndex: goal.colorIndex,
+                      label: `${formatNumber(m.current)}/${formatNumber(m.target)}${m.unit ? ` ${m.unit}` : ''} – ${m.label}`,
+                      dueDate: due, done: false,
+                      numberTask: true, periodKey: numberItemPeriodKey(m, now),
+                    };
+                    if (due < todayStart) buckets['Overdue'].push(item);
+                    else if (due <= weekEnd) buckets['This Week'].push(item);
+                    else if (due <= monthEnd) buckets['This Month'].push(item);
+                    else buckets['Upcoming'].push(item);
+                  }
+                } else {
+                  // No reminder — a single persistent row, grouped with
+                  // every other undated task under Anytime, that stays put
+                  // (updating its own progress in place) until it's done.
+                  const item: TaskItem = {
+                    id: `task-${m.id}`, measurableId: m.id, goalId: goal.id,
+                    goalTitle: goal.title, goalColorIndex: goal.colorIndex,
+                    label: `${m.label} — ${formatNumber(m.current)}/${formatNumber(m.target)}${m.unit ? ` ${m.unit}` : ''}`,
+                    done: false, numberTask: true,
+                  };
+                  buckets['Anytime'].push(item);
                 }
               }
               continue;
@@ -571,6 +621,19 @@ export const useAppStore = create<AppState>()(
                       return { ...m, weeks: m.weeks.map((w) =>
                         w.id === item.ladderWeekId ? { ...w, done: true } : w
                       )};
+                    }
+                    if (item.numberTask) {
+                      // Bump current by the item's own step (clamped to
+                      // target by steppedValue), and — for the dated,
+                      // cadence-driven flavor only — record this period as
+                      // complete so it doesn't reappear until the next one.
+                      return {
+                        ...m,
+                        current: steppedValue(m, 1),
+                        ...(item.periodKey
+                          ? { reminderCompletions: [...(m.reminderCompletions ?? []), item.periodKey] }
+                          : {}),
+                      };
                     }
                     return { ...m, done: true };
                   }),

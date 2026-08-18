@@ -1,23 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet, Platform, KeyboardAvoidingView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useThemeStore } from '../../../store/useThemeStore';
-import { useAppStore } from '../../../store/useAppStore';
-import { GOAL_NOTE_COLORS, hexAlpha } from '../../../theme/themes';
-import { goalProgress, goalProgressPercent, Measurable, Commitment, Cadence, StepSchedule, DEFAULT_SCHEDULE } from '../../../store/models';
-import { MeasurableCard } from '../../../components/goal/MeasurableCard';
-import { AddMeasurableForm } from '../../../components/goal/AddMeasurableForm';
-import { CoachChat } from '../../../components/goal/CoachChat';
-import { InfoPopover } from '../../../components/shared/InfoPopover';
-import { StepScheduleSheet } from '../../../components/goal/StepScheduleSheet';
+import { useThemeStore } from '../../../../../store/useThemeStore';
+import { useAppStore } from '../../../../../store/useAppStore';
+import { GOAL_NOTE_COLORS, hexAlpha } from '../../../../../theme/themes';
+import { goalProgress, goalProgressPercent, Measurable, Commitment, Cadence, StepSchedule, DEFAULT_SCHEDULE } from '../../../../../store/models';
+import { MeasurableCard } from '../../../../../components/goal/MeasurableCard';
+import { AddMeasurableForm } from '../../../../../components/goal/AddMeasurableForm';
+import { CoachChat } from '../../../../../components/goal/CoachChat';
+import { useNearBottom } from '../../../../../components/shared/useNearBottom';
+import { InfoPopover } from '../../../../../components/shared/InfoPopover';
+import { StepScheduleSheet } from '../../../../../components/goal/StepScheduleSheet';
 import {
   syncWeeklyTargetNotifications, syncMeasurableReminders, syncCommitmentNotifications,
   requestNotificationPermission, alertNotificationsUnavailable,
-} from '../../../services/notificationService';
+} from '../../../../../services/notificationService';
 
 // The list-form view for Measurables — the only place to add one, since the
 // bubble canvas itself has no "add" affordance. Editing/ticking a measurable
@@ -58,6 +59,9 @@ export default function MeasurablesListScreen() {
   // sheet stays open on one measurable at a time, driven from here rather
   // than per-card, so permission-requesting stays in one place.
   const [scheduleForMeasurable, setScheduleForMeasurable] = useState<Measurable | null>(null);
+
+  const coachScrollRef = useRef<ScrollView>(null);
+  const coachNearBottom = useNearBottom();
 
   const resyncMeasurableNotifications = () => {
     const fresh = useAppStore.getState().getGoal(id!);
@@ -178,7 +182,14 @@ export default function MeasurablesListScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
+      <ScrollView
+        ref={coachScrollRef}
+        contentContainerStyle={{ paddingBottom: 60 }}
+        onScroll={coachNearBottom.onScroll}
+        onLayout={coachNearBottom.onLayout}
+        onContentSizeChange={coachNearBottom.onContentSizeChange}
+        scrollEventThrottle={100}
+      >
         <LinearGradient
           colors={[hexAlpha(noteColor, 0.4), hexAlpha(noteColor, 0.1)]}
           style={styles.headerGradient}
@@ -255,7 +266,13 @@ export default function MeasurablesListScreen() {
         </View>
 
         <View style={styles.section}>
-          <CoachChat goal={goal} palette={p} onGoalEdited={resyncWeekNotifications} />
+          <CoachChat
+            goal={goal}
+            palette={p}
+            onGoalEdited={resyncWeekNotifications}
+            onRequestScrollToEnd={() => coachScrollRef.current?.scrollToEnd({ animated: true })}
+            isNearBottom={() => coachNearBottom.nearBottomRef.current}
+          />
         </View>
       </ScrollView>
       </KeyboardAvoidingView>

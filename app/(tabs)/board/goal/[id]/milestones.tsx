@@ -7,19 +7,21 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useThemeStore } from '../../../store/useThemeStore';
-import { useAppStore } from '../../../store/useAppStore';
-import { GOAL_NOTE_COLORS, hexAlpha, FONTS } from '../../../theme/themes';
+import { useThemeStore } from '../../../../../store/useThemeStore';
+import { useAppStore } from '../../../../../store/useAppStore';
+import { GOAL_NOTE_COLORS, hexAlpha, FONTS } from '../../../../../theme/themes';
 import {
   goalProgress, goalProgressPercent, isCompleted, Commitment, TrackableItem,
   Cadence, StepSchedule, DEFAULT_SCHEDULE,
-} from '../../../store/models';
-import { MeasurableCard } from '../../../components/goal/MeasurableCard';
-import { AddMilestoneItemForm } from '../../../components/goal/AddMilestoneItemForm';
-import { InfoPopover } from '../../../components/shared/InfoPopover';
-import { StepScheduleSheet, ReminderTarget } from '../../../components/goal/StepScheduleSheet';
-import { CoachChat } from '../../../components/goal/CoachChat';
-import { CalendarPicker } from '../../../components/shared/CalendarPicker';
+} from '../../../../../store/models';
+import { MeasurableCard } from '../../../../../components/goal/MeasurableCard';
+import { AddMilestoneItemForm } from '../../../../../components/goal/AddMilestoneItemForm';
+import { InfoPopover } from '../../../../../components/shared/InfoPopover';
+import { StepScheduleSheet, ReminderTarget } from '../../../../../components/goal/StepScheduleSheet';
+import { CoachChat } from '../../../../../components/goal/CoachChat';
+import { useNearBottom } from '../../../../../components/shared/useNearBottom';
+import { DecompCard } from '../../../../../components/goal/DecompCard';
+import { CalendarPicker } from '../../../../../components/shared/CalendarPicker';
 import {
   requestNotificationPermission,
   scheduleGoalNotification,
@@ -30,7 +32,7 @@ import {
   syncMeasurableReminders,
   cancelEverythingForGoal,
   alertNotificationsUnavailable,
-} from '../../../services/notificationService';
+} from '../../../../../services/notificationService';
 
 function localDate(iso: string): Date {
   const [y, mo, d] = iso.slice(0, 10).split('-').map(Number);
@@ -78,6 +80,9 @@ export default function GoalDetailScreen() {
     if (useAppStore.persist.hasHydrated()) setHydrated(true);
     return unsub;
   }, []);
+
+  const coachScrollRef = useRef<ScrollView>(null);
+  const coachNearBottom = useNearBottom();
 
   // The bell must actually schedule/cancel the reminder, not just flip the flag.
   // Turning it on also schedules a push notification for each weekly target.
@@ -325,7 +330,14 @@ export default function GoalDetailScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
+      <ScrollView
+        ref={coachScrollRef}
+        contentContainerStyle={{ paddingBottom: 60 }}
+        onScroll={coachNearBottom.onScroll}
+        onLayout={coachNearBottom.onLayout}
+        onContentSizeChange={coachNearBottom.onContentSizeChange}
+        scrollEventThrottle={100}
+      >
 
         <LinearGradient
           colors={[hexAlpha(noteColor, 0.4), hexAlpha(noteColor, 0.1)]}
@@ -452,26 +464,7 @@ export default function GoalDetailScreen() {
 
         {isEmptyGoal && (
           <View style={[styles.section, { paddingTop: 0, paddingBottom: 4 }]}>
-            <View style={[styles.decompCard, { backgroundColor: p.surface }]}>
-              <Ionicons name="sparkles" size={18} color={p.accent} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.decompTitle, { color: p.text }]}>Nothing here yet</Text>
-                <Text style={[styles.decompBody, { color: p.muted }]}>
-                  Let the coach break "{goal.title}" into concrete steps and a recurring
-                  commitment — or add a milestone yourself below. Measurables live on the
-                  goal's bubble canvas now.
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={[styles.decompBtn, { backgroundColor: p.ink }]}
-                onPress={() => setCoachSeed(
-                  `This goal has nothing on it yet. Break "${goal.title}" down into a few ` +
-                  `concrete steps and, if it fits, a milestone with a recurring commitment.`,
-                )}
-              >
-                <Text style={[styles.decompBtnText, { color: p.isDark ? p.bg : '#fff' }]}>Ask coach</Text>
-              </TouchableOpacity>
-            </View>
+            <DecompCard goal={goal} palette={p} onAskCoach={setCoachSeed} />
           </View>
         )}
 
@@ -533,6 +526,8 @@ export default function GoalDetailScreen() {
             onGoalEdited={() => { resyncWeekNotifications(); resyncStepNotifications(); }}
             seedMessage={coachSeed}
             onSeedConsumed={() => setCoachSeed(null)}
+            onRequestScrollToEnd={() => coachScrollRef.current?.scrollToEnd({ animated: true })}
+            isNearBottom={() => coachNearBottom.nearBottomRef.current}
           />
         </View>
 
@@ -631,14 +626,6 @@ const styles = StyleSheet.create({
   layerHint: { fontSize: 11, lineHeight: 15, marginTop: 4, marginBottom: 10 },
   section: { padding: 18 },
   emptyHint: { fontSize: 14, lineHeight: 20 },
-  decompCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    borderRadius: 14, padding: 14,
-  },
-  decompTitle: { fontSize: 14, fontWeight: '700', marginBottom: 2 },
-  decompBody: { fontSize: 12, lineHeight: 17 },
-  decompBtn: { borderRadius: 12, paddingVertical: 9, paddingHorizontal: 14 },
-  decompBtnText: { fontSize: 13, fontWeight: '700' },
   bellToast: {
     position: 'absolute', top: 26, right: 0,
     paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,

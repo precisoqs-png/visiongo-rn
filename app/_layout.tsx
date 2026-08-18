@@ -48,20 +48,11 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerShown: false, animation: 'fade_from_bottom' }}>
           <Stack.Screen name="index" />
           <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
+          {/* Goal screens (goal/[id]/*) now live inside this — nested under
+              the Board tab's own stack (app/(tabs)/board/_layout.tsx) so the
+              bottom tab bar stays visible while a goal is open. Their
+              per-screen animations moved there with them. */}
           <Stack.Screen name="(tabs)" />
-          {/* Not a modal: the canvas grows out of the tapped bubble (see
-              RadialBoard's onPress) and shrinks back into it on the way out
-              (see the goal canvas's handleBackToBoard) — a swipe-down
-              dismissal would fight that illusion, so it's off entirely
-              rather than just discouraged. A plain fade lets those two
-              local scale animations carry the transition instead of a
-              slide competing with them. */}
-          <Stack.Screen
-            name="goal/[id]/index"
-            options={{ animation: 'fade', gestureEnabled: false }}
-          />
-          <Stack.Screen name="goal/[id]/milestones" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="goal/[id]/measurables" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="completed" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="how-to-use" options={{ animation: 'slide_from_right' }} />
         </Stack>

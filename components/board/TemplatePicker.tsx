@@ -43,7 +43,7 @@ export function TemplatePicker({ visible, onDismiss, palette }: Props) {
     committedRef.current = true;
     const id = addGoal();
     onDismiss();
-    router.push(`/goal/${id}`);
+    router.push(`/board/goal/${id}`);
   };
 
   const handleTemplate = (t: GoalTemplate) => {
@@ -52,7 +52,7 @@ export function TemplatePicker({ visible, onDismiss, palette }: Props) {
     const goal = instantiateTemplate(t, nextColorIndex());
     const id = addGoalFull(goal);
     onDismiss();
-    router.push(`/goal/${id}`);
+    router.push(`/board/goal/${id}`);
   };
 
   return (

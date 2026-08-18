@@ -2,7 +2,6 @@ import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { hexAlpha } from '../../theme/themes';
 import type { Point } from '../board/RadialBoard';
 
 const CONFETTI_COUNT = 8;
@@ -79,12 +78,21 @@ export function CompletionFlight({
         <View
           style={{
             width: size, height: size, borderRadius: size / 2,
-            backgroundColor: hexAlpha(color, 0.35),
+            // Solid, not a wash — a translucent fill read as "empty" at a
+            // glance, indistinguishable from an in-progress bubble that
+            // just happens to be light. A finished thing should look
+            // unambiguously finished.
+            backgroundColor: color,
             borderColor: color, borderWidth: 1.5,
             alignItems: 'center', justifyContent: 'center',
           }}
         >
-          <Ionicons name="checkmark" size={size * 0.32} color={color} />
+          <Ionicons
+            name="checkmark"
+            size={size * 0.32}
+            color="#fff"
+            style={checkmarkShadow}
+          />
         </View>
       </Animated.View>
       {confetti.map((c, i) => {
@@ -116,6 +124,15 @@ export function CompletionFlight({
 // whole-goal column and the per-goal canvas's measurable/milestone column.
 // Unlike the small unlabeled circle this replaces, it always shows its own
 // name so a glance at the column says WHAT finished, not just how many.
+// GOAL_NOTE_COLORS (theme/themes.ts) are all pale pastels, and are the same
+// fixed set regardless of which theme/palette is active — so the label
+// color that reads against them is fixed too, not theme-derived. Tried
+// `p.ink` first, but ink itself flips light/dark per theme (it's a button
+// background color, not a guaranteed-dark text color), so on a dark theme
+// it can be just as pale as the pastel it would sit on. A dedicated
+// constant is the only thing that's actually reliable here.
+const CHIP_LABEL_COLOR = '#2b2b2b';
+
 export function CompletedChip({
   label, color, size, left, top, onPress,
 }: {
@@ -129,22 +146,42 @@ export function CompletedChip({
         styles.chip,
         {
           left, top, width: size, height: size, borderRadius: size / 2,
-          backgroundColor: hexAlpha(color, 0.35),
+          // Solid fill (not the old 35% wash) so a finished chip is
+          // unmistakably distinct from an in-progress bubble at a glance —
+          // white text/icon on top needs the fill to actually be dark/
+          // saturated enough to read against, which a translucent tint
+          // over the page background couldn't guarantee for every note
+          // color (some GOAL_NOTE_COLORS are pale pastels).
+          backgroundColor: color,
           borderColor: color,
         },
         Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : undefined,
       ]}
     >
-      <Ionicons name="checkmark" size={Math.max(11, size * 0.22)} color={color} />
+      <Ionicons
+        name="checkmark"
+        size={Math.max(11, size * 0.22)}
+        color="#fff"
+        style={checkmarkShadow}
+      />
       <Text
         numberOfLines={1}
-        style={[styles.chipLabel, { color, fontSize: Math.max(9, size * 0.15) }]}
+        style={[styles.chipLabel, { color: CHIP_LABEL_COLOR, fontSize: Math.max(9, size * 0.15) }]}
       >
         {label}
       </Text>
     </TouchableOpacity>
   );
 }
+
+// A pale GOAL_NOTE_COLORS pastel behind a pure-white glyph can still read
+// low-contrast — this subtle dark shadow keeps the tick/label legible
+// against every note color without needing a per-color contrast branch.
+const checkmarkShadow = {
+  textShadowColor: 'rgba(0,0,0,0.35)',
+  textShadowOffset: { width: 0, height: 1 },
+  textShadowRadius: 2,
+};
 
 const styles = StyleSheet.create({
   chip: {
