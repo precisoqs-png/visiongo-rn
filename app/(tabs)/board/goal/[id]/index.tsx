@@ -137,6 +137,16 @@ export default function GoalCanvasScreen() {
     backSafetyTimerRef.current = setTimeout(go, 400);
   };
 
+  // The timer above was previously only ever cleared from inside go() —
+  // if the user leaves this screen some OTHER way while a fade-out is
+  // still pending (e.g. a deep link, or a future affordance that isn't
+  // the year-row tap), the component unmounts with the timer still live
+  // and it fires router.replace late, on a screen that's no longer even
+  // showing. Clear it on unmount too.
+  useEffect(() => () => {
+    if (backSafetyTimerRef.current) clearTimeout(backSafetyTimerRef.current);
+  }, []);
+
   // Defensive reset, narrower in scope than it might look: router.replace
   // unmounts this screen on the NORMAL success path, so this only matters
   // when navigation never actually fired at all — the go() callback AND
@@ -156,6 +166,10 @@ export default function GoalCanvasScreen() {
         return;
       }
       navigatedRef.current = false;
+      if (backSafetyTimerRef.current) {
+        clearTimeout(backSafetyTimerRef.current);
+        backSafetyTimerRef.current = null;
+      }
       contentScale.setValue(1);
       contentOpacity.setValue(1);
       textOpacity.setValue(1);
@@ -743,8 +757,8 @@ export default function GoalCanvasScreen() {
         palette={p}
         noteColor={noteColor}
         onUpdateItem={updateMeasurableInPlace}
-        onDeleteItem={(mid) => { deleteMeasurableInPlace(mid); setOpenMeasurable(null); }}
-        onDismiss={() => setOpenMeasurable(null)}
+        onDeleteItem={(mid) => { deleteMeasurableInPlace(mid); setOpenMeasurable(null); closeActiveSchedule(); }}
+        onDismiss={() => { setOpenMeasurable(null); closeActiveSchedule(); }}
         onOpenSchedule={(m) => setScheduleForItem(m)}
         onOpenCommitmentSchedule={(m, step) => setScheduleForCommitment({ item: m, step })}
         scheduleStep={activeScheduleStep}
