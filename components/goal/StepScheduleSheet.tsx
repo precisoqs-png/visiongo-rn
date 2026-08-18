@@ -329,7 +329,18 @@ export function StepScheduleSheet({
               const hour12 = to12Hour(schedule.hour);
               const period = toPeriod(schedule.hour);
               const hourIndex = HOURS_12.indexOf(hour12);
-              const minuteIndex = Math.max(0, MINUTES.indexOf(schedule.minute));
+              // MINUTES only offers quarter-hours — a persisted minute off
+              // that grid (e.g. an old reminder saved at :05) has no exact
+              // match, and indexOf's -1 used to fall back to index 0 no
+              // matter how far off :00 actually was, showing ":00" while
+              // `schedule.minute` was still really 5. Snap the WHEEL to
+              // whichever quarter-hour is closest instead, so what's
+              // displayed at least reads as "roughly this value", not an
+              // arbitrary always-zero default.
+              const minuteIndex = MINUTES.reduce(
+                (best, m, i) => (Math.abs(m - schedule.minute) < Math.abs(MINUTES[best] - schedule.minute) ? i : best),
+                0,
+              );
               const periodIndex = PERIODS.indexOf(period);
               // Re-snap the wheels whenever the sheet opens on a (possibly
               // different) step, not on every schedule edit mid-interaction.

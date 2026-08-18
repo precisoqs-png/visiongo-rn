@@ -109,9 +109,17 @@ export default function OnboardingScreen() {
           itemsSchema: ITEMS_SCHEMA_VERSION,
         });
       }
-      // Applied to every goal so build-up ladders pace off a real deadline
-      // instead of today, and the coach's first reply never has to burn
-      // itself asking the question onboarding should already have answered.
+      // Applied to every goal so the coach's first reply never has to burn
+      // itself asking the question onboarding should already have answered
+      // (see deadlineInstruction in coachService.ts), and so anything ADDED
+      // later against this goal (a ladder from the Measurables tab, a
+      // Milestone deadline) has a real date to pace against. NOT true yet
+      // for a template's own build-up ramp: mkBuildUpMilestone/
+      // buildCommitmentRamp in goalTemplates.ts builds that ramp during
+      // instantiateTemplate() above, BEFORE targetDate is known here, and
+      // paces it from today over a fixed week count regardless — a 1-month
+      // deadline on a half-marathon template still gets that template's
+      // fixed 10-week ramp, which can run past the deadline.
       if (targetDate) {
         for (const g of goals) g.targetDate = targetDate;
       }

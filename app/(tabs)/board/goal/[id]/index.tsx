@@ -220,6 +220,13 @@ export default function GoalCanvasScreen() {
       items: g.items.map((x) => (x.id === m.id ? m : x)),
     }));
     setOpenMeasurable((cur) => (cur?.id === m.id ? m : cur));
+    // An edit made from the drill-in sheet (a build-up week's pacing, a
+    // commitment's cadence, a check-in) can move what's actually scheduled
+    // — measurables.tsx/milestones.tsx already resync both after every
+    // onUpdate; this was missing here, leaving stale notifications behind
+    // for any edit made without leaving the canvas.
+    resyncWeekNotifications();
+    resyncCommitmentNotifications();
   };
 
   const deleteMeasurableInPlace = (measurableId: string) => {
@@ -229,6 +236,15 @@ export default function GoalCanvasScreen() {
     // still rendered on the Measurables tab, and misreading its own progress
     // — see removeItemCascade's comment in store/models.ts).
     patchGoal((g) => ({ items: removeItemCascade(g.items, measurableId) }));
+    resyncWeekNotifications();
+    resyncCommitmentNotifications();
+  };
+
+  const resyncWeekNotifications = () => {
+    const fresh = useAppStore.getState().getGoal(id!);
+    if (fresh && useAppStore.getState().notificationsMasterOn) {
+      void syncWeeklyTargetNotifications(fresh);
+    }
   };
 
   // Reminder sheet for ONE Commitment nested inside whichever item is
