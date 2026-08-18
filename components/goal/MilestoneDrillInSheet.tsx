@@ -70,7 +70,13 @@ export function MilestoneDrillInSheet({
           style={[styles.sheet, { backgroundColor: p.bg }]}
           onPress={(e) => e.stopPropagation?.()}
         >
-          <View style={styles.header}>
+          {/* Hidden (not unmounted — see below) rather than removed while a
+              schedule is being edited: this header's own close button would
+              dismiss the WHOLE drill-in, which isn't what the schedule
+              overlay's own close button (inside StepScheduleContent) should
+              do. `display: none` keeps it out of layout without touching
+              the mounted subtree beneath it. */}
+          <View style={[styles.header, scheduleStep ? styles.hidden : undefined]}>
             <Text style={[styles.title, { color: p.text }]} numberOfLines={2}>
               {milestone?.label ?? ''}
             </Text>
@@ -79,8 +85,23 @@ export function MilestoneDrillInSheet({
             </TouchableOpacity>
           </View>
 
+          {/* `display: none` rather than conditionally rendering — this
+              stays mounted (not unmounted) while the schedule overlay below
+              is showing, so its scroll position and every MeasurableCard's
+              own commitmentsOpen accordion / in-progress commitment draft
+              survive a schedule edit instead of being reset. Deliberately
+              NOT position:'absolute' with the schedule content on top of
+              it (an earlier version of this fix used that): an absolutely
+              positioned child doesn't grow its parent, so on a short
+              milestone the sheet stayed sized to the (now-hidden) list
+              while the schedule form rendered ~400px below the visible
+              card, over bare canvas — dead space on iOS, where UIKit's
+              hitTest returns nil outside the superview's actual bounds. A
+              plain display-toggled sibling has no such box-model mismatch:
+              only one of the two is ever part of layout at a time, so the
+              sheet always sizes to whichever is actually showing. */}
           {milestone && (
-            <ScrollView style={{ maxHeight: 520 }}>
+            <ScrollView style={[{ maxHeight: 520 }, scheduleStep ? styles.hidden : undefined]}>
               <MeasurableCard
                 measurable={milestone}
                 goal={goal}
@@ -122,26 +143,24 @@ export function MilestoneDrillInSheet({
             </ScrollView>
           )}
 
-          {/* Inline schedule editor overlay — see scheduleStep's doc comment
-              above for why this is never a second Modal. The list above
-              stays mounted underneath (just visually covered), so its
-              scroll position and every card's own open/draft state survive
-              closing this overlay. */}
+          {/* Inline schedule editor — a NORMAL sibling, not an overlay, so
+              the sheet's height comes from whichever of this or the list
+              above is actually laid out (display:none above takes the list
+              out of flow while this is showing). See scheduleStep's doc
+              comment for why this is never a second Modal. */}
           {scheduleStep && (
-            <View style={[styles.scheduleOverlay, { backgroundColor: p.bg }]}>
-              <KeyboardAvoidingView
-                style={{ flex: 1 }}
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-              >
-                <StepScheduleContent
-                  step={scheduleStep}
-                  palette={p}
-                  onSave={onSaveSchedule}
-                  onTurnOff={onTurnOffSchedule}
-                  onDismiss={onCloseSchedule}
-                />
-              </KeyboardAvoidingView>
-            </View>
+            <KeyboardAvoidingView
+              style={{ width: '100%' }}
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            >
+              <StepScheduleContent
+                step={scheduleStep}
+                palette={p}
+                onSave={onSaveSchedule}
+                onTurnOff={onTurnOffSchedule}
+                onDismiss={onCloseSchedule}
+              />
+            </KeyboardAvoidingView>
           )}
         </TouchableOpacity>
       </TouchableOpacity>
@@ -162,8 +181,5 @@ const styles = StyleSheet.create({
     marginTop: 14, marginBottom: 6,
   },
   emptyHint: { fontSize: 13, lineHeight: 19, marginTop: 10 },
-  // Covers the sheet's own content box (relative to the padded parent, so
-  // it lines up with the header/list it's replacing without needing to
-  // account for the parent's padding itself).
-  scheduleOverlay: { ...StyleSheet.absoluteFillObject, borderRadius: 20 },
+  hidden: { display: 'none' },
 });
