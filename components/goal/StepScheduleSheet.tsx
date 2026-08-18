@@ -21,12 +21,20 @@ export interface ReminderTarget {
   ramp?: unknown;
 }
 
+interface ContentProps {
+  step: ReminderTarget;
+  palette: Palette;
+  // Saves cadence + schedule together — changing "every 10 days" is a cadence
+  // change and a reminder change at once.
+  onSave: (patch: { cadence: Cadence; intervalDays?: number; schedule: StepSchedule }) => void;
+  onTurnOff: () => void;
+  onDismiss: () => void;
+}
+
 interface Props {
   visible: boolean;
   step: ReminderTarget | null;
   palette: Palette;
-  // Saves cadence + schedule together — changing "every 10 days" is a cadence
-  // change and a reminder change at once.
   onSave: (patch: { cadence: Cadence; intervalDays?: number; schedule: StepSchedule }) => void;
   onTurnOff: () => void;
   onDismiss: () => void;
@@ -156,25 +164,35 @@ function WheelColumn({ items, index, onChange, palette: p, width, resetSignal }:
   );
 }
 
-export function StepScheduleSheet({
-  visible, step, palette: p, onSave, onTurnOff, onDismiss,
-}: Props) {
+// The actual form — header, cadence/day pickers, time wheels, actions —
+// with no Modal of its own. Extracted so a caller that already owns a
+// Modal (MilestoneDrillInSheet) can render this INLINE, as a plain overlay
+// within its own already-presented sheet, instead of presenting a second
+// Modal on top of the first. Two RN Modals visible at once was the actual
+// cause of the goal-canvas freeze (see MilestoneDrillInSheet's comment) —
+// not just a symptom to patch around, so the fix is this component never
+// needing its own Modal at all when nested that way. `step` is required
+// (non-null) — callers that can't guarantee that yet should not render
+// this at all, rather than passing null and expecting an early return.
+export function StepScheduleContent({ step, palette: p, onSave, onTurnOff, onDismiss }: ContentProps) {
   const [cadence, setCadence] = useState<Cadence>('weekly');
   const [intervalStr, setIntervalStr] = useState('10');
   const [schedule, setSchedule] = useState<StepSchedule>(DEFAULT_SCHEDULE);
 
-  // Re-seed from the step each time the sheet opens so edits start from the
-  // step's real schedule, not whatever was last previewed.
+  // Re-seed from the step whenever this component mounts on a (possibly
+  // different) target, so edits start from the step's real schedule, not
+  // whatever was last previewed. Both callers (the Modal wrapper below,
+  // and MilestoneDrillInSheet's inline overlay) unmount this component on
+  // close and remount fresh on open, so a mount-keyed effect is enough —
+  // neither needs a separate "visible" flag to force a reseed.
   useEffect(() => {
-    if (!visible || !step) return;
     // A Measurable has no cadence until the user sets one — default the
     // picker to weekly, same as a brand-new Commitment would start.
     setCadence(step.cadence ?? 'weekly');
     setIntervalStr(String(step.intervalDays ?? 10));
     setSchedule({ ...DEFAULT_SCHEDULE, ...step.schedule });
-  }, [visible, step?.id]);
-
-  if (!step) return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step.id]);
 
   // A build-up's cadence is fixed at creation (always weekly) and each
   // week's reminder fires on THAT week's own due date, not on a chosen
@@ -197,6 +215,229 @@ export function StepScheduleSheet({
   };
 
   return (
+    <>
+      <View style={styles.header}>
+        <Text style={[styles.title, { color: p.text }]} numberOfLines={2}>
+          Remind me: {step.label}
+        </Text>
+        <TouchableOpacity onPress={onDismiss} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <Ionicons name="close" size={20} color={p.muted} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Cadence/day pickers only — the WHAT TIME wheels below are
+          deliberately OUTSIDE this ScrollView. A drag-to-scroll wheel
+          nested inside another vertical ScrollView is a well-known RN
+          gesture conflict: the outer ScrollView's pan responder can win
+          the touch before it ever reaches the wheel, so every drag just
+          scrolls the sheet and the wheel never commits a new value —
+          this was the actual cause of "the time can't be changed" on a
+          measurable's reminder. Keeping the wheel's own ScrollView as
+          the only vertical scroll surface in this region removes the
+          conflict outright rather than working around it. */}
+      <ScrollView style={{ maxHeight: 220 }} keyboardShouldPersistTaps="handled">
+        {isBuildUp ? (
+          <Text style={[styles.preview, { color: p.muted, marginTop: 0 }]}>
+            This step builds up week by week — each week's reminder fires on that
+            week's own due date. Just pick a time of day below.
+          </Text>
+        ) : (
+          <>
+            <Text style={[styles.eyebrow, { color: p.muted }]}>HOW OFTEN</Text>
+            <View style={[styles.segmented, { backgroundColor: p.line }]}>
+              {CADENCES.map((c) => (
+                <TouchableOpacity
+                  key={c.key}
+                  style={[styles.segBtn, cadence === c.key && { backgroundColor: p.ink }]}
+                  onPress={() => setCadence(c.key)}
+                >
+                  <Text style={[styles.segText, {
+                    color: cadence === c.key ? (p.isDark ? p.bg : '#fff') : p.muted,
+                  }]}>
+                    {c.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
+        )}
+
+        {!isBuildUp && cadence === 'weekly' && (
+          <>
+            <Text style={[styles.eyebrow, { color: p.muted }]}>WHICH DAY</Text>
+            <View style={styles.chipWrap}>
+              {WEEKDAY_NAMES.map((name, i) => {
+                const value = i + 1; // expo weekday: 1 = Sunday
+                const active = schedule.weekday === value;
+                return (
+                  <TouchableOpacity
+                    key={name}
+                    style={[styles.chip, {
+                      borderColor: active ? p.accent : p.line,
+                      backgroundColor: active ? `${p.accent}1f` : 'transparent',
+                    }]}
+                    onPress={() => patch({ weekday: value })}
+                  >
+                    <Text style={[styles.chipText, { color: active ? p.accent : p.text }]}>
+                      {name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </>
+        )}
+
+        {cadence === 'monthly' && (
+          <>
+            <Text style={[styles.eyebrow, { color: p.muted }]}>
+              DAY OF MONTH — e.g. payday
+            </Text>
+            <View style={styles.chipWrap}>
+              {/* Capped at 28 so the reminder exists in February too */}
+              {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => {
+                const active = schedule.dayOfMonth === d;
+                return (
+                  <TouchableOpacity
+                    key={d}
+                    style={[styles.dayChip, {
+                      borderColor: active ? p.accent : p.line,
+                      backgroundColor: active ? `${p.accent}1f` : 'transparent',
+                    }]}
+                    onPress={() => patch({ dayOfMonth: d })}
+                  >
+                    <Text style={[styles.chipText, { color: active ? p.accent : p.text }]}>
+                      {d}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </>
+        )}
+
+        {cadence === 'custom' && (
+          <>
+            <Text style={[styles.eyebrow, { color: p.muted }]}>EVERY HOW MANY DAYS</Text>
+            <TextInput
+              style={[styles.input, { backgroundColor: p.surface, color: p.text, borderColor: p.line }]}
+              keyboardType="numeric"
+              value={intervalStr}
+              onChangeText={setIntervalStr}
+              placeholder="10"
+              placeholderTextColor={p.muted}
+            />
+          </>
+        )}
+      </ScrollView>
+
+      <View>
+        <Text style={[styles.eyebrow, { color: p.muted }]}>WHAT TIME</Text>
+        {(() => {
+          const hour12 = to12Hour(schedule.hour);
+          const period = toPeriod(schedule.hour);
+          const hourIndex = HOURS_12.indexOf(hour12);
+          // MINUTES only offers quarter-hours — a persisted minute off
+          // that grid (e.g. an old reminder saved at :05) has no exact
+          // match, and indexOf's -1 used to fall back to index 0 no
+          // matter how far off :00 actually was, showing ":00" while
+          // `schedule.minute` was still really 5. Snap the WHEEL to
+          // whichever quarter-hour is closest instead, so what's
+          // displayed at least reads as "roughly this value", not an
+          // arbitrary always-zero default.
+          const minuteIndex = MINUTES.reduce(
+            (best, m, i) => (Math.abs(m - schedule.minute) < Math.abs(MINUTES[best] - schedule.minute) ? i : best),
+            0,
+          );
+          const periodIndex = PERIODS.indexOf(period);
+          // Re-snap the wheels if the target step somehow changes without
+          // an unmount (defensive — both current callers unmount/remount
+          // instead, see the reseed effect above).
+          const resetSignal = step.id;
+          return (
+            <View style={styles.wheelRow}>
+              <WheelColumn
+                items={HOURS_12.map(String)}
+                index={hourIndex}
+                onChange={(i) => patch({ hour: to24Hour(HOURS_12[i], period) })}
+                palette={p}
+                width={52}
+                resetSignal={resetSignal}
+              />
+              <Text style={[styles.wheelColon, { color: p.text }]}>:</Text>
+              <WheelColumn
+                items={MINUTES.map((m) => String(m).padStart(2, '0'))}
+                index={minuteIndex}
+                onChange={(i) => patch({ minute: MINUTES[i] })}
+                palette={p}
+                width={52}
+                resetSignal={resetSignal}
+              />
+              <WheelColumn
+                items={[...PERIODS]}
+                index={periodIndex}
+                onChange={(i) => patch({ hour: to24Hour(hour12, PERIODS[i]) })}
+                palette={p}
+                width={60}
+                resetSignal={resetSignal}
+              />
+            </View>
+          );
+        })()}
+
+        <Text style={[styles.preview, { color: p.muted }]}>
+          {isBuildUp
+            ? `I'll ask at ${formatTime(schedule.hour, schedule.minute)} on each week's own due date as the target builds up.`
+            : <>
+                I'll ask at {formatTime(schedule.hour, schedule.minute)}
+                {cadence === 'weekly' && ` every ${WEEKDAY_NAMES[schedule.weekday - 1]}`}
+                {cadence === 'monthly' && ` on day ${schedule.dayOfMonth} of each month`}
+                {cadence === 'custom' && ` every ${intervalStr || '7'} days`}.
+              </>
+          }
+        </Text>
+
+        {Platform.OS === 'web' && (
+          <Text style={[styles.preview, { color: p.muted }]}>
+            Push reminders only fire in the iOS/Android app — this saves the
+            schedule either way.
+          </Text>
+        )}
+      </View>
+
+      <View style={styles.actions}>
+        <TouchableOpacity
+          style={[styles.primaryBtn, { backgroundColor: p.accent }]}
+          onPress={() => save(true)}
+        >
+          <Ionicons name="notifications" size={15} color={p.surface} />
+          <Text style={[styles.primaryText, { color: p.surface }]}>
+            {step.schedule?.on ? 'Update reminder' : 'Turn on reminder'}
+          </Text>
+        </TouchableOpacity>
+        {step.schedule?.on ? (
+          <TouchableOpacity onPress={onTurnOff}>
+            <Text style={[styles.secondaryText, { color: '#c0392b' }]}>Turn off</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity onPress={() => save(false)}>
+            <Text style={[styles.secondaryText, { color: p.muted }]}>Save without reminder</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    </>
+  );
+}
+
+// Thin Modal wrapper around StepScheduleContent — this is the ONLY export
+// that presents a Modal, used by measurables.tsx/milestones.tsx where
+// there's no already-open Modal underneath to collide with. Content only
+// mounts while visible, so closing and reopening (even on the same step)
+// naturally remounts fresh rather than needing a separate reseed signal.
+export function StepScheduleSheet({
+  visible, step, palette: p, onSave, onTurnOff, onDismiss,
+}: Props) {
+  return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -208,214 +449,9 @@ export function StepScheduleSheet({
           style={[styles.sheet, { backgroundColor: p.bg }]}
           onPress={(e) => e.stopPropagation?.()}
         >
-          <View style={styles.header}>
-            <Text style={[styles.title, { color: p.text }]} numberOfLines={2}>
-              Remind me: {step.label}
-            </Text>
-            <TouchableOpacity onPress={onDismiss} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-              <Ionicons name="close" size={20} color={p.muted} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Cadence/day pickers only — the WHAT TIME wheels below are
-              deliberately OUTSIDE this ScrollView. A drag-to-scroll wheel
-              nested inside another vertical ScrollView is a well-known RN
-              gesture conflict: the outer ScrollView's pan responder can win
-              the touch before it ever reaches the wheel, so every drag just
-              scrolls the sheet and the wheel never commits a new value —
-              this was the actual cause of "the time can't be changed" on a
-              measurable's reminder. Keeping the wheel's own ScrollView as
-              the only vertical scroll surface in this region removes the
-              conflict outright rather than working around it. */}
-          <ScrollView style={{ maxHeight: 220 }} keyboardShouldPersistTaps="handled">
-            {isBuildUp ? (
-              <Text style={[styles.preview, { color: p.muted, marginTop: 0 }]}>
-                This step builds up week by week — each week's reminder fires on that
-                week's own due date. Just pick a time of day below.
-              </Text>
-            ) : (
-              <>
-                <Text style={[styles.eyebrow, { color: p.muted }]}>HOW OFTEN</Text>
-                <View style={[styles.segmented, { backgroundColor: p.line }]}>
-                  {CADENCES.map((c) => (
-                    <TouchableOpacity
-                      key={c.key}
-                      style={[styles.segBtn, cadence === c.key && { backgroundColor: p.ink }]}
-                      onPress={() => setCadence(c.key)}
-                    >
-                      <Text style={[styles.segText, {
-                        color: cadence === c.key ? (p.isDark ? p.bg : '#fff') : p.muted,
-                      }]}>
-                        {c.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </>
-            )}
-
-            {!isBuildUp && cadence === 'weekly' && (
-              <>
-                <Text style={[styles.eyebrow, { color: p.muted }]}>WHICH DAY</Text>
-                <View style={styles.chipWrap}>
-                  {WEEKDAY_NAMES.map((name, i) => {
-                    const value = i + 1; // expo weekday: 1 = Sunday
-                    const active = schedule.weekday === value;
-                    return (
-                      <TouchableOpacity
-                        key={name}
-                        style={[styles.chip, {
-                          borderColor: active ? p.accent : p.line,
-                          backgroundColor: active ? `${p.accent}1f` : 'transparent',
-                        }]}
-                        onPress={() => patch({ weekday: value })}
-                      >
-                        <Text style={[styles.chipText, { color: active ? p.accent : p.text }]}>
-                          {name}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </>
-            )}
-
-            {cadence === 'monthly' && (
-              <>
-                <Text style={[styles.eyebrow, { color: p.muted }]}>
-                  DAY OF MONTH — e.g. payday
-                </Text>
-                <View style={styles.chipWrap}>
-                  {/* Capped at 28 so the reminder exists in February too */}
-                  {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => {
-                    const active = schedule.dayOfMonth === d;
-                    return (
-                      <TouchableOpacity
-                        key={d}
-                        style={[styles.dayChip, {
-                          borderColor: active ? p.accent : p.line,
-                          backgroundColor: active ? `${p.accent}1f` : 'transparent',
-                        }]}
-                        onPress={() => patch({ dayOfMonth: d })}
-                      >
-                        <Text style={[styles.chipText, { color: active ? p.accent : p.text }]}>
-                          {d}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </>
-            )}
-
-            {cadence === 'custom' && (
-              <>
-                <Text style={[styles.eyebrow, { color: p.muted }]}>EVERY HOW MANY DAYS</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: p.surface, color: p.text, borderColor: p.line }]}
-                  keyboardType="numeric"
-                  value={intervalStr}
-                  onChangeText={setIntervalStr}
-                  placeholder="10"
-                  placeholderTextColor={p.muted}
-                />
-              </>
-            )}
-          </ScrollView>
-
-          <View>
-            <Text style={[styles.eyebrow, { color: p.muted }]}>WHAT TIME</Text>
-            {(() => {
-              const hour12 = to12Hour(schedule.hour);
-              const period = toPeriod(schedule.hour);
-              const hourIndex = HOURS_12.indexOf(hour12);
-              // MINUTES only offers quarter-hours — a persisted minute off
-              // that grid (e.g. an old reminder saved at :05) has no exact
-              // match, and indexOf's -1 used to fall back to index 0 no
-              // matter how far off :00 actually was, showing ":00" while
-              // `schedule.minute` was still really 5. Snap the WHEEL to
-              // whichever quarter-hour is closest instead, so what's
-              // displayed at least reads as "roughly this value", not an
-              // arbitrary always-zero default.
-              const minuteIndex = MINUTES.reduce(
-                (best, m, i) => (Math.abs(m - schedule.minute) < Math.abs(MINUTES[best] - schedule.minute) ? i : best),
-                0,
-              );
-              const periodIndex = PERIODS.indexOf(period);
-              // Re-snap the wheels whenever the sheet opens on a (possibly
-              // different) step, not on every schedule edit mid-interaction.
-              const resetSignal = `${visible}:${step.id}`;
-              return (
-                <View style={styles.wheelRow}>
-                  <WheelColumn
-                    items={HOURS_12.map(String)}
-                    index={hourIndex}
-                    onChange={(i) => patch({ hour: to24Hour(HOURS_12[i], period) })}
-                    palette={p}
-                    width={52}
-                    resetSignal={resetSignal}
-                  />
-                  <Text style={[styles.wheelColon, { color: p.text }]}>:</Text>
-                  <WheelColumn
-                    items={MINUTES.map((m) => String(m).padStart(2, '0'))}
-                    index={minuteIndex}
-                    onChange={(i) => patch({ minute: MINUTES[i] })}
-                    palette={p}
-                    width={52}
-                    resetSignal={resetSignal}
-                  />
-                  <WheelColumn
-                    items={[...PERIODS]}
-                    index={periodIndex}
-                    onChange={(i) => patch({ hour: to24Hour(hour12, PERIODS[i]) })}
-                    palette={p}
-                    width={60}
-                    resetSignal={resetSignal}
-                  />
-                </View>
-              );
-            })()}
-
-            <Text style={[styles.preview, { color: p.muted }]}>
-              {isBuildUp
-                ? `I'll ask at ${formatTime(schedule.hour, schedule.minute)} on each week's own due date as the target builds up.`
-                : <>
-                    I'll ask at {formatTime(schedule.hour, schedule.minute)}
-                    {cadence === 'weekly' && ` every ${WEEKDAY_NAMES[schedule.weekday - 1]}`}
-                    {cadence === 'monthly' && ` on day ${schedule.dayOfMonth} of each month`}
-                    {cadence === 'custom' && ` every ${intervalStr || '7'} days`}.
-                  </>
-              }
-            </Text>
-
-            {Platform.OS === 'web' && (
-              <Text style={[styles.preview, { color: p.muted }]}>
-                Push reminders only fire in the iOS/Android app — this saves the
-                schedule either way.
-              </Text>
-            )}
-          </View>
-
-          <View style={styles.actions}>
-            <TouchableOpacity
-              style={[styles.primaryBtn, { backgroundColor: p.accent }]}
-              onPress={() => save(true)}
-            >
-              <Ionicons name="notifications" size={15} color={p.surface} />
-              <Text style={[styles.primaryText, { color: p.surface }]}>
-                {step.schedule?.on ? 'Update reminder' : 'Turn on reminder'}
-              </Text>
-            </TouchableOpacity>
-            {step.schedule?.on ? (
-              <TouchableOpacity onPress={onTurnOff}>
-                <Text style={[styles.secondaryText, { color: '#c0392b' }]}>Turn off</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity onPress={() => save(false)}>
-                <Text style={[styles.secondaryText, { color: p.muted }]}>Save without reminder</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+          {visible && step && (
+            <StepScheduleContent step={step} palette={p} onSave={onSave} onTurnOff={onTurnOff} onDismiss={onDismiss} />
+          )}
         </TouchableOpacity>
       </TouchableOpacity>
       </KeyboardAvoidingView>

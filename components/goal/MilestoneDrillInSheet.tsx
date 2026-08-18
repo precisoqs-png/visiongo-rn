@@ -1,9 +1,10 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView, Modal, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Modal, StyleSheet, Platform, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Commitment, Measurable, Goal } from '../../store/models';
+import { Commitment, Measurable, Goal, Cadence, StepSchedule } from '../../store/models';
 import { Palette } from '../../theme/themes';
 import { MeasurableCard } from './MeasurableCard';
+import { StepScheduleContent, ReminderTarget } from './StepScheduleSheet';
 
 interface Props {
   // The top-level Milestone bubble that was tapped — null closes the sheet.
@@ -17,10 +18,30 @@ interface Props {
   onDismiss: () => void;
   // Threaded straight into every MeasurableCard rendered here — the
   // Milestone's own row AND each child Measurable's row — so every one of
-  // them gets its own reminder bell, not just the top one.
+  // them gets its own reminder bell, not just the top one. These just
+  // report WHICH target the user wants to schedule; the caller decides
+  // what to do with it (see scheduleStep below).
   onOpenSchedule: (m: Measurable) => void;
   onOpenCommitmentSchedule: (m: Measurable, step: Commitment) => void;
   onAskCoach?: (m: Measurable) => void;
+  // The reminder target currently being edited (an item's own schedule, or
+  // one Commitment's), or null when no schedule editor is open. Rendered
+  // INLINE as an overlay within this same, already-open Modal — never as a
+  // second Modal. Two RN Modals visible at once (this sheet, plus a
+  // separately-presented StepScheduleSheet) is what caused the reported
+  // goal-canvas freeze: on iOS, presenting a second modal view controller
+  // from a screen already presenting one desyncs RN's internal "am I
+  // presented" bookkeeping from UIKit's real state, leaving a transparent,
+  // fully unresponsive screen that eats every touch. Keeping the schedule
+  // editor as a plain overlay inside this sheet's own Modal — rather than
+  // closing this sheet and opening a second one — also means the
+  // ScrollView position, MeasurableCard's commitmentsOpen accordion state,
+  // and CommitmentsBlock's in-progress new-commitment draft all survive a
+  // schedule edit instead of being reset by an unmount.
+  scheduleStep: ReminderTarget | null;
+  onSaveSchedule: (patch: { cadence: Cadence; intervalDays?: number; schedule: StepSchedule }) => void;
+  onTurnOffSchedule: () => void;
+  onCloseSchedule: () => void;
 }
 
 // What tapping a bubble on the goal canvas opens. A top-level Milestone
@@ -35,6 +56,7 @@ export function MilestoneDrillInSheet({
   milestone, goal, goalTargetDate, palette: p, noteColor,
   onUpdateItem, onDeleteItem, onDismiss,
   onOpenSchedule, onOpenCommitmentSchedule, onAskCoach,
+  scheduleStep, onSaveSchedule, onTurnOffSchedule, onCloseSchedule,
 }: Props) {
   const children = milestone
     ? goal.items.filter((it) => it.parentId === milestone.id)
@@ -99,6 +121,28 @@ export function MilestoneDrillInSheet({
               )}
             </ScrollView>
           )}
+
+          {/* Inline schedule editor overlay — see scheduleStep's doc comment
+              above for why this is never a second Modal. The list above
+              stays mounted underneath (just visually covered), so its
+              scroll position and every card's own open/draft state survive
+              closing this overlay. */}
+          {scheduleStep && (
+            <View style={[styles.scheduleOverlay, { backgroundColor: p.bg }]}>
+              <KeyboardAvoidingView
+                style={{ flex: 1 }}
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+              >
+                <StepScheduleContent
+                  step={scheduleStep}
+                  palette={p}
+                  onSave={onSaveSchedule}
+                  onTurnOff={onTurnOffSchedule}
+                  onDismiss={onCloseSchedule}
+                />
+              </KeyboardAvoidingView>
+            </View>
+          )}
         </TouchableOpacity>
       </TouchableOpacity>
     </Modal>
@@ -118,4 +162,8 @@ const styles = StyleSheet.create({
     marginTop: 14, marginBottom: 6,
   },
   emptyHint: { fontSize: 13, lineHeight: 19, marginTop: 10 },
+  // Covers the sheet's own content box (relative to the padded parent, so
+  // it lines up with the header/list it's replacing without needing to
+  // account for the parent's padding itself).
+  scheduleOverlay: { ...StyleSheet.absoluteFillObject, borderRadius: 20 },
 });
