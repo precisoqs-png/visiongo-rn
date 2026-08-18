@@ -1,16 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, Modal, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Palette, FONTS } from '../../theme/themes';
 
-interface Props {
-  visible: boolean;
+interface ContentProps {
   /** Currently selected date as 'YYYY-MM-DD', or undefined. */
   value?: string;
   palette: Palette;
   onSelect: (isoDate: string) => void;
   onClear?: () => void;
   onDismiss: () => void;
+}
+
+interface Props extends ContentProps {
+  visible: boolean;
 }
 
 const MONTHS = [
@@ -29,21 +32,19 @@ function parseISO(iso?: string): { y: number; m: number; d: number } | null {
   return { y, m: m - 1, d };
 }
 
-export function CalendarPicker({ visible, value, palette: p, onSelect, onClear, onDismiss }: Props) {
+// The calendar grid itself, no Modal of its own — so a caller that already
+// owns a Modal (AddMilestoneItemForm, embedded in index.tsx's add-milestone
+// sheet) can render this inline instead of presenting a second Modal on top
+// of the first. Re-centers on the selected (or current) month once, on
+// MOUNT — callers that need "reopen and re-center" (the Modal wrapper
+// below) get that for free by mounting this fresh each time it opens,
+// rather than keeping it mounted across a `visible` toggle.
+export function CalendarPickerContent({ value, palette: p, onSelect, onClear, onDismiss }: ContentProps) {
   const today = new Date();
   const selected = parseISO(value);
 
   const [viewYear, setViewYear] = useState(selected?.y ?? today.getFullYear());
   const [viewMonth, setViewMonth] = useState(selected?.m ?? today.getMonth());
-
-  // Re-center on the selected (or current) month whenever the picker opens
-  useEffect(() => {
-    if (visible) {
-      const sel = parseISO(value);
-      setViewYear(sel?.y ?? today.getFullYear());
-      setViewMonth(sel?.m ?? today.getMonth());
-    }
-  }, [visible]);
 
   const firstWeekday = new Date(viewYear, viewMonth, 1).getDay();
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
@@ -78,67 +79,87 @@ export function CalendarPicker({ visible, value, palette: p, onSelect, onClear, 
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss}>
-      <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onDismiss}>
-        <TouchableOpacity activeOpacity={1} style={[styles.card, { backgroundColor: p.surface }]}>
-          <Text style={[styles.eyebrow, { color: p.muted }]}>ACHIEVE BY</Text>
+    <>
+      <Text style={[styles.eyebrow, { color: p.muted }]}>ACHIEVE BY</Text>
 
-          <View style={styles.headerRow}>
-            <TouchableOpacity onPress={prevMonth} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons name="chevron-back" size={20} color={p.text} />
-            </TouchableOpacity>
-            <Text style={[styles.monthLabel, { color: p.text, fontFamily: FONTS.display }]}>
-              {MONTHS[viewMonth]} {viewYear}
-            </Text>
-            <TouchableOpacity onPress={nextMonth} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons name="chevron-forward" size={20} color={p.text} />
-            </TouchableOpacity>
-          </View>
+      <View style={styles.headerRow}>
+        <TouchableOpacity onPress={prevMonth} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Ionicons name="chevron-back" size={20} color={p.text} />
+        </TouchableOpacity>
+        <Text style={[styles.monthLabel, { color: p.text, fontFamily: FONTS.display }]}>
+          {MONTHS[viewMonth]} {viewYear}
+        </Text>
+        <TouchableOpacity onPress={nextMonth} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Ionicons name="chevron-forward" size={20} color={p.text} />
+        </TouchableOpacity>
+      </View>
 
-          <View style={styles.weekRow}>
-            {WEEKDAYS.map((w, i) => (
-              <Text key={i} style={[styles.weekday, { color: p.muted }]}>{w}</Text>
-            ))}
-          </View>
+      <View style={styles.weekRow}>
+        {WEEKDAYS.map((w, i) => (
+          <Text key={i} style={[styles.weekday, { color: p.muted }]}>{w}</Text>
+        ))}
+      </View>
 
-          <View style={styles.grid}>
-            {cells.map((d, i) => (
-              <View key={i} style={styles.cell}>
-                {d != null && (
-                  <TouchableOpacity
-                    disabled={isPast(d)}
-                    style={[
-                      styles.dayBtn,
-                      isToday(d) && { borderWidth: 1, borderColor: p.accent },
-                      isSelected(d) && { backgroundColor: p.accent },
-                    ]}
-                    onPress={() => onSelect(toISO(viewYear, viewMonth, d))}
-                  >
-                    <Text
-                      style={[
-                        styles.dayText,
-                        { color: isSelected(d) ? p.surface : isPast(d) ? `${p.muted}66` : p.text },
-                      ]}
-                    >
-                      {d}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            ))}
-          </View>
-
-          <View style={styles.actions}>
-            {onClear && !!value && (
-              <TouchableOpacity onPress={onClear}>
-                <Text style={{ color: '#c0392b', fontSize: 15 }}>Clear</Text>
+      <View style={styles.grid}>
+        {cells.map((d, i) => (
+          <View key={i} style={styles.cell}>
+            {d != null && (
+              <TouchableOpacity
+                disabled={isPast(d)}
+                style={[
+                  styles.dayBtn,
+                  isToday(d) && { borderWidth: 1, borderColor: p.accent },
+                  isSelected(d) && { backgroundColor: p.accent },
+                ]}
+                onPress={() => onSelect(toISO(viewYear, viewMonth, d))}
+              >
+                <Text
+                  style={[
+                    styles.dayText,
+                    { color: isSelected(d) ? p.surface : isPast(d) ? `${p.muted}66` : p.text },
+                  ]}
+                >
+                  {d}
+                </Text>
               </TouchableOpacity>
             )}
-            <View style={{ flex: 1 }} />
-            <TouchableOpacity onPress={onDismiss}>
-              <Text style={{ color: p.muted, fontSize: 15 }}>Cancel</Text>
-            </TouchableOpacity>
           </View>
+        ))}
+      </View>
+
+      <View style={styles.actions}>
+        {onClear && !!value && (
+          <TouchableOpacity onPress={onClear}>
+            <Text style={{ color: '#c0392b', fontSize: 15 }}>Clear</Text>
+          </TouchableOpacity>
+        )}
+        <View style={{ flex: 1 }} />
+        <TouchableOpacity onPress={onDismiss}>
+          <Text style={{ color: p.muted, fontSize: 15 }}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+    </>
+  );
+}
+
+// Thin Modal wrapper around CalendarPickerContent — the ONLY export that
+// presents a Modal, used wherever there's no already-open Modal underneath
+// to collide with (onboarding, a goal's own Achieve-by row, a Milestone's
+// deadline). Content only mounts while visible, so reopening (even on the
+// same value) naturally re-centers on the selected month, no separate
+// "visible changed" effect needed.
+export function CalendarPicker({ visible, value, palette: p, onSelect, onClear, onDismiss }: Props) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss}>
+      <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onDismiss}>
+        <TouchableOpacity
+          activeOpacity={1}
+          style={[styles.card, { backgroundColor: p.surface }]}
+          onPress={(e) => e.stopPropagation?.()}
+        >
+          {visible && (
+            <CalendarPickerContent value={value} palette={p} onSelect={onSelect} onClear={onClear} onDismiss={onDismiss} />
+          )}
         </TouchableOpacity>
       </TouchableOpacity>
     </Modal>
