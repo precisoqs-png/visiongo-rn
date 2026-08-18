@@ -248,7 +248,18 @@ export default function MeasurablesListScreen() {
                 palette={p}
                 noteColor={noteColor}
                 onUpdate={(m) => { updateMeasurable(m, goal.id); resyncWeekNotifications(); resyncCommitmentNotifications(); }}
-                onDelete={(mid) => { deleteMeasurable(mid, goal.id); resyncWeekNotifications(); resyncCommitmentNotifications(); }}
+                onDelete={(mid) => {
+                  deleteMeasurable(mid, goal.id);
+                  resyncWeekNotifications();
+                  resyncCommitmentNotifications();
+                  // The deleted item's OWN reminder (its ScheduleBell, not a
+                  // Commitment's) was never cancelled here — syncMeasurableReminders
+                  // rebuilds every measurable reminder from the goal's CURRENT
+                  // items, so once the delete above has already removed it from
+                  // state, this correctly cancels its now-orphaned notification
+                  // instead of leaving it firing forever.
+                  resyncMeasurableNotifications();
+                }}
                 onOpenSchedule={(m) => setScheduleForMeasurable(m)}
                 onOpenCommitmentSchedule={(m, step) => setScheduleForCommitment({ item: m, step })}
               />

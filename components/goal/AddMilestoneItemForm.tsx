@@ -3,7 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-nativ
 import { Ionicons } from '@expo/vector-icons';
 import { TrackableItem, newMilestone } from '../../store/models';
 import { Palette } from '../../theme/themes';
-import { CalendarPicker } from '../shared/CalendarPicker';
+import { CalendarPickerContent } from '../shared/CalendarPicker';
 
 interface Props {
   palette: Palette;
@@ -32,6 +32,28 @@ export function AddMilestoneItemForm({ palette: p, goalTargetDate, onAdd }: Prop
     onAdd(m);
     setLabel('');
   };
+
+  // Renders the calendar INLINE — swapping this card's own body for it —
+  // rather than presenting CalendarPicker's Modal. This form is embedded
+  // directly on milestones.tsx (no Modal there, so a Modal picker would
+  // have been harmless) but ALSO inside index.tsx's own add-milestone
+  // sheet Modal, where presenting a second Modal on top of the first is
+  // the same iOS modal-stacking freeze fixed elsewhere in this codebase.
+  // Always going inline, regardless of which screen embeds this form,
+  // means this component can never be the one that reintroduces it.
+  if (showPicker) {
+    return (
+      <View style={[styles.card, { backgroundColor: `${p.surface}99` }]}>
+        <CalendarPickerContent
+          value={deadline}
+          palette={p}
+          onSelect={(iso) => { setDeadline(iso); setShowPicker(false); }}
+          onClear={() => { setDeadline(undefined); setShowPicker(false); }}
+          onDismiss={() => setShowPicker(false)}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.card, { backgroundColor: `${p.surface}99` }]}>
@@ -66,15 +88,6 @@ export function AddMilestoneItemForm({ palette: p, goalTargetDate, onAdd }: Prop
       >
         <Text style={[styles.addBtnText, { color: p.isDark ? p.bg : '#fff' }]}>Add</Text>
       </TouchableOpacity>
-
-      <CalendarPicker
-        visible={showPicker}
-        value={deadline}
-        palette={p}
-        onSelect={(iso) => { setDeadline(iso); setShowPicker(false); }}
-        onClear={() => { setDeadline(undefined); setShowPicker(false); }}
-        onDismiss={() => setShowPicker(false)}
-      />
     </View>
   );
 }
