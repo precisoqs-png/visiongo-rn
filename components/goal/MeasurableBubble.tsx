@@ -94,7 +94,7 @@ export function MeasurableBubble({
   const frac = measurableFraction(m, goal);
 
   // Fires the celebratory burst on the 0->1 transition only — however it
-  // happened (hold-to-tick here, or an edit made in MeasurableDetailSheet's
+  // happened (hold-to-tick here, or an edit made in MilestoneDrillInSheet's
   // card, which re-renders this same bubble with the new fraction).
   const prevFracRef = useRef(frac);
   useEffect(() => {

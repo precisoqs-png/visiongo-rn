@@ -232,7 +232,7 @@ function DraggableBubble({
     // Eased (not linear) growth so the bubble accelerates into the screen
     // smoothly instead of covering ground at a constant rate — paired with
     // the goal canvas's own settle-in on the other side (contentScale/
-    // textOpacity in app/goal/[id]/index.tsx), the whole jump reads as one
+    // textOpacity in app/(tabs)/board/goal/[id]/index.tsx), the whole jump reads as one
     // continuous motion rather than two abrupt animations stitched together.
     Animated.timing(tapScale, {
       toValue: 9, duration: 280, easing: Easing.out(Easing.cubic), useNativeDriver: true,

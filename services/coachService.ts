@@ -265,6 +265,7 @@ THE GOAL YOU ARE COACHING
 ${stepsStr}
 - Milestones on this goal:
 ${milestonesStr}
+${deadlineInstruction}
 
 This is reply #${replyNo} of the conversation.
 

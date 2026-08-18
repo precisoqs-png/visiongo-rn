@@ -6,26 +6,30 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useThemeStore } from '../../../store/useThemeStore';
-import { useAppStore } from '../../../store/useAppStore';
+import { useThemeStore } from '../../../../../store/useThemeStore';
+import { useAppStore } from '../../../../../store/useAppStore';
 import {
-  Measurable, TrackableItem, BoardPosition, Commitment, Cadence, StepSchedule, measurableFraction,
-  removeItemCascade,
-} from '../../../store/models';
-import { GoalNote } from '../../../components/board/GoalNote';
+  Measurable, TrackableItem, BoardPosition, Commitment, Cadence, StepSchedule, DEFAULT_SCHEDULE,
+  measurableFraction, removeItemCascade,
+} from '../../../../../store/models';
+import { GoalNote } from '../../../../../components/board/GoalNote';
 import {
   Point, clampCenter, computeRadialLayout, MIN_BUBBLE, MAX_BUBBLE, CENTER_SIZE,
-} from '../../../components/board/RadialBoard';
-import { MeasurableBubble, tickMeasurable } from '../../../components/goal/MeasurableBubble';
-import { MeasurableDetailSheet } from '../../../components/goal/MeasurableDetailSheet';
-import { StepScheduleSheet } from '../../../components/goal/StepScheduleSheet';
-import { CoachChat } from '../../../components/goal/CoachChat';
-import { SegmentedControl } from '../../../components/shared/SegmentedControl';
-import { CompletionFlight, CompletedChip } from '../../../components/shared/CompletionFlight';
-import { FONTS, GOAL_NOTE_COLORS } from '../../../theme/themes';
+} from '../../../../../components/board/RadialBoard';
+import { MeasurableBubble, tickMeasurable } from '../../../../../components/goal/MeasurableBubble';
+import { MilestoneDrillInSheet } from '../../../../../components/goal/MilestoneDrillInSheet';
+import { AddMilestoneItemForm } from '../../../../../components/goal/AddMilestoneItemForm';
+import { StepScheduleSheet } from '../../../../../components/goal/StepScheduleSheet';
+import { CoachChat } from '../../../../../components/goal/CoachChat';
+import { DecompCard } from '../../../../../components/goal/DecompCard';
+import { SegmentedControl } from '../../../../../components/shared/SegmentedControl';
+import { CompletionFlight, CompletedChip } from '../../../../../components/shared/CompletionFlight';
+import { useNearBottom } from '../../../../../components/shared/useNearBottom';
+import { FONTS, GOAL_NOTE_COLORS } from '../../../../../theme/themes';
 import {
-  syncCommitmentNotifications, requestNotificationPermission, alertNotificationsUnavailable,
-} from '../../../services/notificationService';
+  syncCommitmentNotifications, syncMeasurableReminders, syncWeeklyTargetNotifications,
+  requestNotificationPermission, alertNotificationsUnavailable,
+} from '../../../../../services/notificationService';
 
 const TOP_SAFE = 90;
 const BOTTOM_SAFE = 120;
@@ -62,6 +66,7 @@ export default function GoalCanvasScreen() {
   const p = palette;
 
   const updateGoal = useAppStore((s) => s.updateGoal);
+  const addMeasurable = useAppStore((s) => s.addMeasurable);
   const selectedYear = useAppStore((s) => s.selectedYear);
   const goal = useAppStore((s) =>
     s.years.find((y) => y.year === s.selectedYear)?.goals.find((g) => g.id === id),
@@ -101,7 +106,7 @@ export default function GoalCanvasScreen() {
   };
 
   // Same SSR/hydration gate as the milestones page (see its comment) — this
-  // is the URL /goal/[id] resolves to first, so it needs it too.
+  // is the URL /board/goal/[id] resolves to first, so it needs it too.
   const [hydrated, setHydrated] = useState(useAppStore.persist.hasHydrated());
   React.useEffect(() => {
     const unsub = useAppStore.persist.onFinishHydration(() => setHydrated(true));
@@ -112,6 +117,10 @@ export default function GoalCanvasScreen() {
   const [size, setSize] = useState({ w: 390, h: 640 });
   const [openMeasurable, setOpenMeasurable] = useState<Measurable | null>(null);
   const [coachOpen, setCoachOpen] = useState(false);
+  const [coachSeed, setCoachSeed] = useState<string | null>(null);
+  const [addMilestoneOpen, setAddMilestoneOpen] = useState(false);
+  const coachScrollRef = useRef<ScrollView>(null);
+  const coachNearBottom = useNearBottom();
 
   // ── Completion flights (measurables) ───────────────────────────
   //
@@ -149,7 +158,22 @@ export default function GoalCanvasScreen() {
     const justCompleted = measurables.filter(
       (m) => frac.get(m.id)! >= 1 && (prev.get(m.id) ?? 0) < 1,
     );
+    // The reverse transition — a resting completed chip whose item dropped
+    // back below 100% (e.g. unticking a child, or decrementing a number,
+    // from inside the drill-in sheet without ever leaving the canvas).
+    // activeMeasurables only renders a bubble for fraction < 1, so leaving
+    // a stale id in settledCompletedIds meant the SAME item rendered twice
+    // at once: a live bubble on the canvas and a resting chip in the
+    // completed column, until this screen unmounted.
+    const justUncompleted = new Set(
+      measurables
+        .filter((m) => (prev.get(m.id) ?? 0) >= 1 && frac.get(m.id)! < 1)
+        .map((m) => m.id),
+    );
     seenFracRef.current = frac;
+    if (justUncompleted.size > 0) {
+      setSettledCompletedIds((ids) => ids.filter((mid) => !justUncompleted.has(mid)));
+    }
     if (justCompleted.length === 0) return;
     setMeasurableFlights((current) => {
       const next = { ...current };
@@ -196,6 +220,13 @@ export default function GoalCanvasScreen() {
       items: g.items.map((x) => (x.id === m.id ? m : x)),
     }));
     setOpenMeasurable((cur) => (cur?.id === m.id ? m : cur));
+    // An edit made from the drill-in sheet (a build-up week's pacing, a
+    // commitment's cadence, a check-in) can move what's actually scheduled
+    // — measurables.tsx/milestones.tsx already resync both after every
+    // onUpdate; this was missing here, leaving stale notifications behind
+    // for any edit made without leaving the canvas.
+    resyncWeekNotifications();
+    resyncCommitmentNotifications();
   };
 
   const deleteMeasurableInPlace = (measurableId: string) => {
@@ -205,6 +236,15 @@ export default function GoalCanvasScreen() {
     // still rendered on the Measurables tab, and misreading its own progress
     // — see removeItemCascade's comment in store/models.ts).
     patchGoal((g) => ({ items: removeItemCascade(g.items, measurableId) }));
+    resyncWeekNotifications();
+    resyncCommitmentNotifications();
+  };
+
+  const resyncWeekNotifications = () => {
+    const fresh = useAppStore.getState().getGoal(id!);
+    if (fresh && useAppStore.getState().notificationsMasterOn) {
+      void syncWeeklyTargetNotifications(fresh);
+    }
   };
 
   // Reminder sheet for ONE Commitment nested inside whichever item is
@@ -277,6 +317,47 @@ export default function GoalCanvasScreen() {
     resyncCommitmentNotifications();
   };
 
+  // Reminder sheet for an item's OWN schedule (a Milestone's or a
+  // Measurable's, whichever ScheduleBell was tapped inside the drill-in
+  // sheet) — separate from scheduleForCommitment above, same pattern.
+  const [scheduleForItem, setScheduleForItem] = useState<Measurable | null>(null);
+
+  const resyncItemNotifications = () => {
+    const fresh = useAppStore.getState().getGoal(id!);
+    if (fresh && useAppStore.getState().notificationsMasterOn) {
+      void syncMeasurableReminders(fresh);
+    }
+  };
+
+  const saveItemSchedule = async (
+    patch: { cadence: Cadence; intervalDays?: number; schedule: StepSchedule },
+  ) => {
+    const target = scheduleForItem;
+    if (!target) return;
+    const fresh = useAppStore.getState().getGoal(id!)?.items.find((it) => it.id === target.id) ?? target;
+    if (patch.schedule.on) {
+      const granted = await requestNotificationPermission();
+      if (!granted) {
+        alertNotificationsUnavailable();
+        updateMeasurableInPlace({ ...fresh, ...patch, schedule: { ...patch.schedule, on: false } });
+        setScheduleForItem(null);
+        return;
+      }
+    }
+    updateMeasurableInPlace({ ...fresh, ...patch });
+    setScheduleForItem(null);
+    resyncItemNotifications();
+  };
+
+  const turnOffItemReminder = () => {
+    const target = scheduleForItem;
+    if (!target) return;
+    const fresh = useAppStore.getState().getGoal(id!)?.items.find((it) => it.id === target.id) ?? target;
+    updateMeasurableInPlace({ ...fresh, schedule: { ...(fresh.schedule ?? DEFAULT_SCHEDULE), on: false } });
+    setScheduleForItem(null);
+    resyncItemNotifications();
+  };
+
   if (!hydrated || !goal) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: p.bg }}>
@@ -341,7 +422,7 @@ export default function GoalCanvasScreen() {
             { key: 'measurables', label: 'Measurables' },
             { key: 'milestones', label: 'Milestones' },
           ]}
-          onChange={(tab) => router.push(`/goal/${id}/${tab}`)}
+          onChange={(tab) => router.push(`/board/goal/${id}/${tab}`)}
           palette={p}
         />
       </View>
@@ -351,7 +432,7 @@ export default function GoalCanvasScreen() {
         onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
       >
         <View style={[styles.centerWrap, { left: cx - CENTER_SIZE / 2, top: cy - CENTER_SIZE / 2 }]}>
-          <GoalNote goal={goal} size={CENTER_SIZE} palette={p} onPress={() => router.push(`/goal/${id}/milestones`)} />
+          <GoalNote goal={goal} size={CENTER_SIZE} palette={p} onPress={() => router.push(`/board/goal/${id}/milestones`)} />
         </View>
 
         {activeMeasurables.map((m, idx) => {
@@ -393,9 +474,11 @@ export default function GoalCanvasScreen() {
 
         {goalMeasurables.length === 0 && (
           <View style={[styles.emptyHint, { top: cy + CENTER_SIZE / 2 + 24 }]}>
-            <Text style={[styles.emptyHintText, { color: p.muted }]}>
-              No measurables yet — ask the Coach to add some, or open Milestones to add one.
-            </Text>
+            <DecompCard
+              goal={goal}
+              palette={p}
+              onAskCoach={(seed) => { setCoachSeed(seed); setCoachOpen(true); }}
+            />
           </View>
         )}
 
@@ -462,6 +545,21 @@ export default function GoalCanvasScreen() {
         )}
       </View>
 
+      {/* Add-milestone FAB — only once the goal has at least one Milestone
+          already. An empty goal shows the DecompCard instead (see above),
+          which is its own single call to action; showing both here would
+          give an empty goal two competing "what do I do first" prompts. */}
+      {goalMeasurables.length > 0 && (
+        <TouchableOpacity
+          style={[styles.addMilestoneFab, { backgroundColor: p.surface, borderColor: p.line }]}
+          onPress={() => setAddMilestoneOpen(true)}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="add" size={20} color={p.text} />
+          <Text style={[styles.addMilestoneFabText, { color: p.text }]}>Milestone</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Coach bubble — a small dark FAB that slides up the same coach chat
           the milestones page embeds inline, reused as-is. */}
       <TouchableOpacity
@@ -473,6 +571,37 @@ export default function GoalCanvasScreen() {
         <Text style={[styles.coachFabText, { color: p.isDark ? p.bg : '#fff' }]}>Coach</Text>
       </TouchableOpacity>
       </Animated.View>
+
+      <Modal
+        visible={addMilestoneOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAddMilestoneOpen(false)}
+      >
+        <TouchableOpacity style={styles.coachBackdrop} activeOpacity={1} onPress={() => setAddMilestoneOpen(false)}>
+          <TouchableOpacity
+            activeOpacity={1}
+            style={[styles.addMilestoneSheet, { backgroundColor: p.bg }]}
+            onPress={(e) => e.stopPropagation?.()}
+          >
+            <View style={styles.coachHandleRow}>
+              <View style={[styles.coachHandle, { backgroundColor: p.line }]} />
+              <TouchableOpacity
+                onPress={() => setAddMilestoneOpen(false)}
+                style={styles.coachClose}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="chevron-down" size={18} color={p.muted} />
+              </TouchableOpacity>
+            </View>
+            <AddMilestoneItemForm
+              palette={p}
+              goalTargetDate={goal.targetDate}
+              onAdd={(m) => { addMeasurable(m, goal.id); setAddMilestoneOpen(false); }}
+            />
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
 
       <Modal visible={coachOpen} transparent animationType="slide" onRequestClose={() => setCoachOpen(false)}>
         <TouchableOpacity style={styles.coachBackdrop} activeOpacity={1} onPress={() => setCoachOpen(false)}>
@@ -495,24 +624,53 @@ export default function GoalCanvasScreen() {
               style={{ flex: 1 }}
               behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             >
-              <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
-                <CoachChat goal={goal} palette={p} />
+              <ScrollView
+                ref={coachScrollRef}
+                contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 24 }}
+                keyboardShouldPersistTaps="handled"
+                onScroll={coachNearBottom.onScroll}
+                onLayout={coachNearBottom.onLayout}
+                onContentSizeChange={coachNearBottom.onContentSizeChange}
+                scrollEventThrottle={100}
+              >
+                <CoachChat
+                  goal={goal}
+                  palette={p}
+                  seedMessage={coachSeed}
+                  onSeedConsumed={() => setCoachSeed(null)}
+                  onRequestScrollToEnd={() => coachScrollRef.current?.scrollToEnd({ animated: true })}
+                  isNearBottom={() => coachNearBottom.nearBottomRef.current}
+                  autoFocusInput
+                />
               </ScrollView>
             </KeyboardAvoidingView>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
 
-      <MeasurableDetailSheet
-        measurable={openMeasurable}
+      <MilestoneDrillInSheet
+        milestone={openMeasurable}
         goal={goal}
         goalTargetDate={goal.targetDate}
         palette={p}
         noteColor={noteColor}
-        onUpdate={updateMeasurableInPlace}
-        onDelete={(mid) => { deleteMeasurableInPlace(mid); setOpenMeasurable(null); }}
+        onUpdateItem={updateMeasurableInPlace}
+        onDeleteItem={(mid) => { deleteMeasurableInPlace(mid); setOpenMeasurable(null); }}
         onDismiss={() => setOpenMeasurable(null)}
+        onOpenSchedule={(m) => setScheduleForItem(m)}
         onOpenCommitmentSchedule={(m, step) => setScheduleForCommitment({ item: m, step })}
+      />
+
+      {/* Reminder sheet for an item's OWN schedule (the Milestone's or a
+          child Measurable's, whichever bell was tapped inside the drill-in
+          sheet above). */}
+      <StepScheduleSheet
+        visible={!!scheduleForItem}
+        step={scheduleForItem}
+        palette={p}
+        onSave={(patch) => { void saveItemSchedule(patch); }}
+        onTurnOff={turnOffItemReminder}
+        onDismiss={() => setScheduleForItem(null)}
       />
 
       {/* Reminder sheet for one Commitment nested inside whichever item is
@@ -532,7 +690,7 @@ export default function GoalCanvasScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, paddingTop: Platform.OS === 'ios' ? 50 : 30 },
   // header/eyebrow/motto/yearRow/yearCenter/yearDiamond/yearNum are a
-  // deliberate 1:1 copy of app/(tabs)/board.tsx's own styles, so this top
+  // deliberate 1:1 copy of app/(tabs)/board/index.tsx's own styles, so this top
   // section reads as the same header, not a re-styled lookalike.
   header: {
     flexDirection: 'row', alignItems: 'flex-start',
@@ -556,7 +714,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center',
   },
   overflowHintText: { fontSize: 12, fontWeight: '700' },
-  emptyHintText: { fontSize: 13, lineHeight: 19, textAlign: 'center' },
   coachFab: {
     position: 'absolute', bottom: 20, right: 20,
     width: 62, height: 62, borderRadius: 31,
@@ -565,6 +722,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25, shadowRadius: 12, elevation: 6,
   },
   coachFabText: { fontSize: 9, fontWeight: '700', marginTop: 2 },
+  addMilestoneFab: {
+    position: 'absolute', bottom: 20, left: 20,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    height: 44, borderRadius: 22, borderWidth: 1, paddingHorizontal: 14,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12, shadowRadius: 8, elevation: 4,
+  },
+  addMilestoneFabText: { fontSize: 13, fontWeight: '700' },
+  addMilestoneSheet: {
+    borderTopLeftRadius: 22, borderTopRightRadius: 22,
+    paddingTop: 8, paddingHorizontal: 18, paddingBottom: 24,
+  },
   coachBackdrop: { flex: 1, backgroundColor: '#00000070', justifyContent: 'flex-end' },
   coachSheet: {
     height: '58%', borderTopLeftRadius: 22, borderTopRightRadius: 22,
