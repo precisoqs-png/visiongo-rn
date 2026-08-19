@@ -29,8 +29,11 @@ const TOPICS: Topic[] = [
       'scratch.\n\n' +
       'Onboarding asks once for an achieve-by date to apply to every goal you pick — a ' +
       'fast shared default, not a form per goal — but each goal actually gets its own ' +
-      'date, and any goal can be given a different one right there before you finish, or ' +
-      'changed anytime after from that goal\'s own canvas (see Inside a Goal).',
+      'date. The whole step is skippable. Per goal, tap its date pill to open the ' +
+      'calendar and give it its own date (or tap Clear in there for an explicit "no ' +
+      'date," even while every other goal keeps the shared default); hold the pill ' +
+      'instead to drop any override and go back to following the shared default. Change ' +
+      'it later from that goal\'s own Milestones screen (see Inside a Goal).',
   },
   {
     key: 'inside-a-goal',
@@ -49,9 +52,10 @@ const TOPICS: Topic[] = [
       'Settings) stays visible the whole time — tap another tab directly, or tap the ' +
       'year row to zoom back out to the board. Use the Measurables and Milestones ' +
       'toggle near the top to open the full list view of either for more room to add ' +
-      "or edit. Tap the goal's own \"Achieve by\" row to set or change its deadline — " +
-      'the first one usually comes from onboarding (see Vision Board), which sets a ' +
-      'date per goal, not one shared date for everything you picked.',
+      'or edit. The goal\'s "Achieve by" date lives on the Milestones list screen (one ' +
+      'toggle tap away, near the top) — tap it there to set or change the deadline. The ' +
+      'first one usually comes from onboarding (see Vision Board), which sets a date per ' +
+      'goal, not one shared date for everything you picked.',
   },
   {
     key: 'milestones',
@@ -65,15 +69,18 @@ const TOPICS: Topic[] = [
       'and every one of its Measurables is complete.\n\n' +
       'Tap a Milestone\'s bubble on the canvas to open it: a drill-in sheet listing the ' +
       'Milestone\'s own row and every Measurable under it, all tickable and editable right ' +
-      'there. Add a new milestone from the canvas\'s own "+ Milestone" button, from the ' +
-      'Milestones tab, or ask the Coach to break the goal down for you. Give it a title ' +
-      'and, optionally, a Deadline picked from the calendar. If the goal\'s own "Achieve ' +
-      'by" date later changes, a milestone whose deadline was inherited from it shows an ' +
-      '"update or keep as-is" banner. Mark it done with a single tap of its circle icon, ' +
-      'or by holding its bubble on the canvas (once it has no Measurables under it — a ' +
-      'milestone with children is a pure container, and its own fraction comes entirely ' +
-      'from theirs). Delete a milestone with the trash/× icon — this also removes every ' +
-      'Measurable and Commitment attached to it and cancels their reminders.',
+      'there. Add a new milestone from the Milestones tab, or ask the Coach to break the ' +
+      'goal down for you — the canvas\'s own "+ Milestone" button does this too, but only ' +
+      'once the goal already has at least one; an empty goal shows a "let the Coach break ' +
+      'this down" card there instead. Give it a title and, optionally, a Deadline picked ' +
+      'from the calendar. If the goal\'s own "Achieve by" date later changes, a milestone ' +
+      'whose deadline was inherited from it shows an "update or keep as-is" banner. Mark ' +
+      'it done with a single tap of its circle icon (on its card, or on its canvas ' +
+      'bubble via a press-and-hold) — but only once it has no Measurables under it: a ' +
+      'milestone with children is a pure container, its circle AND its bubble read-only, ' +
+      'and its own fraction comes entirely from theirs. Delete a milestone with the ' +
+      'trash/× icon — this also removes every Measurable and Commitment attached to it ' +
+      'and cancels their reminders.',
   },
   {
     key: 'measurables',
@@ -166,7 +173,12 @@ const TOPICS: Topic[] = [
     icon: 'color-palette-outline',
     body:
       'Change the color theme anytime from Settings, or by long pressing the Board ' +
-      'header. Start Fresh restarts onboarding without deleting existing goals.',
+      'header. Start Fresh restarts onboarding without deleting existing goals.\n\n' +
+      'Export Backup saves every goal, measurable, milestone, and setting to a JSON ' +
+      'file — this is the only way to move your data to another device, or keep a copy ' +
+      'before trying something risky. Import Backup restores from one of those files, ' +
+      'REPLACING all current goals and progress with what\'s in it, so make sure that\'s ' +
+      'really what you want before confirming.',
   },
 ];
 
