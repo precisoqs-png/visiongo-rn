@@ -105,7 +105,15 @@ function WheelColumn({ items, index, onChange, palette: p, width, resetSignal }:
   const settleAt = (rawOffset: number) => {
     const snapped = Math.max(0, Math.min(items.length - 1, Math.round(rawOffset / WHEEL_ITEM_HEIGHT)));
     onChange(snapped);
-    scrollRef.current?.scrollTo({ y: snapped * WHEEL_ITEM_HEIGHT, animated: true });
+    // Native (snapToInterval + decelerationRate="fast") already lands the
+    // scroll on an item boundary via UIScrollView/RecyclerView's own
+    // targetContentOffset adjustment — an extra scrollTo here just fights
+    // that native settle. Web has no such built-in snap physics for a
+    // plain ScrollView, so it still needs this nudge to land exactly on
+    // the boundary.
+    if (Platform.OS === 'web') {
+      scrollRef.current?.scrollTo({ y: snapped * WHEEL_ITEM_HEIGHT, animated: true });
+    }
   };
 
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -114,9 +122,20 @@ function WheelColumn({ items, index, onChange, palette: p, width, resetSignal }:
     settleTimer.current = setTimeout(() => settleAt(y), 120);
   };
 
-  // Touch momentum/drag end fires reliably on native and settles instantly,
-  // without waiting out the debounce — cancel any pending debounced settle
-  // first so the two paths can't fight over the final position.
+  // Momentum-end only — NOT onScrollEndDrag. onScrollEndDrag fires the
+  // instant a finger lifts, before any momentum/deceleration runs: on a
+  // flick, the reported contentOffset at that moment is still close to
+  // where the drag started, not where the flick was headed. Settling
+  // there (as this used to, on both events) meant every flick "won" by
+  // reverting to roughly its starting position the moment momentum tried
+  // to carry it further — reported as "the wheel won't let me scroll".
+  // onMomentumScrollEnd alone fires once the native deceleration/snap has
+  // actually finished, at the real final position; a slow drag with too
+  // little velocity to trigger momentum still fires it immediately after
+  // release (iOS always runs at least a brief settle animation when
+  // snapToInterval is set). The debounced onScroll above remains the only
+  // path for input that produces neither event at all — a desktop mouse
+  // wheel.
   const settleNow = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (settleTimer.current) clearTimeout(settleTimer.current);
     settleAt(e.nativeEvent.contentOffset.y);
@@ -141,7 +160,6 @@ function WheelColumn({ items, index, onChange, palette: p, width, resetSignal }:
         contentContainerStyle={{ paddingVertical: WHEEL_PAD }}
         onScroll={onScroll}
         onMomentumScrollEnd={settleNow}
-        onScrollEndDrag={settleNow}
       >
         {items.map((label, i) => {
           const active = i === index;
