@@ -26,16 +26,32 @@ const TOPICS: Topic[] = [
       'Tap the year row to switch Whole Year and By Month view. Tap a bubble to open that ' +
       'goal. Press and hold a bubble to drag and reposition it. Long press the header to ' +
       'cycle color themes. Use the plus button to add a goal from a template or from ' +
-      'scratch.',
+      'scratch.\n\n' +
+      'Onboarding asks once for an achieve-by date to apply to every goal you pick — a ' +
+      'fast shared default, not a form per goal — but each goal actually gets its own ' +
+      'date, and any goal can be given a different one right there before you finish, or ' +
+      'changed anytime after from that goal\'s own canvas (see Inside a Goal).',
   },
   {
     key: 'inside-a-goal',
     title: 'Inside a Goal',
     icon: 'ellipse-outline',
     body:
-      "Tapping a bubble opens its own canvas with a big central bubble showing overall " +
-      "progress and measurables orbiting around it. Use the Measurables and Milestones " +
-      "toggle at the top to switch views. Tap the year row to return to the board.",
+      'Tapping a bubble opens its own canvas: a big central bubble showing overall ' +
+      "progress, with the goal's Milestones orbiting around it as their own smaller " +
+      "bubbles (Measurables don't get canvas bubbles of their own — see the Measurables " +
+      'topic). Tap a Milestone bubble to open it: a drill-in sheet showing that ' +
+      "Milestone's own row plus every Measurable under it, each tickable, editable, and " +
+      'with its own reminder bell, including individual commitment/build-up steps. Once ' +
+      'the goal has at least one Milestone, a "+ Milestone" button in the corner adds ' +
+      'another without leaving the canvas; an empty goal shows a card offering to let ' +
+      'the Coach break it down instead. The bottom tab bar (Board, Pair, Tasks, ' +
+      'Settings) stays visible the whole time — tap another tab directly, or tap the ' +
+      'year row to zoom back out to the board. Use the Measurables and Milestones ' +
+      'toggle near the top to open the full list view of either for more room to add ' +
+      "or edit. Tap the goal's own \"Achieve by\" row to set or change its deadline — " +
+      'the first one usually comes from onboarding (see Vision Board), which sets a ' +
+      'date per goal, not one shared date for everything you picked.',
   },
   {
     key: 'milestones',
@@ -47,11 +63,14 @@ const TOPICS: Topic[] = [
       'live as the bubbles on the goal\'s own canvas, and every Measurable you track (see ' +
       'the Measurables topic) belongs to one. A goal only shows 100% once every Milestone ' +
       'and every one of its Measurables is complete.\n\n' +
-      'Add a milestone from the Milestones tab on a goal, or ask the Coach to break the ' +
-      'goal down for you. Give it a title and, optionally, a Deadline picked from the ' +
-      'calendar. If the goal\'s own "Achieve by" date later changes, a milestone whose ' +
-      'deadline was inherited from it shows an "update or keep as-is" banner. Mark it done ' +
-      'with a single tap of its circle icon (once it has no Measurables under it — a ' +
+      'Tap a Milestone\'s bubble on the canvas to open it: a drill-in sheet listing the ' +
+      'Milestone\'s own row and every Measurable under it, all tickable and editable right ' +
+      'there. Add a new milestone from the canvas\'s own "+ Milestone" button, from the ' +
+      'Milestones tab, or ask the Coach to break the goal down for you. Give it a title ' +
+      'and, optionally, a Deadline picked from the calendar. If the goal\'s own "Achieve ' +
+      'by" date later changes, a milestone whose deadline was inherited from it shows an ' +
+      '"update or keep as-is" banner. Mark it done with a single tap of its circle icon, ' +
+      'or by holding its bubble on the canvas (once it has no Measurables under it — a ' +
       'milestone with children is a pure container, and its own fraction comes entirely ' +
       'from theirs). Delete a milestone with the trash/× icon — this also removes every ' +
       'Measurable and Commitment attached to it and cancels their reminders.',
@@ -63,30 +82,31 @@ const TOPICS: Topic[] = [
     body:
       'Measurables are the quantified thing under a Milestone — every Measurable belongs ' +
       'to one, there\'s no such thing as a standalone Measurable. A good Measurable is ' +
-      'concrete and countable: a specific unit and target you tick up as you go. They also ' +
-      'show as their own smaller bubbles on the goal\'s canvas, and their fill (alongside ' +
-      'their Milestone\'s own done/not-done state) is what drives the goal bubble\'s size ' +
-      'and percentage. Add one from the Measurables tab on a goal — you\'ll need at least ' +
-      'one Milestone to attach it to first — or ask the Coach, which creates a Milestone ' +
-      'for it automatically if none exists yet.\n\n' +
+      'concrete and countable: a specific unit and target you tick up as you go. Unlike a ' +
+      'Milestone, a Measurable has no bubble of its own on the goal\'s canvas — open its ' +
+      'Milestone\'s bubble (a tap) to reach it, in a drill-in sheet listing every ' +
+      'Measurable underneath, or use the Measurables tab for the full list at once. Either ' +
+      'way its fill (alongside its Milestone\'s own done/not-done state) is what drives ' +
+      'the goal bubble\'s size and percentage. Add one from the Measurables tab on a goal ' +
+      '— you\'ll need at least one Milestone to attach it to first — or ask the Coach, ' +
+      'which creates a Milestone for it automatically if none exists yet.\n\n' +
       'Three types:\n\n' +
       '• Checkbox — a single one-time tick, like "Sign up for a race." Done is 100%, ' +
       'not done is 0%.\n\n' +
       '• Number — a running count toward a target, like "145/150 days active." Set a ' +
       'Target, an optional Unit (e.g. "km", "$"), and a Step — how much one tap of the ' +
-      '+/- buttons moves the number (defaults to 1). Tap the bubble on the canvas and ' +
-      'hold to advance it by one step, or use the +/- steppers in the Measurables list. A ' +
-      'Number measurable with no reminder also shows up as a repeatable row on the Tasks ' +
-      'tab — tap it there whenever you make progress; it stays put, updating its own ' +
-      'count, until it reaches target.\n\n' +
+      '+/- buttons moves the number (defaults to 1). Use the +/- steppers in the ' +
+      'Measurables list or the drill-in sheet. A Number measurable with no reminder also ' +
+      'shows up as a repeatable row on the Tasks tab — tap it there whenever you make ' +
+      'progress; it stays put, updating its own count, until it reaches target.\n\n' +
       '• Build-up (a "ladder" under the hood) — a progressive weekly target that climbs ' +
       'from a Start value to an End value over a number of weeks, e.g. building a run from ' +
       '2 km to 10 km over 8 weeks. Set Start, "+ per week," Weeks, and a Unit; VisionGo ' +
       'paces one target date per week back from the goal\'s "Achieve by" date (or from ' +
-      'today if the goal has no date). Tick off each week as you hit it — holding the ' +
-      'bubble on the canvas advances to the next not-yet-done week. If you later change ' +
-      'the goal\'s target date, a banner offers to re-pace the remaining weeks against the ' +
-      'new date, or you can dismiss it and keep the original schedule.\n\n' +
+      'today if the goal has no date). Tick off each week as you hit it, from the ' +
+      'Measurables list or the drill-in sheet. If you later change the goal\'s target ' +
+      'date, a banner offers to re-pace the remaining weeks against the new date, or you ' +
+      'can dismiss it and keep the original schedule.\n\n' +
       'Commitments are recurring actions you attach to a Measurable — tap "Commitment" on ' +
       'a Measurable\'s card to add one, in one of two shapes:\n\n' +
       '• Same each time — a flat recurring target on a Weekly, Monthly, or Custom (every N ' +
@@ -115,7 +135,11 @@ const TOPICS: Topic[] = [
     icon: 'list-outline',
     body:
       'One combined checklist of everything due across all your goals, grouped by ' +
-      'Overdue, This Week, This Month, Upcoming, and Anytime.',
+      'Overdue, This Week, This Month, Upcoming, and Anytime.\n\n' +
+      'A Number Measurable with no reminder set shows up here too, as a persistent row ' +
+      'under Anytime — a tap increments its count right there (e.g. "12/150") and it ' +
+      'stays in the list, updating in place, until it reaches its target. One with a ' +
+      'reminder instead gets an ordinary dated row each period, like any other task.',
   },
   {
     key: 'ai-coach',
