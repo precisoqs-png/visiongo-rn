@@ -743,6 +743,17 @@ export default function GoalCanvasScreen() {
                   onRequestScrollToEnd={() => coachScrollRef.current?.scrollToEnd({ animated: true })}
                   isNearBottom={() => coachNearBottom.nearBottomRef.current}
                   autoFocusInput
+                  // Was missing entirely on the canvas — a coach action
+                  // applied here (approving a chip in the coach FAB's
+                  // modal) never resynced any notifications at all, the
+                  // same "removed item's reminder fires forever" gap just
+                  // fixed on measurables.tsx/milestones.tsx, but total
+                  // here rather than partial.
+                  onGoalEdited={() => {
+                    resyncWeekNotifications();
+                    resyncCommitmentNotifications();
+                    resyncItemNotifications();
+                  }}
                 />
               </ScrollView>
             </KeyboardAvoidingView>

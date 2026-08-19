@@ -280,7 +280,18 @@ export default function MeasurablesListScreen() {
           <CoachChat
             goal={goal}
             palette={p}
-            onGoalEdited={resyncWeekNotifications}
+            onGoalEdited={() => {
+              // A coach action can add/edit/remove a Measurable's own
+              // reminder just as easily as its week/commitment schedule —
+              // resyncMeasurableNotifications was missing here, so an item
+              // the coach removed (a coach removeMilestone/removeTask
+              // action, applied via applyPendingAction/applyAllPendingActions)
+              // kept its own reminder firing forever, same bug already
+              // fixed for the three UI delete paths.
+              resyncWeekNotifications();
+              resyncCommitmentNotifications();
+              resyncMeasurableNotifications();
+            }}
             onRequestScrollToEnd={() => coachScrollRef.current?.scrollToEnd({ animated: true })}
             isNearBottom={() => coachNearBottom.nearBottomRef.current}
           />
