@@ -102,8 +102,11 @@ function WheelColumn({ items, index, onChange, palette: p, width, resetSignal }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetSignal]);
 
+  const nearestIndex = (rawOffset: number) =>
+    Math.max(0, Math.min(items.length - 1, Math.round(rawOffset / WHEEL_ITEM_HEIGHT)));
+
   const settleAt = (rawOffset: number) => {
-    const snapped = Math.max(0, Math.min(items.length - 1, Math.round(rawOffset / WHEEL_ITEM_HEIGHT)));
+    const snapped = nearestIndex(rawOffset);
     onChange(snapped);
     // Native (snapToInterval + decelerationRate="fast") already lands the
     // scroll on an item boundary via UIScrollView/RecyclerView's own
@@ -116,8 +119,25 @@ function WheelColumn({ items, index, onChange, palette: p, width, resetSignal }:
     }
   };
 
+  // Commits the nearest-snapped value on EVERY scroll tick (throttled to
+  // scrollEventThrottle, ~16ms), not just once settling finishes — this
+  // is what onChange actually IS: a continuously-updated best guess of
+  // "what the wheel currently reads", independent of whether the scroll
+  // has stopped. Committing only at settle (momentum-end, or a 120ms-
+  // debounced fallback) left a real window where the wheel was visibly
+  // showing a new value while `schedule` state upstream still held the
+  // old one — narrow, but StepScheduleContent's save() serializes that
+  // same state, so a tap on "Update reminder" landing inside that window
+  // persisted the value the wheel had already scrolled PAST. This is not
+  // the fix that caused the original snap-back bug: that was calling the
+  // ANIMATED scrollTo correction early (fighting native momentum);
+  // calling plain onChange here commands no scroll position at all, only
+  // updates the label/state, so it can't fight anything. settleAt (still
+  // gated to momentum-end/the debounce) remains solely responsible for
+  // the scrollTo position correction on web.
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const y = e.nativeEvent.contentOffset.y;
+    onChange(nearestIndex(y));
     if (settleTimer.current) clearTimeout(settleTimer.current);
     settleTimer.current = setTimeout(() => settleAt(y), 120);
   };
@@ -130,12 +150,18 @@ function WheelColumn({ items, index, onChange, palette: p, width, resetSignal }:
   // reverting to roughly its starting position the moment momentum tried
   // to carry it further — reported as "the wheel won't let me scroll".
   // onMomentumScrollEnd alone fires once the native deceleration/snap has
-  // actually finished, at the real final position; a slow drag with too
-  // little velocity to trigger momentum still fires it immediately after
-  // release (iOS always runs at least a brief settle animation when
-  // snapToInterval is set). The debounced onScroll above remains the only
-  // path for input that produces neither event at all — a desktop mouse
-  // wheel.
+  // actually finished, at the real final position — for the common case
+  // of a flick with real velocity. It is NOT guaranteed on every release,
+  // though: RN only emits it from UIKit's scrollViewDidEndDecelerating,
+  // which fires only when scrollViewDidEndDragging reported willDecelerate
+  // YES. snapToInterval adjusts targetContentOffset in
+  // scrollViewWillEndDragging — if a near-zero-velocity release lands
+  // exactly on a boundary already, that adjusted target equals the
+  // current offset, there is no deceleration phase, and
+  // onMomentumScrollEnd never fires at all for that release. The debounced
+  // onScroll below is what actually settles that case (and is also the
+  // only path for input that produces neither event — a desktop mouse
+  // wheel), not a fallback that's merely nice to have.
   const settleNow = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (settleTimer.current) clearTimeout(settleTimer.current);
     settleAt(e.nativeEvent.contentOffset.y);
