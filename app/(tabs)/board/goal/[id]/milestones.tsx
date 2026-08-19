@@ -532,7 +532,15 @@ export default function GoalDetailScreen() {
           <CoachChat
             goal={goal}
             palette={p}
-            onGoalEdited={() => { resyncWeekNotifications(); resyncStepNotifications(); }}
+            onGoalEdited={() => {
+              // See the matching comment in measurables.tsx: a coach
+              // action that removes an item was leaving its own reminder
+              // (as opposed to a Commitment's) firing forever, since this
+              // never resynced it.
+              resyncWeekNotifications();
+              resyncStepNotifications();
+              resyncMeasurableNotifications();
+            }}
             seedMessage={coachSeed}
             onSeedConsumed={() => setCoachSeed(null)}
             onRequestScrollToEnd={() => coachScrollRef.current?.scrollToEnd({ animated: true })}
