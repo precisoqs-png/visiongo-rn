@@ -137,7 +137,12 @@ function WheelColumn({ items, index, onChange, palette: p, width, resetSignal }:
   // the scrollTo position correction on web.
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const y = e.nativeEvent.contentOffset.y;
-    onChange(nearestIndex(y));
+    // Most ticks resolve to the SAME nearest index as the last one — only
+    // commit (and force StepScheduleContent's re-render, three nested
+    // ScrollViews plus up to 28 day-of-month chips) when it actually
+    // changes, rather than unconditionally at ~60Hz through a flick.
+    const n = nearestIndex(y);
+    if (n !== index) onChange(n);
     if (settleTimer.current) clearTimeout(settleTimer.current);
     settleTimer.current = setTimeout(() => settleAt(y), 120);
   };
