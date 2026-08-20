@@ -125,8 +125,8 @@ const TOPICS: Topic[] = [
       'its bell icon to pick a cadence and a time; this needs Push Notifications on in ' +
       'Settings and is separate from the goal\'s own check-in reminder. Delete a Measurable ' +
       'or Commitment with the trash/× icon — deleting cancels any reminders tied to it. Add ' +
-      'a "why this matters" note on the goal itself (below its title) to remind yourself ' +
-      'why the goal counts.',
+      'a "why this matters" note from the Milestones list screen (below the goal\'s title ' +
+      'there) to remind yourself why the goal counts.',
   },
   {
     key: 'pair',
