@@ -353,14 +353,24 @@ export default function GoalDetailScreen() {
           style={styles.headerGradient}
         >
           <View style={styles.navRow}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={styles.backBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Back to canvas"
+            >
               <Ionicons name="chevron-back" size={16} color={p.text} />
               <Text style={[styles.backText, { color: p.text }]}>Canvas</Text>
             </TouchableOpacity>
             <Text style={[styles.goalLabel, { color: p.muted }]}>GOAL · {useAppStore.getState().selectedYear}</Text>
             <View style={styles.navActions}>
               <View style={{ alignItems: 'center' }}>
-                <TouchableOpacity onPress={toggleReminder}>
+                <TouchableOpacity
+                  onPress={toggleReminder}
+                  accessibilityRole="button"
+                  accessibilityLabel={goal.reminder.on ? 'Turn off goal reminder' : 'Turn on goal reminder'}
+                  accessibilityState={{ selected: goal.reminder.on }}
+                >
                   <Ionicons
                     name={goal.reminder.on ? 'notifications' : 'notifications-outline'}
                     size={20}
@@ -373,7 +383,12 @@ export default function GoalDetailScreen() {
                   </View>
                 )}
               </View>
-              <TouchableOpacity onPress={handleDelete} style={{ marginLeft: 14 }}>
+              <TouchableOpacity
+                onPress={handleDelete}
+                style={{ marginLeft: 14 }}
+                accessibilityRole="button"
+                accessibilityLabel={`Delete goal: ${goal.title}`}
+              >
                 <Ionicons name="trash-outline" size={20} color={p.muted} />
               </TouchableOpacity>
             </View>

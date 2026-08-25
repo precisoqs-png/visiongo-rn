@@ -526,11 +526,15 @@ export default function GoalCanvasScreen() {
       </Animated.View>
 
       <Animated.View style={[styles.yearRow, { zIndex: 10, elevation: 10, opacity: textOpacity }]}>
+        {/* Same handleBackToBoard as the explicit "‹ Board" chevron above —
+            kept tappable for anyone used to the board's own year-row gesture,
+            but hidden from the accessibility tree so it doesn't show up as a
+            second, identically-labelled "Back to board" control. */}
         <TouchableOpacity
           style={styles.yearCenter}
           onPress={handleBackToBoard}
-          accessibilityRole="button"
-          accessibilityLabel="Back to board"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
         >
           <Text style={[styles.yearDiamond, { color: p.accent }]}>◈</Text>
           <Text style={[styles.yearNum, { color: p.text }]}>{selectedYear}</Text>
