@@ -126,6 +126,16 @@ export interface TrackableItem {
   // only needs it — weekly/monthly derive their boundaries from "now").
   // Absent for items created before this existed.
   createdAt?: string;
+  // Number measurable only — the specific calendar days ('YYYY-MM-DD')
+  // marked as done, an alternative to the +/- steppers for something like
+  // "days active" where WHICH day matters, not just how many. Once this is
+  // non-empty, `current` is kept equal to its length (see
+  // toggleMarkedDate) — the steppers still work independently for a
+  // measurable that never uses the calendar (e.g. a dollar amount, where
+  // per-day tracking doesn't mean anything), so the two are only in
+  // tension if a user mixes both on the same measurable, in which case
+  // whichever was touched most recently wins, same as any shared value.
+  markedDates?: string[];
 }
 
 // Back-compat type aliases — every call site written against the old
@@ -207,6 +217,22 @@ export function steppedValue(m: TrackableItem, direction: 1 | -1): number {
   return Math.min(Math.max(moved, 0), Math.max(m.target, 0));
 }
 export const steppedMilestoneValue = steppedValue;
+
+/**
+ * Toggles one calendar day ('YYYY-MM-DD') on/off a Number measurable's
+ * markedDates, keeping `current` equal to the marked count — the calendar
+ * view's write path (components/shared/DayCalendar.tsx). Not clamped to
+ * `target`: marking more days than the target just reads as >100% via
+ * measurableFraction's own min(1, ...) clamp, same as an over-target
+ * stepper value already could.
+ */
+export function toggleMarkedDate(m: TrackableItem, iso: string): TrackableItem {
+  const marked = new Set(m.markedDates ?? []);
+  if (marked.has(iso)) marked.delete(iso);
+  else marked.add(iso);
+  const markedDates = Array.from(marked).sort();
+  return { ...m, markedDates, current: markedDates.length };
+}
 
 export const DEFAULT_SCHEDULE: StepSchedule = {
   on: false, weekday: 2, dayOfMonth: 1, hour: 9, minute: 0,

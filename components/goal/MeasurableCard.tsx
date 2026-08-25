@@ -3,12 +3,13 @@ import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native
 import { Ionicons } from '@expo/vector-icons';
 import {
   Measurable, Commitment, Goal, measurableFraction, measurableStep, steppedValue, formatNumber,
-  isMeasurableDeadlineOutdated, buildLadderWeeks, milestonePercent, newCommitment,
+  isMeasurableDeadlineOutdated, buildLadderWeeks, milestonePercent, newCommitment, toggleMarkedDate,
 } from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
 import { useCompletionPulse } from '../shared/useCompletionPulse';
 import { useCompletionBurst } from '../shared/useCompletionBurst';
 import { CommitmentsBlock } from './CommitmentsBlock';
+import { DayCalendar } from '../shared/DayCalendar';
 
 interface Props {
   measurable: Measurable;
@@ -368,6 +369,11 @@ function NumberRow({ m, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule, 
   const fmt = formatNumber;
   const atMin = m.current <= 0;
   const atMax = m.target > 0 && m.current >= m.target;
+  // Collapsed by default even for a measurable that already has marked
+  // days — this is a secondary, opt-in view alongside the steppers, not a
+  // replacement; something like "$5,000 saved" has no sensible per-day
+  // calendar, so it stays out of the way unless opened.
+  const [calendarOpen, setCalendarOpen] = useState(false);
 
   return (
     <View>
@@ -375,6 +381,14 @@ function NumberRow({ m, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule, 
         <Text style={[styles.numLabel, { color: p.text }]}>{m.label}</Text>
         <ScheduleBell m={m} p={p} onOpenSchedule={onOpenSchedule} />
         <CommitmentScheduleBell m={m} p={p} onUpdate={onUpdate} onOpenCommitmentSchedule={onOpenCommitmentSchedule} />
+        <TouchableOpacity
+          onPress={() => setCalendarOpen((v) => !v)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityLabel={`Track ${m.label} by day`}
+          style={[styles.bellTarget, calendarOpen && { backgroundColor: `${p.accent}1f` }]}
+        >
+          <Ionicons name={calendarOpen ? 'calendar' : 'calendar-outline'} size={16} color={calendarOpen ? p.accent : p.muted} />
+        </TouchableOpacity>
         <TouchableOpacity
           onPress={() => onDelete(m.id)}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -410,6 +424,14 @@ function NumberRow({ m, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule, 
       <View style={[styles.progressTrack, { backgroundColor: p.line }]}>
         <View style={[styles.progressFill, { backgroundColor: noteColor, width: `${frac * 100}%` }]} />
       </View>
+      {calendarOpen && (
+        <DayCalendar
+          markedDates={m.markedDates ?? []}
+          palette={p}
+          color={noteColor}
+          onToggleDay={(iso) => onUpdate(toggleMarkedDate(m, iso))}
+        />
+      )}
     </View>
   );
 }
