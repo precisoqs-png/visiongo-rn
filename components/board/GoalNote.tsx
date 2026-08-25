@@ -56,6 +56,8 @@ export function GoalNote({ goal, size, palette, onPress, onLongPress, onPressOut
         onPressOut={onPressOut}
         delayLongPress={400}
         activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel={`${goal.title}, ${pct} percent complete`}
         style={Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : undefined}
       >
         <View

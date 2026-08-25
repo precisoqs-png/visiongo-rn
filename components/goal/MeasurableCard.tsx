@@ -52,6 +52,7 @@ function ScheduleBell({ m, p, onOpenSchedule }: { m: Measurable; p: Palette; onO
     <TouchableOpacity
       onPress={() => onOpenSchedule(m)}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      accessibilityRole="button"
       accessibilityLabel={`Edit reminder for ${m.label}`}
       style={[styles.bellTarget, on && { backgroundColor: `${p.accent}1f` }]}
     >
@@ -109,6 +110,7 @@ function CommitmentScheduleBell({ m, p, onUpdate, onOpenCommitmentSchedule }: {
       <TouchableOpacity
         onPress={createAndOpen}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
         accessibilityLabel={`Add a commitment reminder for ${m.label}`}
         style={styles.bellTarget}
       >
@@ -131,6 +133,7 @@ function CommitmentScheduleBell({ m, p, onUpdate, onOpenCommitmentSchedule }: {
       // accessibility tooling too, not just visually. See the distinct icon
       // (notifications-circle vs notifications) for the sighted version of
       // the same distinction.
+      accessibilityRole="button"
       accessibilityLabel={`Edit commitment reminder for ${primary.label}`}
       style={[styles.bellTarget, on && { backgroundColor: `${p.accent}1f` }]}
     >
@@ -276,7 +279,9 @@ function CommitmentTypeRow({ m, goal, p, noteColor, onUpdate, onDelete, frac, on
           <TouchableOpacity
             onPress={() => { const next = !m.done; onUpdate({ ...m, done: next }); pulse(next); }}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityLabel={m.done ? 'Mark not done' : 'Mark done'}
+            accessibilityRole="checkbox"
+            accessibilityLabel={m.label}
+            accessibilityState={{ checked: m.done }}
           >
             <Ionicons name={m.done ? 'checkmark-circle' : 'ellipse-outline'} size={20} color={m.done ? noteColor : p.muted} />
           </TouchableOpacity>
@@ -285,7 +290,13 @@ function CommitmentTypeRow({ m, goal, p, noteColor, onUpdate, onDelete, frac, on
         <Text style={[styles.ladderPct, { color: noteColor }]}>{pct}%</Text>
         <ScheduleBell m={m} p={p} onOpenSchedule={onOpenSchedule} />
         <CommitmentScheduleBell m={m} p={p} onUpdate={onUpdate} onOpenCommitmentSchedule={onOpenCommitmentSchedule} />
-        <TouchableOpacity onPress={() => onDelete(m.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.deleteCircle}>
+        <TouchableOpacity
+          onPress={() => onDelete(m.id)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          style={styles.deleteCircle}
+          accessibilityRole="button"
+          accessibilityLabel={`Delete ${m.label}`}
+        >
           <Ionicons name="close" size={12} color={p.muted} />
         </TouchableOpacity>
       </View>
@@ -331,6 +342,9 @@ function CheckRow({ m, p, noteColor, onUpdate, onDelete, onOpenSchedule, onOpenC
             onUpdate({ ...m, done: next });
             pulse(next);
           }}
+          accessibilityRole="checkbox"
+          accessibilityLabel={m.label}
+          accessibilityState={{ checked: shown, disabled: readOnly }}
         >
           {shown && <Ionicons name="checkmark" size={13} color={p.surface} />}
         </TouchableOpacity>
@@ -350,6 +364,8 @@ function CheckRow({ m, p, noteColor, onUpdate, onDelete, onOpenSchedule, onOpenC
         onPress={() => onDelete(m.id)}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         style={styles.deleteCircle}
+        accessibilityRole="button"
+        accessibilityLabel={`Delete ${m.label}`}
       >
         <Ionicons name="close" size={12} color={p.muted} />
       </TouchableOpacity>
@@ -379,6 +395,8 @@ function NumberRow({ m, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule, 
           onPress={() => onDelete(m.id)}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           style={styles.deleteCircle}
+          accessibilityRole="button"
+          accessibilityLabel={`Delete ${m.label}`}
         >
           <Ionicons name="close" size={12} color={p.muted} />
         </TouchableOpacity>
@@ -454,7 +472,9 @@ function LadderRows({ m, goalTargetDate, p, noteColor, onUpdate, onDelete, frac,
         <TouchableOpacity
           onPress={() => onDelete(m.id)}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          style={[styles.deleteCircle, { marginLeft: 0 }]}
+          style={styles.deleteCircle}
+          accessibilityRole="button"
+          accessibilityLabel={`Delete ${m.label}`}
         >
           <Ionicons name="close" size={12} color={p.muted} />
         </TouchableOpacity>
@@ -549,7 +569,10 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   checkbox: { width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  deleteCircle: { width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(128,128,128,0.15)', alignItems: 'center', justifyContent: 'center' },
+  // marginLeft gives delete a visible gap from the bell/target icons beside
+  // it — those two are non-destructive and shouldn't sit close enough to
+  // catch an accidental tap meant for delete, or vice versa.
+  deleteCircle: { width: 24, height: 24, borderRadius: 12, marginLeft: 8, backgroundColor: 'rgba(128,128,128,0.15)', alignItems: 'center', justifyContent: 'center' },
   checkLabel: { flex: 1, fontSize: 15 },
   numLabel: { flex: 1, fontSize: 15, fontWeight: '600' },
   stepper: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },

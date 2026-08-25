@@ -368,7 +368,12 @@ export function RadialBoard({
   yearData, palette, onGoalPress, onGoalMove, onGoalDelete, onAddGoal, onCompletedPress,
   onRealign,
 }: Props) {
+  // Starts unmeasured — rendering bubbles against this fallback size before
+  // onLayout reports the real container dimensions is what caused every
+  // bubble to flash small in the top-left corner and then snap to its
+  // correct spot a moment after first paint.
   const [size, setSize] = useState({ w: 390, h: 420 });
+  const [measured, setMeasured] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [overTrash, setOverTrash] = useState(false);
   const centerScale = useRef(new Animated.Value(1)).current;
@@ -473,7 +478,10 @@ export function RadialBoard({
   return (
     <View
       style={{ flex: 1 }}
-      onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
+      onLayout={(e) => {
+        setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height });
+        setMeasured(true);
+      }}
     >
       {/* Center circle — tap to re-align every goal bubble */}
       <Animated.View
@@ -483,6 +491,7 @@ export function RadialBoard({
             left: cx - CENTER_SIZE / 2,
             top: cy - CENTER_SIZE / 2,
             transform: [{ scale: centerScale }],
+            opacity: measured ? 1 : 0,
           },
         ]}
       >
@@ -526,7 +535,7 @@ export function RadialBoard({
 
       {/* Goal bubbles — evenly spaced on the orbit, unless the user has
           dragged them somewhere else (goal.boardPosition). */}
-      {activeGoals.map((goal, idx) => {
+      {measured && activeGoals.map((goal, idx) => {
         const prog = goalProgress(goal);
         const bubbleSize = Math.round(
           (MIN_BUBBLE + prog * (MAX_BUBBLE - MIN_BUBBLE)) * layout.scale,
@@ -650,6 +659,8 @@ export function RadialBoard({
           ]}
           onPress={onAddGoal}
           activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Add a goal"
         >
           <Ionicons name="add" size={26} color={palette.isDark ? palette.bg : '#fff'} />
         </TouchableOpacity>
