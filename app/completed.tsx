@@ -60,7 +60,7 @@ export default function CompletedScreen() {
               <TouchableOpacity
                 key={goal.id}
                 style={[styles.winRow, { backgroundColor: p.surface }]}
-                onPress={() => router.push(`/board/goal/${goal.id}`)}
+                onPress={() => router.navigate(`/board/goal/${goal.id}`)}
                 activeOpacity={0.75}
               >
                 <View

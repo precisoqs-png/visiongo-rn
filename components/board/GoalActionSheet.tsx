@@ -22,7 +22,7 @@ export function GoalActionSheet({ goalId, goalTitle, visible, onDismiss, palette
 
   const handleOpen = () => {
     onDismiss();
-    if (goalId) router.push(`/board/goal/${goalId}`);
+    if (goalId) router.navigate(`/board/goal/${goalId}`);
   };
 
   const confirmDelete = () => {

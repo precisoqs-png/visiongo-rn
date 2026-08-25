@@ -219,7 +219,7 @@ export default function SettingsScreen() {
         <SectionLabel label="HELP" palette={p} />
         <TouchableOpacity
           style={[styles.settingsRow, { backgroundColor: p.surface }]}
-          onPress={() => router.push('/how-to-use')}
+          onPress={() => router.navigate('/how-to-use')}
           activeOpacity={0.75}
         >
           <Text style={[styles.settingsRowText, { color: p.text }]}>How to Use</Text>
