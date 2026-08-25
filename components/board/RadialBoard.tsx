@@ -393,6 +393,11 @@ export function RadialBoard({
 
   const trashCenter: Point = { x: size.w / 2, y: size.h - BOTTOM_SAFE / 2 - 4 };
 
+  // Same reasoning as the ring bubbles below: on a short board cy (a plain
+  // fraction of size.h) can sit close enough to the top that the centre
+  // disc's own radius pushes it above this container's top edge.
+  const centerPos = clampCenter({ x: cx, y: cy }, CENTER_SIZE / 2, size.w, size.h);
+
   // ── Completion flights ─────────────────────────────────────────
   //
   // A ring bubble that just hit 100% doesn't disappear the instant
@@ -488,8 +493,8 @@ export function RadialBoard({
         style={[
           styles.centerWrap,
           {
-            left: cx - CENTER_SIZE / 2,
-            top: cy - CENTER_SIZE / 2,
+            left: centerPos.x - CENTER_SIZE / 2,
+            top: centerPos.y - CENTER_SIZE / 2,
             transform: [{ scale: centerScale }],
             opacity: measured ? 1 : 0,
           },
@@ -540,12 +545,18 @@ export function RadialBoard({
         const bubbleSize = Math.round(
           (MIN_BUBBLE + prog * (MAX_BUBBLE - MIN_BUBBLE)) * layout.scale,
         );
-        const base = goal.boardPosition
-          ? clampCenter(
-              { x: goal.boardPosition.x * size.w, y: goal.boardPosition.y * size.h },
-              bubbleSize / 2, size.w, size.h,
-            )
+        // computeRadialLayout can push a ring outside the "safe" radius when
+        // the board is short and centerSize is large relative to it (its own
+        // tryScale falls back to `Math.max(safeR, innerR)` rather than
+        // leaving no room at all — see its comment) — with few goals that
+        // can place a bubble's centre above this container's own top edge.
+        // Clamping the deterministic ring points too, not just user-dragged
+        // ones, keeps every bubble's top on-screen and below the toggle bar
+        // above this container, instead of poking up into it.
+        const raw = goal.boardPosition
+          ? { x: goal.boardPosition.x * size.w, y: goal.boardPosition.y * size.h }
           : layout.points[idx] ?? { x: cx, y: cy };
+        const base = clampCenter(raw, bubbleSize / 2, size.w, size.h);
         // Remembered so a completion flight starting from this goal knows
         // where to fly from, without the ring layout itself ever needing to
         // know about flights.

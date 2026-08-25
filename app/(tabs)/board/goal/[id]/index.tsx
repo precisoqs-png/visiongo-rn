@@ -214,6 +214,11 @@ export default function GoalCanvasScreen() {
 
   const cx = size.w / 2;
   const cy = TOP_SAFE + (size.h - TOP_SAFE - BOTTOM_SAFE) * 0.42;
+  // Same clamp the surrounding measurable bubbles already get (see below) —
+  // keeps the centre GoalNote's own top on-screen and below the header/
+  // toggle above this container, consistent with the board's own fix for
+  // the same class of overlap.
+  const centerPos = clampCenter({ x: cx, y: cy }, CENTER_SIZE / 2, size.w, size.h);
 
   useEffect(() => {
     if (!goal) return;
@@ -557,7 +562,7 @@ export default function GoalCanvasScreen() {
         style={{ flex: 1 }}
         onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
       >
-        <View style={[styles.centerWrap, { left: cx - CENTER_SIZE / 2, top: cy - CENTER_SIZE / 2 }]}>
+        <View style={[styles.centerWrap, { left: centerPos.x - CENTER_SIZE / 2, top: centerPos.y - CENTER_SIZE / 2 }]}>
           <GoalNote goal={goal} size={CENTER_SIZE} palette={p} onPress={() => router.navigate(`/board/goal/${id}/milestones`)} />
         </View>
 
