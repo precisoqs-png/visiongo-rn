@@ -223,9 +223,18 @@ export default function GoalDetailScreen() {
     );
   };
 
-  const [titleDraft, setTitleDraft] = useState(goal?.title ?? '');
+  // 'New Goal' is the literal default title a from-scratch goal is created
+  // with (see TemplatePicker) — treated here as the untitled state: the
+  // input starts empty so the "Goal title" placeholder actually shows and
+  // typing replaces nothing, instead of the user having to select-all and
+  // delete the real text "New Goal" first. onBlur below falls back to the
+  // real title if left empty, so nothing is lost by tapping in and out.
+  const isDefaultTitle = (t: string) => t === 'New Goal';
+  const [titleDraft, setTitleDraft] = useState(
+    goal && !isDefaultTitle(goal.title) ? goal.title : '',
+  );
   useEffect(() => {
-    if (hydrated && goal?.id) setTitleDraft(goal.title);
+    if (hydrated && goal?.id) setTitleDraft(isDefaultTitle(goal.title) ? '' : goal.title);
   }, [hydrated, goal?.id]);
 
   // "Why this matters" is collapsed by default unless the goal already has
@@ -374,7 +383,11 @@ export default function GoalDetailScreen() {
             style={[styles.titleInput, { color: p.text }]}
             value={titleDraft}
             onChangeText={setTitleDraft}
-            onBlur={() => titleDraft !== goal.title && updateGoal({ ...goal, title: titleDraft })}
+            onBlur={() => {
+              const next = titleDraft.trim() ? titleDraft : goal.title;
+              setTitleDraft(isDefaultTitle(next) ? '' : next);
+              if (next !== goal.title) updateGoal({ ...goal, title: next });
+            }}
             multiline
             placeholder="Goal title"
             placeholderTextColor={p.muted}
