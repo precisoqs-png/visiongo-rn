@@ -16,7 +16,6 @@ import {
 } from '../../../../../store/models';
 import { MeasurableCard } from '../../../../../components/goal/MeasurableCard';
 import { AddMilestoneItemForm } from '../../../../../components/goal/AddMilestoneItemForm';
-import { InfoPopover } from '../../../../../components/shared/InfoPopover';
 import { StepScheduleSheet, ReminderTarget } from '../../../../../components/goal/StepScheduleSheet';
 import { CoachChat } from '../../../../../components/goal/CoachChat';
 import { useNearBottom } from '../../../../../components/shared/useNearBottom';
@@ -318,11 +317,13 @@ export default function GoalDetailScreen() {
   // 81% and 20% the same flat accent color.
   const almostThere = pct >= 80 && pct < 100;
   // A goal with nothing on it yet defaults to AI-driven decomposition rather
-  // than leaving the user to work out Measurables vs Milestones cold — the
+  // than leaving the user to work out milestones and tracking cold — the
   // manual forms below still work, this is just the offered fast path.
   const isEmptyGoal = goal.items.length === 0;
-  // This screen only ever shows top-level Milestones — their quantified
-  // Measurable children live on measurables.tsx instead.
+  // This screen only ever shows top-level Milestones. A milestone with
+  // children renders read-only here (see MeasurableCard's own hasChildren
+  // rule) — its own tracking is edited from its bubble on the goal canvas
+  // (MilestoneDrillInSheet), not from this flat list.
   const milestoneItems = goal.items.filter((it) => it.milestone && it.parentId == null);
 
   const daysLeft = goal.targetDate
@@ -467,7 +468,7 @@ export default function GoalDetailScreen() {
             <View style={{ flex: 1 }}>
               <Text style={[styles.celebrationTitle, { color: p.text }]}>Goal complete!</Text>
               <Text style={[styles.celebrationBody, { color: p.muted }]}>
-                Every measurable and milestone on "{goal.title}" is done. Nice work.
+                Every milestone on "{goal.title}" is done. Nice work.
               </Text>
             </View>
             <TouchableOpacity onPress={() => setShowCelebration(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -497,24 +498,10 @@ export default function GoalDetailScreen() {
         )}
 
         <View style={styles.section}>
-          <View style={styles.eyebrowRow}>
-            <Text style={[styles.eyebrow, { color: p.muted }]}>MILESTONES</Text>
-            <InfoPopover
-              palette={p}
-              title="Measurables vs Milestones"
-              body={
-                'Milestones are big binary wins — "Save $10,000", "Run a marathon" — a title ' +
-                'and an optional deadline, nothing to tick up, just done or not done. They live ' +
-                "on the goal's bubble canvas and here.\n\n" +
-                'Measurables are the quantified thing under a Milestone — current/target, a unit, ' +
-                'a weekly ladder, or recurring Commitments you get reminded about on a schedule ' +
-                '(weekly, monthly, or custom). Open a Milestone to add and track its Measurables.'
-              }
-            />
-          </View>
+          <Text style={[styles.eyebrow, { color: p.muted }]}>MILESTONES</Text>
           <Text style={[styles.layerHint, { color: p.muted }]}>
-            Big binary wins with an optional deadline. Add a Measurable under one to track the
-            numbers and recurring commitments that get you there.
+            Big binary wins with an optional deadline. Open one on the goal's canvas to set up
+            how you'll track it — a number, a weekly build-up, or a recurring commitment.
           </Text>
           {milestoneItems.length === 0 ? (
             <Text style={[styles.emptyHint, { color: p.muted }]}>
@@ -561,10 +548,9 @@ export default function GoalDetailScreen() {
             goal={goal}
             palette={p}
             onGoalEdited={() => {
-              // See the matching comment in measurables.tsx: a coach
-              // action that removes an item was leaving its own reminder
-              // (as opposed to a Commitment's) firing forever, since this
-              // never resynced it.
+              // A coach action that removes an item was leaving its own
+              // reminder (as opposed to a Commitment's) firing forever,
+              // since this never resynced it.
               resyncWeekNotifications();
               resyncStepNotifications();
               resyncMeasurableNotifications();
@@ -596,7 +582,7 @@ export default function GoalDetailScreen() {
       />
 
       {/* Reminder sheet for an item's OWN cadence — same component + logic
-          as a Measurable's, on measurables.tsx. */}
+          the goal canvas's drill-in sheet uses. */}
       <StepScheduleSheet
         visible={!!scheduleForItem}
         step={scheduleForItem}

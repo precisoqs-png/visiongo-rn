@@ -22,7 +22,6 @@ export default function BoardStackLayout() {
         options={{ animation: 'fade', gestureEnabled: false }}
       />
       <Stack.Screen name="goal/[id]/milestones" options={{ animation: 'slide_from_right' }} />
-      <Stack.Screen name="goal/[id]/measurables" options={{ animation: 'slide_from_right' }} />
     </Stack>
   );
 }

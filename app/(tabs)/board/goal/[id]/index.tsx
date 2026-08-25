@@ -22,7 +22,6 @@ import { MilestoneDrillInSheet } from '../../../../../components/goal/MilestoneD
 import { AddMilestoneItemForm } from '../../../../../components/goal/AddMilestoneItemForm';
 import { CoachChat } from '../../../../../components/goal/CoachChat';
 import { DecompCard } from '../../../../../components/goal/DecompCard';
-import { SegmentedControl } from '../../../../../components/shared/SegmentedControl';
 import { CompletionFlight, CompletedChip } from '../../../../../components/shared/CompletionFlight';
 import { useNearBottom } from '../../../../../components/shared/useNearBottom';
 import { FONTS, GOAL_NOTE_COLORS } from '../../../../../theme/themes';
@@ -58,7 +57,7 @@ function canvasChipCenter(index: number): Point {
 // The goal's own bubble canvas — same visual language as a bubble on the
 // main board (GoalNote for the central goal bubble, the same drag/settle
 // mechanics as RadialBoard's DraggableBubble for the smaller ones around
-// it), scoped to one goal's Measurables instead of a year's Goals.
+// it), scoped to one goal's Milestones instead of a year's Goals.
 export default function GoalCanvasScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -547,17 +546,6 @@ export default function GoalCanvasScreen() {
         </TouchableOpacity>
       </Animated.View>
 
-      <View style={styles.segmentedWrap}>
-        <SegmentedControl
-          segments={[
-            { key: 'measurables', label: 'Measurables' },
-            { key: 'milestones', label: 'Milestones' },
-          ]}
-          onChange={(tab) => router.navigate(`/board/goal/${id}/${tab}`)}
-          palette={p}
-        />
-      </View>
-
       <View
         style={{ flex: 1 }}
         onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
@@ -802,6 +790,7 @@ export default function GoalCanvasScreen() {
         noteColor={noteColor}
         onUpdateItem={updateMeasurableInPlace}
         onDeleteItem={(mid) => { deleteMeasurableInPlace(mid); setOpenMeasurable(null); closeActiveSchedule(); }}
+        onAddMeasurable={(m) => addMeasurable(m, goal.id)}
         onDismiss={() => { setOpenMeasurable(null); closeActiveSchedule(); }}
         onOpenSchedule={(m) => setScheduleForItem(m)}
         onOpenCommitmentSchedule={(m, step) => setScheduleForCommitment({ item: m, step })}

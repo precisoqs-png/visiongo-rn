@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Modal, StyleSheet, Platform, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Commitment, Measurable, Goal, Cadence, StepSchedule } from '../../store/models';
 import { Palette } from '../../theme/themes';
 import { MeasurableCard } from './MeasurableCard';
+import { AddMeasurableForm } from './AddMeasurableForm';
 import { StepScheduleContent, ReminderTarget } from './StepScheduleSheet';
 
 interface Props {
@@ -15,6 +16,9 @@ interface Props {
   noteColor: string;
   onUpdateItem: (m: Measurable) => void;
   onDeleteItem: (id: string) => void;
+  // Adds a brand-new tracking item under `milestone` — separate from
+  // onUpdateItem, which only ever patches an item already in goal.items.
+  onAddMeasurable: (m: Measurable) => void;
   onDismiss: () => void;
   // Threaded straight into every MeasurableCard rendered here — the
   // Milestone's own row AND each child Measurable's row — so every one of
@@ -44,23 +48,25 @@ interface Props {
   onCloseSchedule: () => void;
 }
 
-// What tapping a bubble on the goal canvas opens. A top-level Milestone
-// bubble is a container — MeasurableDetailSheet (the old sheet this
-// replaces) only ever rendered the Milestone's OWN row, so its child
-// Measurables — the actual numbers, build-up weeks, and commitments the
-// user needs to tick off on the way to 100% — were completely invisible
-// once opened from the canvas. This renders the Milestone's own card, then
-// every one of its children's, each fully interactive: tick, edit, and set
-// a reminder, same as the Measurables tab list gives them.
+// What tapping a bubble on the goal canvas opens, and the only place a
+// Milestone's tracking is added or edited — there is no separate tab for
+// it. Renders the Milestone's own card, then every one of its children's
+// (its tracking items), each fully interactive: tick, edit, and set a
+// reminder, plus an "Add tracking"/"Add another" affordance at the bottom
+// for adding more without leaving this sheet.
 export function MilestoneDrillInSheet({
   milestone, goal, goalTargetDate, palette: p, noteColor,
-  onUpdateItem, onDeleteItem, onDismiss,
+  onUpdateItem, onDeleteItem, onAddMeasurable, onDismiss,
   onOpenSchedule, onOpenCommitmentSchedule, onAskCoach,
   scheduleStep, onSaveSchedule, onTurnOffSchedule, onCloseSchedule,
 }: Props) {
   const children = milestone
     ? goal.items.filter((it) => it.parentId === milestone.id)
     : [];
+  // Resets whenever a different milestone is opened (or the sheet closes),
+  // rather than staying open across milestones.
+  const [addingTracking, setAddingTracking] = useState(false);
+  React.useEffect(() => { setAddingTracking(false); }, [milestone?.id]);
 
   return (
     <Modal visible={!!milestone} transparent animationType="fade" onRequestClose={onDismiss}>
@@ -116,7 +122,7 @@ export function MilestoneDrillInSheet({
               />
 
               {children.length > 0 && (
-                <Text style={[styles.eyebrow, { color: p.muted }]}>MEASURABLES</Text>
+                <Text style={[styles.eyebrow, { color: p.muted }]}>TRACKING</Text>
               )}
               {children.map((child) => (
                 <MeasurableCard
@@ -134,11 +140,31 @@ export function MilestoneDrillInSheet({
                 />
               ))}
 
-              {children.length === 0 && (
+              {children.length === 0 && !addingTracking && (
                 <Text style={[styles.emptyHint, { color: p.muted }]}>
-                  No measurables under this milestone yet — add one from the
-                  Measurables tab, or ask the Coach.
+                  Nothing tracked yet — add how you'll measure this below, or ask the Coach.
                 </Text>
+              )}
+
+              {addingTracking ? (
+                <AddMeasurableForm
+                  palette={p}
+                  goalTargetDate={goalTargetDate}
+                  milestoneId={milestone!.id}
+                  onAdd={(m) => { onAddMeasurable(m); setAddingTracking(false); }}
+                />
+              ) : (
+                <TouchableOpacity
+                  style={[styles.addTrackingBtn, { borderColor: p.line }]}
+                  onPress={() => setAddingTracking(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add tracking to this milestone"
+                >
+                  <Ionicons name="add" size={16} color={p.text} />
+                  <Text style={[styles.addTrackingText, { color: p.text }]}>
+                    {children.length === 0 ? 'Add tracking' : 'Add another'}
+                  </Text>
+                </TouchableOpacity>
               )}
             </ScrollView>
           )}
@@ -181,5 +207,11 @@ const styles = StyleSheet.create({
     marginTop: 14, marginBottom: 6,
   },
   emptyHint: { fontSize: 13, lineHeight: 19, marginTop: 10 },
+  addTrackingBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    borderWidth: 1, borderStyle: 'dashed', borderRadius: 12,
+    paddingVertical: 12, marginTop: 10,
+  },
+  addTrackingText: { fontSize: 13, fontWeight: '600' },
   hidden: { display: 'none' },
 });

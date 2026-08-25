@@ -163,7 +163,7 @@ export function CoachChat({
     if (lastSender === 'user' || (isNearBottom?.() ?? true)) scrollToEnd();
   };
 
-  // On milestones.tsx/measurables.tsx the "host ScrollView" is the WHOLE
+  // On milestones.tsx the "host ScrollView" is the WHOLE
   // goal screen, not just the chat — so the very first render (mount) must
   // never auto-scroll, or simply opening those screens yanks straight past
   // the header and every card down to the coach input. Each effect below
