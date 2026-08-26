@@ -3,7 +3,8 @@ import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native
 import { Ionicons } from '@expo/vector-icons';
 import {
   Measurable, Commitment, Goal, measurableFraction, measurableStep, steppedValue, formatNumber,
-  isMeasurableDeadlineOutdated, buildLadderWeeks, buildCommitmentRamp, milestonePercent, newCommitment,
+  isMeasurableDeadlineOutdated, buildLadderWeeks, buildCommitmentRamp, rampOverrunsDeadline,
+  milestonePercent, newCommitment,
 } from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
 import { useCompletionPulse } from '../shared/useCompletionPulse';
@@ -280,6 +281,15 @@ function CommitmentTypeRow({ m, goal, goalTargetDate, p, noteColor, onUpdate, on
   // against one deadline.
   const rampCommitment = m.commitments.length === 1 ? m.commitments[0] : undefined;
   const deadlineOutdated = !!rampCommitment?.ramp && isMeasurableDeadlineOutdated(m, goalTargetDate);
+  // Distinct from deadlineOutdated: this ramp WAS built against the goal's
+  // current date, but buildLadderWeeks' 7-day floor meant it couldn't fit
+  // before it, so it was deliberately allowed to run past the deadline
+  // instead of compressing into an unsafe schedule (see that function's own
+  // comment). Only shown when not already showing the outdated banner —
+  // that one already covers "the ramp doesn't match the current date" and
+  // re-pacing wouldn't change anything here anyway.
+  const lastWeekDate = rampCommitment?.ramp?.[rampCommitment.ramp.length - 1]?.targetDate;
+  const overrunsDeadline = !deadlineOutdated && rampOverrunsDeadline(lastWeekDate, goalTargetDate);
   const rebuildRampForNewDeadline = () => {
     if (!rampCommitment?.ramp) return;
     const start = rampCommitment.ramp[0]?.value ?? 0;
@@ -341,6 +351,15 @@ function CommitmentTypeRow({ m, goal, goalTargetDate, p, noteColor, onUpdate, on
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      )}
+      {overrunsDeadline && (
+        <View style={[styles.overrunBanner, { backgroundColor: `${p.muted}14` }]}>
+          <Ionicons name="information-circle-outline" size={14} color={p.muted} style={{ marginTop: 1 }} />
+          <Text style={[styles.overrunText, { color: p.muted }]}>
+            This build-up needs about {rampCommitment?.ramp?.length ?? 0} weeks — your goal's date
+            gives it less, so it runs to {fmtDeadline(lastWeekDate!)} instead.
+          </Text>
         </View>
       )}
       {onAskCoach && (
@@ -491,6 +510,12 @@ function LadderRows({ m, goalTargetDate, p, noteColor, onUpdate, onDelete, frac,
   const fmt = formatNumber;
   const doneCount = m.weeks.filter((w) => w.done).length;
   const deadlineOutdated = isMeasurableDeadlineOutdated(m, goalTargetDate);
+  // Same distinction as CommitmentTypeRow's overrunsDeadline — this ladder
+  // was paced against the current date but the 7-day spacing floor meant
+  // it couldn't fit before it, so it deliberately runs past instead of
+  // compressing. Only shown when not already showing the outdated banner.
+  const lastWeekDate = m.weeks[m.weeks.length - 1]?.targetDate;
+  const overrunsDeadline = !deadlineOutdated && rampOverrunsDeadline(lastWeekDate, goalTargetDate);
 
   // Re-pace the whole ladder against the goal's current date — same start
   // value and week count, just walked back from the new end date.
@@ -544,6 +569,15 @@ function LadderRows({ m, goalTargetDate, p, noteColor, onUpdate, onDelete, frac,
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      )}
+      {overrunsDeadline && (
+        <View style={[styles.overrunBanner, { backgroundColor: `${p.muted}14` }]}>
+          <Ionicons name="information-circle-outline" size={14} color={p.muted} style={{ marginTop: 1 }} />
+          <Text style={[styles.overrunText, { color: p.muted }]}>
+            This ladder needs about {m.weeks.length} weeks — your goal's date gives it less, so
+            it runs to {fmtDeadline(lastWeekDate!)} instead.
+          </Text>
         </View>
       )}
 
@@ -632,6 +666,11 @@ const styles = StyleSheet.create({
   outdatedText: { fontSize: 12, lineHeight: 16 },
   outdatedActions: { flexDirection: 'row', gap: 16, marginTop: 6 },
   outdatedActionText: { fontSize: 12, fontWeight: '700' },
+  overrunBanner: {
+    flexDirection: 'row', gap: 6, borderRadius: 10,
+    padding: 8, marginTop: 6,
+  },
+  overrunText: { fontSize: 11, lineHeight: 15, flex: 1 },
   deadlineMeta: { fontSize: 11, marginTop: -4, marginBottom: 6 },
   askCoachBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start',
