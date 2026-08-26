@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native
 import { Ionicons } from '@expo/vector-icons';
 import {
   Measurable, Commitment, Goal, measurableFraction, measurableStep, steppedValue, formatNumber,
-  isMeasurableDeadlineOutdated, buildLadderWeeks, milestonePercent, newCommitment,
+  isMeasurableDeadlineOutdated, buildLadderWeeks, buildCommitmentRamp, milestonePercent, newCommitment,
 } from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
 import { useCompletionPulse } from '../shared/useCompletionPulse';
@@ -193,7 +193,7 @@ export function MeasurableCard({
         <LadderRows m={m} goalTargetDate={goalTargetDate} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} onOpenCommitmentSchedule={onOpenCommitmentSchedule} />
       )}
       {m.type === 'commitment' && (
-        <CommitmentTypeRow m={m} goal={goal} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} onOpenCommitmentSchedule={onOpenCommitmentSchedule} onAskCoach={onAskCoach} />
+        <CommitmentTypeRow m={m} goal={goal} goalTargetDate={goalTargetDate} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} onOpenCommitmentSchedule={onOpenCommitmentSchedule} onAskCoach={onAskCoach} />
       )}
 
       {m.milestone && m.deadline && (
@@ -266,12 +266,31 @@ export function MeasurableCard({
 // A former "effort" Milestone — no current/target of its own, entirely
 // driven by its attached Commitments (see measurableFraction's 'commitment'
 // branch). `done` is a manual override a user can still flip directly.
-function CommitmentTypeRow({ m, goal, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule, onOpenCommitmentSchedule, onAskCoach }: {
-  m: Measurable; goal: Goal; p: Palette; noteColor: string; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number;
+function CommitmentTypeRow({ m, goal, goalTargetDate, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule, onOpenCommitmentSchedule, onAskCoach }: {
+  m: Measurable; goal: Goal; goalTargetDate?: string; p: Palette; noteColor: string; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number;
   onOpenSchedule?: (m: Measurable) => void; onOpenCommitmentSchedule?: (m: Measurable, step: Commitment) => void; onAskCoach?: (m: Measurable) => void;
 }) {
   const { scale, pulse } = useCompletionPulse();
   const pct = milestonePercent(m, goal);
+  // Same "outdated ramp" banner LadderRows gives a bare ladder Measurable,
+  // for the other place a build-up ramp lives: a single Commitment's own
+  // .ramp (mkBuildUpMilestone's shape). Scoped to exactly one commitment —
+  // the only shape this banner (and sizedForGoalDate) is ever stamped for;
+  // a Measurable with several commitments has no single ramp to re-pace
+  // against one deadline.
+  const rampCommitment = m.commitments.length === 1 ? m.commitments[0] : undefined;
+  const deadlineOutdated = !!rampCommitment?.ramp && isMeasurableDeadlineOutdated(m, goalTargetDate);
+  const rebuildRampForNewDeadline = () => {
+    if (!rampCommitment?.ramp) return;
+    const start = rampCommitment.ramp[0]?.value ?? 0;
+    const end = rampCommitment.ramp[rampCommitment.ramp.length - 1]?.value ?? start;
+    const ramp = buildCommitmentRamp(start, end, rampCommitment.ramp.length || 4, goalTargetDate);
+    onUpdate({
+      ...m,
+      sizedForGoalDate: goalTargetDate,
+      commitments: m.commitments.map((s) => (s.id === rampCommitment.id ? { ...s, ramp } : s)),
+    });
+  };
   return (
     <View>
       <View style={[styles.row, { marginBottom: 8 }]}>
@@ -303,6 +322,27 @@ function CommitmentTypeRow({ m, goal, p, noteColor, onUpdate, onDelete, frac, on
       <View style={[styles.progressTrack, { backgroundColor: p.line }]}>
         <View style={[styles.progressFill, { backgroundColor: noteColor, width: `${frac * 100}%` }]} />
       </View>
+      {deadlineOutdated && (
+        <View style={[styles.outdatedBanner, { backgroundColor: '#e8930022', borderColor: '#e89300' }]}>
+          <Ionicons name="alert-circle-outline" size={15} color="#c47700" style={{ marginTop: 1 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.outdatedText, { color: p.text }]}>
+              This build-up was paced for {m.sizedForGoalDate ? fmtDeadline(m.sizedForGoalDate) : 'no deadline'} — the
+              goal's deadline is now {goalTargetDate ? fmtDeadline(goalTargetDate) : 'unset'}.
+            </Text>
+            <View style={styles.outdatedActions}>
+              <TouchableOpacity onPress={rebuildRampForNewDeadline}>
+                <Text style={[styles.outdatedActionText, { color: '#c47700' }]}>
+                  Update to {goalTargetDate ? fmtDeadline(goalTargetDate) : 'no deadline'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => onUpdate({ ...m, sizedForGoalDate: undefined })}>
+                <Text style={[styles.outdatedActionText, { color: p.muted }]}>Keep as-is</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
       {onAskCoach && (
         <TouchableOpacity style={[styles.askCoachBtn, { borderColor: `${p.accent}66` }]} onPress={() => onAskCoach(m)}>
           <Ionicons name="sparkles-outline" size={12} color={p.accent} />

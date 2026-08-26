@@ -60,6 +60,12 @@ function mkBuildUpMilestone(
   const milestone = newMilestone({ label: title });
   const measurable = newMeasurable({
     type: 'commitment', label: title, parentId: milestone.id,
+    // Lets the outdated-ramp banner (MeasurableCard's CommitmentTypeRow)
+    // notice when the goal's target date later changes out from under this
+    // ramp — undefined when no date was known yet, same "never flagged
+    // until it's actually been sized against something" convention
+    // isItemDeadlineOutdated already uses for ladders.
+    sizedForGoalDate: goalTargetDate,
     commitments: [newCommitment({ label: title, unit, cadence: 'weekly', ramp })],
   });
   return [milestone, measurable];
