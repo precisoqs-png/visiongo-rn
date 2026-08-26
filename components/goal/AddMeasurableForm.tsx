@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
-import { MeasurableType, Measurable, TrackableItem, newMeasurable, buildLadderWeeks } from '../../store/models';
+import React, { useState } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import { MeasurableType, Measurable, newMeasurable, buildLadderWeeks } from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
 
 interface Props {
@@ -10,10 +10,10 @@ interface Props {
   // (buildLadderWeeks anchors the LAST week to this date, walking the rest
   // back from it) — omitted falls back to "starting today".
   goalTargetDate?: string;
-  // Every Measurable MUST have a parent Milestone — this is the goal's
-  // current top-level Milestones to pick one from. Empty means there is
-  // nothing to attach to yet, so the form stays disabled until one exists.
-  milestones: TrackableItem[];
+  // The Milestone this form is embedded under — always known here, since
+  // this only ever renders inside that Milestone's own drill-in sheet, so
+  // there's no parent to pick.
+  milestoneId: string;
 }
 
 // "Build-up" (type 'ladder' under the hood) mirrors exactly what the coach
@@ -28,7 +28,7 @@ const TYPES: { key: MeasurableType; label: string; icon: string }[] = [
   { key: 'ladder', label: 'Build-up', icon: '↗' },
 ];
 
-export function AddMeasurableForm({ palette: p, onAdd, goalTargetDate, milestones }: Props) {
+export function AddMeasurableForm({ palette: p, onAdd, goalTargetDate, milestoneId }: Props) {
   const [label, setLabel] = useState('');
   const [type, setType] = useState<MeasurableType>('check');
   const [targetStr, setTargetStr] = useState('');
@@ -38,20 +38,11 @@ export function AddMeasurableForm({ palette: p, onAdd, goalTargetDate, milestone
   // current baseline, step size, and how many weeks to build over.
   const [startStr, setStartStr] = useState('');
   const [weeksStr, setWeeksStr] = useState('8');
-  const [milestoneId, setMilestoneId] = useState<string | undefined>(milestones[0]?.id);
 
-  // Keep the selection valid as the available Milestones change (e.g. the
-  // previously-selected one gets deleted, or the first one becomes available
-  // after the form started with none).
-  useEffect(() => {
-    if (milestoneId && milestones.some((mg) => mg.id === milestoneId)) return;
-    setMilestoneId(milestones[0]?.id);
-  }, [milestones, milestoneId]);
-
-  const canSubmit = label.trim().length > 0 && !!milestoneId;
+  const canSubmit = label.trim().length > 0;
 
   const commit = () => {
-    if (!canSubmit || !milestoneId) return;
+    if (!canSubmit) return;
     const m: Measurable = newMeasurable({ type, label: label.trim(), parentId: milestoneId });
     if (type === 'number') {
       m.target = parseFloat(targetStr) || 1;
@@ -78,46 +69,11 @@ export function AddMeasurableForm({ palette: p, onAdd, goalTargetDate, milestone
 
   return (
     <View style={[styles.card, { backgroundColor: `${p.surface}99` }]}>
-      <Text style={[styles.eyebrow, { color: p.muted }]}>ADD YOUR OWN</Text>
-
-      {milestones.length === 0 ? (
-        <Text style={[styles.fieldHint, { color: p.muted, marginTop: 0 }]}>
-          Add a Milestone first — every Measurable needs one to belong to.
-        </Text>
-      ) : (
-        <>
-          <Text style={[styles.fieldHint, { color: p.muted, marginTop: 0 }]}>
-            Under which Milestone?
-          </Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.milestonePicker}>
-            {milestones.map((mg) => (
-              <TouchableOpacity
-                key={mg.id}
-                style={[
-                  styles.milestoneChip,
-                  { borderColor: p.line },
-                  milestoneId === mg.id && { backgroundColor: p.ink, borderColor: p.ink },
-                ]}
-                onPress={() => setMilestoneId(mg.id)}
-              >
-                <Text
-                  style={[
-                    styles.milestoneChipText,
-                    { color: milestoneId === mg.id ? (p.isDark ? p.bg : '#fff') : p.text },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {mg.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </>
-      )}
+      <Text style={[styles.eyebrow, { color: p.muted }]}>TRACK BY</Text>
 
       <TextInput
         style={[styles.input, { backgroundColor: p.surface, color: p.text, borderColor: p.line }]}
-        placeholder="What will you measure?"
+        placeholder="What will you track?"
         placeholderTextColor={p.muted}
         value={label}
         onChangeText={setLabel}
@@ -241,12 +197,6 @@ const styles = StyleSheet.create({
     borderRadius: 10, padding: 12, fontSize: 15,
     borderWidth: 1, marginBottom: 10,
   },
-  milestonePicker: { marginBottom: 10 },
-  milestoneChip: {
-    borderRadius: 16, borderWidth: 1, paddingVertical: 6, paddingHorizontal: 12,
-    marginRight: 6, maxWidth: 160,
-  },
-  milestoneChipText: { fontSize: 12, fontWeight: '500' },
   typePicker: { flexDirection: 'row', borderRadius: 20, padding: 3, marginBottom: 10, gap: 2 },
   typeBtn: { flex: 1, paddingVertical: 6, paddingHorizontal: 6, borderRadius: 16, alignItems: 'center' },
   typeBtnText: { fontSize: 12, fontWeight: '500' },

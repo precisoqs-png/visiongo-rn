@@ -12,8 +12,8 @@ interface Props {
 }
 
 // Manual "add a milestone" form — a big binary win: title + optional
-// deadline only, no target/unit/step. Its quantified Measurables (if any)
-// get added separately, under it, from measurables.tsx.
+// deadline only, no target/unit/step. Its tracking (if any) gets added
+// separately, from its own drill-in sheet on the goal canvas.
 export function AddMilestoneItemForm({ palette: p, goalTargetDate, onAdd }: Props) {
   const [label, setLabel] = useState('');
   const [deadline, setDeadline] = useState<string | undefined>(goalTargetDate);
@@ -68,8 +68,8 @@ export function AddMilestoneItemForm({ palette: p, goalTargetDate, onAdd }: Prop
       />
 
       <Text style={[styles.fieldHint, { color: p.muted }]}>
-        A big binary win — no number to hit here. Give it a deadline below, then add its
-        Measurables (numbers, ladders, recurring commitments) from the Measurables tab.
+        A big binary win — no number to hit here. Give it a deadline below, then open its
+        bubble on the goal canvas to set up how you'll track it, if you want to.
       </Text>
 
       <TouchableOpacity style={[styles.dateRow, { borderColor: p.line }]} onPress={() => setShowPicker(true)}>

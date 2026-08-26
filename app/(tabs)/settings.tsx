@@ -219,7 +219,7 @@ export default function SettingsScreen() {
         <SectionLabel label="HELP" palette={p} />
         <TouchableOpacity
           style={[styles.settingsRow, { backgroundColor: p.surface }]}
-          onPress={() => router.push('/how-to-use')}
+          onPress={() => router.navigate('/how-to-use')}
           activeOpacity={0.75}
         >
           <Text style={[styles.settingsRowText, { color: p.text }]}>How to Use</Text>
@@ -357,7 +357,7 @@ function NotificationsModal({ visible, onClose, palette: p }: any) {
           <Text style={[styles.sectionLabel, { color: p.muted, marginTop: 8 }]}>PER GOAL</Text>
           <Text style={[styles.layerHint, { color: p.muted }]}>
             Each toggle below sends a periodic "check in on this goal" nudge and also
-            gates that goal's weekly ladder-measurable targets. It does NOT control
+            gates that goal's weekly build-up targets. It does NOT control
             Commitment reminders — those live under the bell on each step, on
             the goal's own screen, and only need the master switch above to be on.
           </Text>

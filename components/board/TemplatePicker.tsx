@@ -1,7 +1,7 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView,
-  StyleSheet, Modal, Platform,
+  View, Text, TextInput, TouchableOpacity, ScrollView,
+  StyleSheet, Modal, Platform, KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -34,16 +34,28 @@ export function TemplatePicker({ visible, onDismiss, palette }: Props) {
   // and set BEFORE any state mutation so even a synchronous re-entrant call
   // in the same tick is blocked, not just a later one.
   const committedRef = useRef(false);
+  // "Start from scratch" used to create a "New Goal" and persist it the
+  // instant it was tapped — cancelling out (navigating away) left it on
+  // the board forever, and it's the very first action a new user takes.
+  // Now it swaps this sheet's content for a name prompt instead; nothing
+  // is created until Create is actually pressed.
+  const [naming, setNaming] = useState(false);
+  const [draftTitle, setDraftTitle] = useState('');
   useEffect(() => {
-    if (visible) committedRef.current = false;
+    if (visible) {
+      committedRef.current = false;
+      setNaming(false);
+      setDraftTitle('');
+    }
   }, [visible]);
 
-  const handleScratch = () => {
-    if (committedRef.current) return;
+  const handleCreateScratch = () => {
+    const title = draftTitle.trim();
+    if (!title || committedRef.current) return;
     committedRef.current = true;
-    const id = addGoal();
+    const id = addGoal(title);
     onDismiss();
-    router.push(`/board/goal/${id}`);
+    router.navigate(`/board/goal/${id}`);
   };
 
   const handleTemplate = (t: GoalTemplate) => {
@@ -52,7 +64,7 @@ export function TemplatePicker({ visible, onDismiss, palette }: Props) {
     const goal = instantiateTemplate(t, nextColorIndex());
     const id = addGoalFull(goal);
     onDismiss();
-    router.push(`/board/goal/${id}`);
+    router.navigate(`/board/goal/${id}`);
   };
 
   return (
@@ -69,51 +81,99 @@ export function TemplatePicker({ visible, onDismiss, palette }: Props) {
         {/* Grab handle */}
         <View style={[styles.handle, { backgroundColor: p.line }]} />
 
-        <Text style={[styles.sheetTitle, { color: p.muted }]}>ADD A GOAL</Text>
-        <Text style={[styles.sheetSub, { color: p.text }]}>Start from a template</Text>
-
-        {/*
-          "Start from scratch" lives OUTSIDE the ScrollView so its touch target
-          can never overlap with any template row. On RN Web the animated Modal
-          slide can offset internal scroll-item hit-rects, which caused taps on
-          this button to land on the first template below it instead.
-        */}
-        <TouchableOpacity
-          style={[styles.row, styles.scratchRow, { borderColor: p.accent }, styles.scratchOuter]}
-          onPress={handleScratch}
-        >
-          <View style={[styles.rowIcon, { backgroundColor: `${p.accent}22` }]}>
-            <Ionicons name="add" size={20} color={p.accent} />
-          </View>
-          <Text style={[styles.rowTitle, { color: p.accent }]}>Start from scratch</Text>
-          <Ionicons name="chevron-forward" size={16} color={p.accent} />
-        </TouchableOpacity>
-
-        <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-          {TEMPLATE_CATEGORIES.map((cat) => (
-            <View key={cat.name} style={styles.category}>
-              <Text style={[styles.catHeader, { color: p.muted }]}>{cat.name.toUpperCase()}</Text>
-              {cat.templates.map((t) => (
-                <TouchableOpacity
-                  key={t.id}
-                  style={[styles.row, { borderColor: p.line }]}
-                  onPress={() => handleTemplate(t)}
-                >
-                  <Text style={styles.rowEmoji}>{t.emoji}</Text>
-                  <View style={styles.rowMeta}>
-                    <Text style={[styles.rowTitle, { color: p.text }]}>{t.title}</Text>
-                    <Text style={[styles.rowSteps, { color: p.muted }]}>
-                      {t.stepCount} {t.stepCount === 1 ? 'step' : 'steps'}
-                    </Text>
-                  </View>
-                  <Ionicons name="add-circle-outline" size={22} color={p.muted} />
-                </TouchableOpacity>
-              ))}
+        {naming ? (
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <View style={styles.namingHeader}>
+              <TouchableOpacity
+                onPress={() => setNaming(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                accessibilityRole="button"
+                accessibilityLabel="Back to templates"
+              >
+                <Ionicons name="chevron-back" size={20} color={p.text} />
+              </TouchableOpacity>
+              <Text style={[styles.sheetSub, { color: p.text, marginTop: 0, marginBottom: 0 }]}>
+                Name your goal
+              </Text>
+              <View style={{ width: 20 }} />
             </View>
-          ))}
+            <TextInput
+              autoFocus
+              value={draftTitle}
+              onChangeText={setDraftTitle}
+              placeholder="e.g. Learn to surf"
+              placeholderTextColor={p.muted}
+              style={[styles.nameInput, { backgroundColor: p.bg, color: p.text, borderColor: p.line }]}
+              returnKeyType="done"
+              onSubmitEditing={handleCreateScratch}
+            />
+            <TouchableOpacity
+              style={[
+                styles.createBtn,
+                { backgroundColor: draftTitle.trim() ? p.accent : p.line },
+              ]}
+              onPress={handleCreateScratch}
+              disabled={!draftTitle.trim()}
+              accessibilityRole="button"
+              accessibilityLabel="Create goal"
+              accessibilityState={{ disabled: !draftTitle.trim() }}
+            >
+              <Text style={[styles.createBtnText, { color: p.isDark ? p.bg : '#fff' }]}>Create</Text>
+            </TouchableOpacity>
+          </KeyboardAvoidingView>
+        ) : (
+          <>
+            <Text style={[styles.sheetTitle, { color: p.muted }]}>ADD A GOAL</Text>
+            <Text style={[styles.sheetSub, { color: p.text }]}>Start from a template</Text>
 
-          <View style={{ height: 32 }} />
-        </ScrollView>
+            {/*
+              "Start from scratch" lives OUTSIDE the ScrollView so its touch target
+              can never overlap with any template row. On RN Web the animated Modal
+              slide can offset internal scroll-item hit-rects, which caused taps on
+              this button to land on the first template below it instead.
+            */}
+            <TouchableOpacity
+              style={[styles.row, styles.scratchRow, { borderColor: p.accent }, styles.scratchOuter]}
+              onPress={() => setNaming(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Start a goal from scratch"
+            >
+              <View style={[styles.rowIcon, { backgroundColor: `${p.accent}22` }]}>
+                <Ionicons name="add" size={20} color={p.accent} />
+              </View>
+              <Text style={[styles.rowTitle, { color: p.accent }]}>Start from scratch</Text>
+              <Ionicons name="chevron-forward" size={16} color={p.accent} />
+            </TouchableOpacity>
+
+            <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
+              {TEMPLATE_CATEGORIES.map((cat) => (
+                <View key={cat.name} style={styles.category}>
+                  <Text style={[styles.catHeader, { color: p.muted }]}>{cat.name.toUpperCase()}</Text>
+                  {cat.templates.map((t) => (
+                    <TouchableOpacity
+                      key={t.id}
+                      style={[styles.row, { borderColor: p.line }]}
+                      onPress={() => handleTemplate(t)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Add goal from template: ${t.title}, ${t.stepCount} ${t.stepCount === 1 ? 'step' : 'steps'}`}
+                    >
+                      <Text style={styles.rowEmoji}>{t.emoji}</Text>
+                      <View style={styles.rowMeta}>
+                        <Text style={[styles.rowTitle, { color: p.text }]}>{t.title}</Text>
+                        <Text style={[styles.rowSteps, { color: p.muted }]}>
+                          {t.stepCount} {t.stepCount === 1 ? 'step' : 'steps'}
+                        </Text>
+                      </View>
+                      <Ionicons name="add-circle-outline" size={22} color={p.muted} />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ))}
+
+              <View style={{ height: 32 }} />
+            </ScrollView>
+          </>
+        )}
       </View>
     </Modal>
   );
@@ -134,6 +194,10 @@ const styles = StyleSheet.create({
     maxHeight: '80%',
     paddingTop: 12,
     paddingHorizontal: 20,
+    // The last template row (and its ScrollView spacer below) previously
+    // ended right at the sheet's own bottom:0 edge — flush against a
+    // device's home-indicator/safe-area with no breathing room.
+    paddingBottom: 20,
     ...(Platform.OS === 'web' ? { maxWidth: 480, alignSelf: 'center', width: '100%' } : {}),
   },
   handle: {
@@ -163,4 +227,13 @@ const styles = StyleSheet.create({
   rowMeta: { flex: 1 },
   rowTitle: { fontSize: 15, fontWeight: '600' },
   rowSteps: { fontSize: 12, marginTop: 1 },
+  namingHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  nameInput: {
+    borderWidth: 1, borderRadius: 12, padding: 14, fontSize: 16, marginBottom: 16,
+  },
+  createBtn: { borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
+  createBtnText: { fontSize: 15, fontWeight: '700' },
 });

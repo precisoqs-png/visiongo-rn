@@ -22,7 +22,6 @@ import { MilestoneDrillInSheet } from '../../../../../components/goal/MilestoneD
 import { AddMilestoneItemForm } from '../../../../../components/goal/AddMilestoneItemForm';
 import { CoachChat } from '../../../../../components/goal/CoachChat';
 import { DecompCard } from '../../../../../components/goal/DecompCard';
-import { SegmentedControl } from '../../../../../components/shared/SegmentedControl';
 import { CompletionFlight, CompletedChip } from '../../../../../components/shared/CompletionFlight';
 import { useNearBottom } from '../../../../../components/shared/useNearBottom';
 import { FONTS, GOAL_NOTE_COLORS } from '../../../../../theme/themes';
@@ -58,7 +57,7 @@ function canvasChipCenter(index: number): Point {
 // The goal's own bubble canvas — same visual language as a bubble on the
 // main board (GoalNote for the central goal bubble, the same drag/settle
 // mechanics as RadialBoard's DraggableBubble for the smaller ones around
-// it), scoped to one goal's Measurables instead of a year's Goals.
+// it), scoped to one goal's Milestones instead of a year's Goals.
 export default function GoalCanvasScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -214,6 +213,11 @@ export default function GoalCanvasScreen() {
 
   const cx = size.w / 2;
   const cy = TOP_SAFE + (size.h - TOP_SAFE - BOTTOM_SAFE) * 0.42;
+  // Same clamp the surrounding measurable bubbles already get (see below) —
+  // keeps the centre GoalNote's own top on-screen and below the header/
+  // toggle above this container, consistent with the board's own fix for
+  // the same class of overlap.
+  const centerPos = clampCenter({ x: cx, y: cy }, CENTER_SIZE / 2, size.w, size.h);
 
   useEffect(() => {
     if (!goal) return;
@@ -505,36 +509,49 @@ export default function GoalCanvasScreen() {
           of the canvas could paint over the back-to-board tap target. */}
       <Animated.View style={[styles.header, { zIndex: 10, elevation: 10, opacity: textOpacity }]}>
         <View>
+          {/* The year row below already navigates back to the board on tap,
+              but that's a repurposed "◈ year ◈" display with no visual hint
+              it's interactive here — this explicit chevron mirrors the
+              "‹ Canvas" back control the Milestones/Measurables screens
+              already have, so this screen has a discoverable way back too. */}
+          <TouchableOpacity
+            onPress={handleBackToBoard}
+            style={styles.backBtn}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Back to board"
+          >
+            <Ionicons name="chevron-back" size={14} color={p.muted} />
+            <Text style={[styles.backText, { color: p.muted }]}>Board</Text>
+          </TouchableOpacity>
           <Text style={[styles.eyebrow, { color: p.muted }]}>GOAL CANVAS</Text>
           <Text style={[styles.motto, { color: p.text }]} numberOfLines={1}>{goal.title}</Text>
         </View>
       </Animated.View>
 
       <Animated.View style={[styles.yearRow, { zIndex: 10, elevation: 10, opacity: textOpacity }]}>
-        <TouchableOpacity style={styles.yearCenter} onPress={handleBackToBoard} accessibilityLabel="Back to board">
+        {/* Same handleBackToBoard as the explicit "‹ Board" chevron above —
+            kept tappable for anyone used to the board's own year-row gesture,
+            but hidden from the accessibility tree so it doesn't show up as a
+            second, identically-labelled "Back to board" control. */}
+        <TouchableOpacity
+          style={styles.yearCenter}
+          onPress={handleBackToBoard}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
           <Text style={[styles.yearDiamond, { color: p.accent }]}>◈</Text>
           <Text style={[styles.yearNum, { color: p.text }]}>{selectedYear}</Text>
           <Text style={[styles.yearDiamond, { color: p.accent }]}>◈</Text>
         </TouchableOpacity>
       </Animated.View>
 
-      <View style={styles.segmentedWrap}>
-        <SegmentedControl
-          segments={[
-            { key: 'measurables', label: 'Measurables' },
-            { key: 'milestones', label: 'Milestones' },
-          ]}
-          onChange={(tab) => router.push(`/board/goal/${id}/${tab}`)}
-          palette={p}
-        />
-      </View>
-
       <View
         style={{ flex: 1 }}
         onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
       >
-        <View style={[styles.centerWrap, { left: cx - CENTER_SIZE / 2, top: cy - CENTER_SIZE / 2 }]}>
-          <GoalNote goal={goal} size={CENTER_SIZE} palette={p} onPress={() => router.push(`/board/goal/${id}/milestones`)} />
+        <View style={[styles.centerWrap, { left: centerPos.x - CENTER_SIZE / 2, top: centerPos.y - CENTER_SIZE / 2 }]}>
+          <GoalNote goal={goal} size={CENTER_SIZE} palette={p} onPress={() => router.navigate(`/board/goal/${id}/milestones`)} />
         </View>
 
         {activeMeasurables.map((m, idx) => {
@@ -656,6 +673,8 @@ export default function GoalCanvasScreen() {
           style={[styles.addMilestoneFab, { backgroundColor: p.surface, borderColor: p.line }]}
           onPress={() => setAddMilestoneOpen(true)}
           activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Add a milestone"
         >
           <Ionicons name="add" size={20} color={p.text} />
           <Text style={[styles.addMilestoneFabText, { color: p.text }]}>Milestone</Text>
@@ -668,6 +687,8 @@ export default function GoalCanvasScreen() {
         style={[styles.coachFab, { backgroundColor: p.ink }]}
         onPress={() => setCoachOpen(true)}
         activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel="Open coach chat"
       >
         <Ionicons name="sparkles" size={20} color={p.isDark ? p.bg : '#fff'} />
         <Text style={[styles.coachFabText, { color: p.isDark ? p.bg : '#fff' }]}>Coach</Text>
@@ -769,6 +790,7 @@ export default function GoalCanvasScreen() {
         noteColor={noteColor}
         onUpdateItem={updateMeasurableInPlace}
         onDeleteItem={(mid) => { deleteMeasurableInPlace(mid); setOpenMeasurable(null); closeActiveSchedule(); }}
+        onAddMeasurable={(m) => addMeasurable(m, goal.id)}
         onDismiss={() => { setOpenMeasurable(null); closeActiveSchedule(); }}
         onOpenSchedule={(m) => setScheduleForItem(m)}
         onOpenCommitmentSchedule={(m, step) => setScheduleForCommitment({ item: m, step })}
@@ -793,6 +815,8 @@ const styles = StyleSheet.create({
   },
   eyebrow: { fontSize: 11, fontWeight: '600', letterSpacing: 2 },
   motto: { fontSize: 15, fontStyle: 'italic', marginTop: 2 },
+  backBtn: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  backText: { fontSize: 12, fontWeight: '600' },
   yearRow: {
     flexDirection: 'row', alignItems: 'center',
     justifyContent: 'center', gap: 20, paddingVertical: 6,

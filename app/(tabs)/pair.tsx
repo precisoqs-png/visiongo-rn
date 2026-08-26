@@ -83,7 +83,7 @@ export default function PairScreen() {
           </Text>
           <TouchableOpacity
             style={[styles.emptyBtn, { backgroundColor: p.ink }]}
-            onPress={() => router.push('/(tabs)/board')}
+            onPress={() => router.navigate('/(tabs)/board')}
             activeOpacity={0.8}
           >
             <Text style={[styles.emptyBtnText, { color: p.isDark ? p.bg : '#fff' }]}>

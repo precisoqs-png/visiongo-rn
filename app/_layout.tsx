@@ -4,6 +4,8 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StyleSheet, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
+import { useFonts } from 'expo-font';
+import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
 import { useAppStore } from '../store/useAppStore';
 
@@ -14,6 +16,14 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 export default function RootLayout() {
   const palette = useThemeStore((s) => s.palette);
   const [hydrated, setHydrated] = useState(useAppStore.persist.hasHydrated());
+  // Every screen in the app renders Ionicons before anything else is
+  // interactive — without preloading its font, the glyph font loads
+  // asynchronously and every icon briefly renders as a placeholder □ box on
+  // a cold load. Gating on the same `hydrated` flag the rest of this file
+  // already uses means icons are guaranteed ready before the first real
+  // screen ever mounts, not just "loading eventually".
+  const [iconsLoaded] = useFonts(Ionicons.font);
+  const ready = hydrated && iconsLoaded;
 
   useEffect(() => {
     const unsub = useAppStore.persist.onFinishHydration(() => setHydrated(true));
@@ -29,13 +39,13 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    if (hydrated) SplashScreen.hideAsync().catch(() => {});
-  }, [hydrated]);
+    if (ready) SplashScreen.hideAsync().catch(() => {});
+  }, [ready]);
 
   return (
     <GestureHandlerRootView style={styles.root}>
       <StatusBar style={palette.isDark ? 'light' : 'dark'} />
-      {!hydrated ? (
+      {!ready ? (
         // Deliberately renders nothing route-related until rehydration has
         // resolved. This is what actually closes the data-loss race: the
         // route tree (and every effect/action a screen could fire on mount)

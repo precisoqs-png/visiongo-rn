@@ -45,6 +45,9 @@ export function SegmentedControl<T extends string>({ segments, value, onChange, 
               neutral && { borderRadius: 0 },
             ]}
             onPress={() => onChange(seg.key)}
+            accessibilityRole={neutral ? 'button' : 'tab'}
+            accessibilityLabel={seg.label}
+            accessibilityState={neutral ? undefined : { selected: active }}
           >
             <Text
               style={[

@@ -474,8 +474,8 @@ export function StepScheduleContent({ step, palette: p, onSave, onTurnOff, onDis
 }
 
 // Thin Modal wrapper around StepScheduleContent — this is the ONLY export
-// that presents a Modal, used by measurables.tsx/milestones.tsx where
-// there's no already-open Modal underneath to collide with. Content only
+// that presents a Modal, used by milestones.tsx where there's no
+// already-open Modal underneath to collide with. Content only
 // mounts while visible, so closing and reopening (even on the same step)
 // naturally remounts fresh rather than needing a separate reseed signal.
 export function StepScheduleSheet({

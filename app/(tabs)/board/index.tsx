@@ -83,6 +83,8 @@ export default function BoardScreen() {
             <TouchableOpacity
               style={[styles.layoutBtn, { backgroundColor: p.surface }]}
               onPress={() => setBoardLayout(boardLayout === 'radial' ? 'grid' : 'radial')}
+              accessibilityRole="button"
+              accessibilityLabel={boardLayout === 'radial' ? 'Switch to grid layout' : 'Switch to radial layout'}
             >
               <Ionicons
                 name={boardLayout === 'radial' ? 'grid-outline' : 'ellipse-outline'}
@@ -97,6 +99,8 @@ export default function BoardScreen() {
           <TouchableOpacity
             onPress={() => selectYear(selectedYear - 1)}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityRole="button"
+            accessibilityLabel="Previous year"
           >
             <Ionicons name="chevron-back" size={22} color={p.muted} />
           </TouchableOpacity>
@@ -108,6 +112,8 @@ export default function BoardScreen() {
           <TouchableOpacity
             onPress={() => selectYear(selectedYear + 1)}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityRole="button"
+            accessibilityLabel="Next year"
           >
             <Ionicons name="chevron-forward" size={22} color={p.muted} />
           </TouchableOpacity>
@@ -134,18 +140,18 @@ export default function BoardScreen() {
             <RadialBoard
               yearData={yd}
               palette={p}
-              onGoalPress={(id) => router.push(`/board/goal/${id}`)}
+              onGoalPress={(id) => router.navigate(`/board/goal/${id}`)}
               onGoalMove={handleGoalMove}
               onGoalDelete={handleGoalDelete}
               onAddGoal={() => setPickerVisible(true)}
-              onCompletedPress={() => router.push('/completed')}
+              onCompletedPress={() => router.navigate('/completed')}
               onRealign={realignBoard}
             />
           ) : (
             <GridBoard
               yearData={yd}
               palette={p}
-              onGoalPress={(id) => router.push(`/board/goal/${id}`)}
+              onGoalPress={(id) => router.navigate(`/board/goal/${id}`)}
               onGoalLongPress={handleGoalLongPress}
               onAddGoal={() => setPickerVisible(true)}
             />
@@ -154,7 +160,7 @@ export default function BoardScreen() {
           <MonthBoard
             yearData={yd}
             palette={p}
-            onGoalPress={(id) => router.push(`/board/goal/${id}`)}
+            onGoalPress={(id) => router.navigate(`/board/goal/${id}`)}
           />
         )}
       </View>
@@ -194,6 +200,8 @@ function EmptyState({ year, p, onAdd }: { year: number; p: any; onAdd: () => voi
         <TouchableOpacity
           style={[styles.badgePlus, { backgroundColor: p.accent }]}
           onPress={onAdd}
+          accessibilityRole="button"
+          accessibilityLabel="Add a goal"
         >
           <Ionicons name="add" size={18} color={p.isDark ? p.bg : '#fff'} />
         </TouchableOpacity>
@@ -207,6 +215,8 @@ function EmptyState({ year, p, onAdd }: { year: number; p: any; onAdd: () => voi
       <TouchableOpacity
         style={[styles.addFirstBtn, { backgroundColor: p.ink }]}
         onPress={onAdd}
+        accessibilityRole="button"
+        accessibilityLabel="Add your first goal"
       >
         <Ionicons name="add" size={18} color={p.isDark ? p.bg : '#fff'} />
         <Text style={[styles.addFirstText, { color: p.isDark ? p.bg : '#fff' }]}>

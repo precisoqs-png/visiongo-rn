@@ -39,7 +39,7 @@ export default function TasksScreen() {
           <Ionicons name="checkmark-circle-outline" size={48} color={`${p.muted}66`} />
           <Text style={[styles.emptyTitle, { color: p.muted }]}>All clear!</Text>
           <Text style={[styles.emptyBody, { color: p.muted }]}>
-            No tasks yet. Add measurables or Commitments to your goals to see
+            No tasks yet. Add tracking or Commitments to your goals to see
             them here.
           </Text>
         </View>
