@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, startTransition } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, Modal, Platform, KeyboardAvoidingView,
@@ -49,13 +49,34 @@ export function TemplatePicker({ visible, onDismiss, palette }: Props) {
     }
   }, [visible]);
 
+  // Navigation used to fire in the SAME tick as onDismiss(), right next to
+  // it — this sheet's own Modal (react-native-web) only ever unmounts once
+  // its CSS exit animation fires a real `animationend` DOM event (see
+  // ModalAnimation.js); it does not unmount on `visible` flipping false by
+  // itself. Immediately mounting the goal canvas underneath — a much
+  // heavier commit for a template with a build-up ramp, which is exactly
+  // what got heavier once this rendered its own outdated/overrun checks —
+  // can occupy the main thread through the frame the exit animation needed
+  // to actually run, so the browser never fires `animationend` and this
+  // sheet's div is left mounted (invisible, but still in the DOM) forever.
+  // Same root cause, same fix already used for the SAME class of problem
+  // in onboarding.tsx's navigateToBoard: defer the heavy work to the next
+  // macrotask so the browser paints the dismissal first.
+  const navigateAfterDismiss = (id: string) => {
+    onDismiss();
+    setTimeout(() => {
+      startTransition(() => {
+        router.navigate(`/board/goal/${id}`);
+      });
+    }, 0);
+  };
+
   const handleCreateScratch = () => {
     const title = draftTitle.trim();
     if (!title || committedRef.current) return;
     committedRef.current = true;
     const id = addGoal(title);
-    onDismiss();
-    router.navigate(`/board/goal/${id}`);
+    navigateAfterDismiss(id);
   };
 
   const handleTemplate = (t: GoalTemplate) => {
@@ -63,8 +84,7 @@ export function TemplatePicker({ visible, onDismiss, palette }: Props) {
     committedRef.current = true;
     const goal = instantiateTemplate(t, nextColorIndex());
     const id = addGoalFull(goal);
-    onDismiss();
-    router.navigate(`/board/goal/${id}`);
+    navigateAfterDismiss(id);
   };
 
   return (

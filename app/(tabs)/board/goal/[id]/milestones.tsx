@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, startTransition } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, Platform, Alert, Animated, KeyboardAvoidingView,
@@ -12,7 +12,7 @@ import { useAppStore } from '../../../../../store/useAppStore';
 import { GOAL_NOTE_COLORS, hexAlpha, FONTS } from '../../../../../theme/themes';
 import {
   goalProgress, goalProgressPercent, isCompleted, Commitment, TrackableItem,
-  Cadence, StepSchedule, DEFAULT_SCHEDULE,
+  Cadence, StepSchedule, DEFAULT_SCHEDULE, goalRampOverrunDate,
 } from '../../../../../store/models';
 import { MeasurableCard } from '../../../../../components/goal/MeasurableCard';
 import { AddMilestoneItemForm } from '../../../../../components/goal/AddMilestoneItemForm';
@@ -36,6 +36,16 @@ import {
 function localDate(iso: string): Date {
   const [y, mo, d] = iso.slice(0, 10).split('-').map(Number);
   return new Date(y, mo - 1, d);
+}
+
+// Include the year only when it isn't the current one — same convention
+// MeasurableCard's own fmtDeadline uses for a milestone's own dates.
+function fmtDeadline(iso: string): string {
+  const d = new Date(iso);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }),
+  });
 }
 
 export default function GoalDetailScreen() {
@@ -329,6 +339,10 @@ export default function GoalDetailScreen() {
   const daysLeft = goal.targetDate
     ? Math.max(0, Math.round((localDate(goal.targetDate).getTime() - Date.now()) / 86400000))
     : null;
+  // Surfaced here, next to the date that actually causes it, rather than
+  // only inside a milestone's own drill-in sheet — a user who set a tight
+  // date and never opens that bubble would otherwise never see it.
+  const overrunDate = goalRampOverrunDate(goal);
 
   const dateDisplay = goal.targetDate
     ? localDate(goal.targetDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -491,6 +505,21 @@ export default function GoalDetailScreen() {
           <Ionicons name="chevron-forward" size={14} color={p.muted} />
         </TouchableOpacity>
 
+        {overrunDate && (
+          <View style={[styles.overrunBanner, { backgroundColor: `${p.muted}14` }]}>
+            <Ionicons name="information-circle-outline" size={14} color={p.muted} style={{ marginTop: 1 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.overrunText, { color: p.muted }]}>
+                A build-up on this goal needs more time than your Achieve By date gives it, so
+                it runs to {fmtDeadline(overrunDate)} instead.
+              </Text>
+              <TouchableOpacity onPress={() => setShowDatePicker(true)}>
+                <Text style={[styles.overrunAction, { color: p.text }]}>Move the date</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {isEmptyGoal && (
           <View style={[styles.section, { paddingTop: 0, paddingBottom: 4 }]}>
             <DecompCard goal={goal} palette={p} onAskCoach={setCoachSeed} />
@@ -571,12 +600,31 @@ export default function GoalDetailScreen() {
         value={goal.targetDate}
         palette={p}
         onSelect={(iso) => {
-          updateGoal({ ...goal, targetDate: iso });
+          // Dismiss FIRST, defer the goal update — same reasoning as
+          // TemplatePicker's navigateAfterDismiss: this Modal only unmounts
+          // once its CSS exit animation fires `animationend`, and changing
+          // the goal's date right in the same tick re-renders every
+          // Milestone/Measurable row on this whole screen (each one now
+          // also running its own outdated/overrun ramp checks) — a heavy
+          // enough commit to occupy the frame the animation needed, so the
+          // browser can skip firing that event and leave this sheet
+          // mounted. Deferring lets the dismissal actually paint first.
           setShowDatePicker(false);
+          setTimeout(() => {
+            // Read fresh rather than trusting the closed-over `goal` —
+            // deferring by a tick means something else could have patched
+            // it in between, same defensive pattern used elsewhere in this
+            // file for exactly that reason.
+            const fresh = useAppStore.getState().getGoal(id!);
+            if (fresh) startTransition(() => { updateGoal({ ...fresh, targetDate: iso }); });
+          }, 0);
         }}
         onClear={() => {
-          updateGoal({ ...goal, targetDate: undefined });
           setShowDatePicker(false);
+          setTimeout(() => {
+            const fresh = useAppStore.getState().getGoal(id!);
+            if (fresh) startTransition(() => { updateGoal({ ...fresh, targetDate: undefined }); });
+          }, 0);
         }}
         onDismiss={() => setShowDatePicker(false)}
       />
@@ -654,6 +702,12 @@ const styles = StyleSheet.create({
   eyebrowRow: { flexDirection: 'row', alignItems: 'center' },
   dateText: { fontSize: 14, fontWeight: '600' },
   daysLeft: { fontSize: 13 },
+  overrunBanner: {
+    flexDirection: 'row', gap: 6, borderRadius: 10,
+    padding: 10, marginHorizontal: 18, marginTop: 8,
+  },
+  overrunText: { fontSize: 12, lineHeight: 16 },
+  overrunAction: { fontSize: 12, fontWeight: '700', marginTop: 4 },
   layerHint: { fontSize: 11, lineHeight: 15, marginTop: 4, marginBottom: 10 },
   section: { padding: 18 },
   emptyHint: { fontSize: 14, lineHeight: 20 },

@@ -882,6 +882,30 @@ export function rampOverrunsDeadline(lastWeekIso: string | undefined, goalTarget
   return new Date(lastWeekIso) > new Date(goalTargetDate);
 }
 
+// Rolls rampOverrunsDeadline up to the whole goal, across every ladder
+// Measurable and every commitment-type Measurable's single ramp — so the
+// goal detail screen can disclose an overrunning build-up right next to
+// "Achieve by," where the date that caused it actually lives, instead of
+// only inside a milestone's own drill-in sheet two taps away. Returns the
+// latest overrunning date across every affected item (the worst case, if
+// more than one), or undefined when nothing overruns.
+export function goalRampOverrunDate(goal: Goal): string | undefined {
+  let latest: string | undefined;
+  for (const it of goal.items) {
+    if (it.parentId == null) continue;
+    const lastWeekIso =
+      it.type === 'ladder'
+        ? it.weeks[it.weeks.length - 1]?.targetDate
+        : it.type === 'commitment' && it.commitments.length === 1
+          ? it.commitments[0].ramp?.[it.commitments[0].ramp.length - 1]?.targetDate
+          : undefined;
+    if (lastWeekIso && rampOverrunsDeadline(lastWeekIso, goal.targetDate)) {
+      if (!latest || lastWeekIso > latest) latest = lastWeekIso;
+    }
+  }
+  return latest;
+}
+
 // A progressive build-up for a Commitment is exactly a ladder item's
 // weekly schedule (same shape, same math) attached to a milestone-flagged
 // item's commitment instead of standing alone — this is that reuse, named
