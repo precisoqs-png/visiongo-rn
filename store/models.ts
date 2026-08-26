@@ -831,13 +831,29 @@ export function buildLadderWeeks(
     d.setDate(d.getDate() + count * 7);
     return d;
   })();
+  // Weeks are spaced 7 days apart by default, walking backward from
+  // endDate. But when a real goalTargetDate is close enough that count*7
+  // days of 7-day spacing would walk the earliest weeks past TODAY (into
+  // the past — e.g. a 10-week ramp under a 1-month deadline), that's the
+  // same "arrives already overdue" bug this pacing exists to avoid, just
+  // triggered by a tight deadline instead of a missing one. Compressing
+  // the spacing to fit the actual runway between now and the deadline
+  // keeps every week between today and endDate, in order, without ever
+  // landing before today.
+  let spacingDays = 7;
+  if (goalTargetDate) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const availableDays = Math.max(1, Math.round((endDate.getTime() - today.getTime()) / 86400000));
+    spacingDays = Math.min(7, availableDays / count);
+  }
   const step = (end - start) / count;
   const weeks: LadderWeek[] = [];
   for (let i = 1; i <= Math.max(count, 1); i++) {
     // Round to 1 decimal so week targets never show float noise like 3.4000001
     const value = Math.round((start + step * i) * 10) / 10;
     const date = new Date(endDate);
-    date.setDate(date.getDate() - (count - i) * 7);
+    date.setDate(date.getDate() - Math.round((count - i) * spacingDays));
     weeks.push({ id: newId(), value, targetDate: date.toISOString(), done: false });
   }
   return weeks;

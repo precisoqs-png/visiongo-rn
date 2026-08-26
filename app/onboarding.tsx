@@ -137,18 +137,16 @@ export default function OnboardingScreen() {
       // the question onboarding should already have answered (see
       // deadlineInstruction in coachService.ts), and so anything ADDED
       // later against this goal (a ladder from the Measurables tab, a
-      // Milestone deadline) has a real date to pace against. NOT true yet
-      // for a template's own build-up ramp: mkBuildUpMilestone/
-      // buildCommitmentRamp in goalTemplates.ts builds that ramp during
-      // instantiateTemplate() below, BEFORE any date here is known, and
-      // paces it from today over a fixed week count regardless — a 1-month
-      // deadline on a half-marathon template still gets that template's
-      // fixed 10-week ramp, which can run past the deadline.
+      // Milestone deadline) has a real date to pace against. Resolved
+      // BEFORE instantiateTemplate runs (not stamped onto the Goal
+      // afterward) so a template's own build-up ramp — mkBuildUpMilestone/
+      // buildCommitmentRamp in goalTemplates.ts — paces itself against
+      // this real deadline instead of a fixed week count from today: a
+      // 1-month deadline on a half-marathon template's fixed 10-week ramp
+      // no longer runs past it.
       const goals: Goal[] = selectedTemplates.map((t, i) => {
-        const g = instantiateTemplate(t, i % GOAL_NOTE_COLORS.length);
         const date = resolveGoalDate(templateKey(t), perGoalDates, targetDate);
-        if (date) g.targetDate = date;
-        return g;
+        return instantiateTemplate(t, i % GOAL_NOTE_COLORS.length, date);
       });
       customGoals.forEach((title, i) => {
         const date = resolveGoalDate(customKey(i), perGoalDates, targetDate);

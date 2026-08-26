@@ -11,8 +11,12 @@ export interface GoalTemplate {
   category: string;
   stepCount: number;
   // Every item (Milestones and their child Measurables, already flattened
-  // and parented) this template seeds a new goal with.
-  build: () => TrackableItem[];
+  // and parented) this template seeds a new goal with. Takes the goal's
+  // own achieve-by date, if one is already known at instantiation time (see
+  // instantiateTemplate) — a template with a build-up ramp (mkBuildUpMilestone)
+  // needs it to pace that ramp against the real deadline instead of a fixed
+  // week count from today, which could otherwise run past a short deadline.
+  build: (goalTargetDate?: string) => TrackableItem[];
 }
 
 export interface TemplateCategory {
@@ -41,10 +45,18 @@ function mkNumber(label: string, target: number, unit: string, step = 1): Tracka
 // (type 'commitment', no target/current of its own) carrying a single
 // weekly-ramp Commitment. Gives it commitment machinery (reminders, the
 // Tasks tab) a bare ladder Measurable doesn't have.
+//
+// `goalTargetDate` paces the ramp's last week to that date, same as a
+// manually-created build-up does (buildLadderWeeks) — omitted (no date
+// chosen yet) falls back to today + weekCount weeks, same as before. Every
+// call site MUST pass its goal's own target date through if it has one,
+// or a fixed-length ramp anchored to "today" can run past a shorter
+// deadline the user actually picked.
 function mkBuildUpMilestone(
   title: string, start: number, end: number, weekCount: number, unit: string,
+  goalTargetDate?: string,
 ): TrackableItem[] {
-  const ramp = buildCommitmentRamp(start, end, weekCount);
+  const ramp = buildCommitmentRamp(start, end, weekCount, goalTargetDate);
   const milestone = newMilestone({ label: title });
   const measurable = newMeasurable({
     type: 'commitment', label: title, parentId: milestone.id,
@@ -60,10 +72,10 @@ export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
       {
         id: 'health-run-half', emoji: '🏃', title: 'Run a half marathon',
         category: 'Health & Body', stepCount: 3,
-        build: () => [
+        build: (goalTargetDate) => [
           mkCheck('Sign up for a race'),
           mkCheck('Get fitted running shoes'),
-          ...mkBuildUpMilestone('Weekly long-run build-up', 5, 21, 10, 'km'),
+          ...mkBuildUpMilestone('Weekly long-run build-up', 5, 21, 10, 'km', goalTargetDate),
         ],
       },
       {
@@ -98,13 +110,13 @@ export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
       {
         id: 'mind-language', emoji: '🌍', title: 'Learn a language',
         category: 'Mind & Growth', stepCount: 2,
-        build: () => [
+        build: (goalTargetDate) => [
           mkCheck('Hold a 5-min conversation'),
           // Days-per-week studied, ramping up — NOT weeks (a ladder that
           // ramped 1 -> 30 "wk" produced meaningless fractional week values
           // like "5.8 wk", and a 30-week streak can't be reached within a
           // 12-week ladder anyway).
-          ...mkBuildUpMilestone('Weekly study days build-up', 2, 6, 12, 'days/week'),
+          ...mkBuildUpMilestone('Weekly study days build-up', 2, 6, 12, 'days/week', goalTargetDate),
         ],
       },
       {
@@ -164,8 +176,8 @@ export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
       {
         id: 'creative-write', emoji: '✍️', title: 'Write every week',
         category: 'Creativity', stepCount: 1,
-        build: () => [
-          ...mkBuildUpMilestone('Weekly word-count build-up', 200, 2000, 12, 'words'),
+        build: (goalTargetDate) => [
+          ...mkBuildUpMilestone('Weekly word-count build-up', 200, 2000, 12, 'words', goalTargetDate),
         ],
       },
     ],
@@ -192,7 +204,15 @@ export const TEMPLATE_CATEGORIES: TemplateCategory[] = [
   },
 ];
 
-export function instantiateTemplate(t: GoalTemplate, colorIndex: number): Goal {
+// `goalTargetDate`, when the caller already knows it (e.g. onboarding's
+// chosen achieve-by date, resolved per-goal BEFORE this runs), is threaded
+// into t.build() so a template's own build-up ramp (mkBuildUpMilestone)
+// paces itself against the real deadline instead of a fixed week count from
+// today — and is also stamped directly onto the returned Goal, so this is
+// the one place a template goal's date and its ramp's pacing are ever set,
+// instead of a caller setting goal.targetDate afterward on a ramp that was
+// already built without knowing it.
+export function instantiateTemplate(t: GoalTemplate, colorIndex: number, goalTargetDate?: string): Goal {
   return {
     id: newId(),
     title: t.title,
@@ -200,7 +220,8 @@ export function instantiateTemplate(t: GoalTemplate, colorIndex: number): Goal {
     reminder: { on: false, frequency: 'Daily' },
     chat: [],
     pendingActions: [],
-    items: t.build(),
+    items: t.build(goalTargetDate),
+    ...(goalTargetDate ? { targetDate: goalTargetDate } : {}),
     // Already built directly on the current (post-invert) shape — a
     // top-level Milestone from mkCheck/mkBuildUpMilestone/mkNumber, its
     // Measurable children already parented. Stamping this prevents the next
