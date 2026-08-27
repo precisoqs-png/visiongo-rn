@@ -3,7 +3,8 @@ import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native
 import { Ionicons } from '@expo/vector-icons';
 import {
   Measurable, Commitment, Goal, measurableFraction, measurableStep, steppedValue, formatNumber,
-  isMeasurableDeadlineOutdated, buildLadderWeeks, milestonePercent, newCommitment,
+  isMeasurableDeadlineOutdated, buildLadderWeeks, buildCommitmentRamp, rampOverrunsDeadline,
+  milestonePercent, newCommitment,
 } from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
 import { useCompletionPulse } from '../shared/useCompletionPulse';
@@ -193,7 +194,7 @@ export function MeasurableCard({
         <LadderRows m={m} goalTargetDate={goalTargetDate} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} onOpenCommitmentSchedule={onOpenCommitmentSchedule} />
       )}
       {m.type === 'commitment' && (
-        <CommitmentTypeRow m={m} goal={goal} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} onOpenCommitmentSchedule={onOpenCommitmentSchedule} onAskCoach={onAskCoach} />
+        <CommitmentTypeRow m={m} goal={goal} goalTargetDate={goalTargetDate} p={p} noteColor={noteColor} onUpdate={onUpdate} onDelete={onDelete} frac={frac} onOpenSchedule={onOpenSchedule} onOpenCommitmentSchedule={onOpenCommitmentSchedule} onAskCoach={onAskCoach} />
       )}
 
       {m.milestone && m.deadline && (
@@ -266,12 +267,46 @@ export function MeasurableCard({
 // A former "effort" Milestone — no current/target of its own, entirely
 // driven by its attached Commitments (see measurableFraction's 'commitment'
 // branch). `done` is a manual override a user can still flip directly.
-function CommitmentTypeRow({ m, goal, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule, onOpenCommitmentSchedule, onAskCoach }: {
-  m: Measurable; goal: Goal; p: Palette; noteColor: string; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number;
+function CommitmentTypeRow({ m, goal, goalTargetDate, p, noteColor, onUpdate, onDelete, frac, onOpenSchedule, onOpenCommitmentSchedule, onAskCoach }: {
+  m: Measurable; goal: Goal; goalTargetDate?: string; p: Palette; noteColor: string; onUpdate: (m: Measurable) => void; onDelete: (id: string) => void; frac: number;
   onOpenSchedule?: (m: Measurable) => void; onOpenCommitmentSchedule?: (m: Measurable, step: Commitment) => void; onAskCoach?: (m: Measurable) => void;
 }) {
   const { scale, pulse } = useCompletionPulse();
   const pct = milestonePercent(m, goal);
+  // Same "outdated ramp" banner LadderRows gives a bare ladder Measurable,
+  // for the other place a build-up ramp lives: a single Commitment's own
+  // .ramp (mkBuildUpMilestone's shape). Scoped to exactly one commitment —
+  // the only shape this banner (and sizedForGoalDate) is ever stamped for;
+  // a Measurable with several commitments has no single ramp to re-pace
+  // against one deadline. Memoized on the two things that can actually
+  // change these — not because any of this is expensive on its own (it's a
+  // handful of date comparisons), but so this row doesn't recompute it on
+  // every parent re-render regardless of whether m or goalTargetDate moved.
+  const { rampCommitment, deadlineOutdated, lastWeekDate, overrunsDeadline } = React.useMemo(() => {
+    const commitment = m.commitments.length === 1 ? m.commitments[0] : undefined;
+    const outdated = !!commitment?.ramp && isMeasurableDeadlineOutdated(m, goalTargetDate);
+    const lastWeek = commitment?.ramp?.[commitment.ramp.length - 1]?.targetDate;
+    // Distinct from deadlineOutdated: this ramp WAS built against the
+    // goal's current date, but buildLadderWeeks' 7-day floor meant it
+    // couldn't fit before it, so it was deliberately allowed to run past
+    // the deadline instead of compressing into an unsafe schedule (see
+    // that function's own comment). Only true when not already flagged
+    // outdated — that one already covers "the ramp doesn't match the
+    // current date" and re-pacing wouldn't change anything here anyway.
+    const overrun = !outdated && rampOverrunsDeadline(lastWeek, goalTargetDate);
+    return { rampCommitment: commitment, deadlineOutdated: outdated, lastWeekDate: lastWeek, overrunsDeadline: overrun };
+  }, [m, goalTargetDate]);
+  const rebuildRampForNewDeadline = () => {
+    if (!rampCommitment?.ramp) return;
+    const start = rampCommitment.ramp[0]?.value ?? 0;
+    const end = rampCommitment.ramp[rampCommitment.ramp.length - 1]?.value ?? start;
+    const ramp = buildCommitmentRamp(start, end, rampCommitment.ramp.length || 4, goalTargetDate);
+    onUpdate({
+      ...m,
+      sizedForGoalDate: goalTargetDate,
+      commitments: m.commitments.map((s) => (s.id === rampCommitment.id ? { ...s, ramp } : s)),
+    });
+  };
   return (
     <View>
       <View style={[styles.row, { marginBottom: 8 }]}>
@@ -303,6 +338,40 @@ function CommitmentTypeRow({ m, goal, p, noteColor, onUpdate, onDelete, frac, on
       <View style={[styles.progressTrack, { backgroundColor: p.line }]}>
         <View style={[styles.progressFill, { backgroundColor: noteColor, width: `${frac * 100}%` }]} />
       </View>
+      {deadlineOutdated && (
+        <View style={[styles.outdatedBanner, { backgroundColor: '#e8930022', borderColor: '#e89300' }]}>
+          <Ionicons name="alert-circle-outline" size={15} color="#c47700" style={{ marginTop: 1 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.outdatedText, { color: p.text }]}>
+              This build-up was paced for {m.sizedForGoalDate ? fmtDeadline(m.sizedForGoalDate) : 'no deadline'} — the
+              goal's deadline is now {goalTargetDate ? fmtDeadline(goalTargetDate) : 'unset'}.
+            </Text>
+            <View style={styles.outdatedActions}>
+              <TouchableOpacity onPress={rebuildRampForNewDeadline}>
+                <Text style={[styles.outdatedActionText, { color: '#c47700' }]}>
+                  Update to {goalTargetDate ? fmtDeadline(goalTargetDate) : 'no deadline'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => onUpdate({ ...m, sizedForGoalDate: undefined })}>
+                <Text style={[styles.outdatedActionText, { color: p.muted }]}>Keep as-is</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+      {overrunsDeadline && (
+        <View
+          style={[styles.overrunBanner, { backgroundColor: `${p.muted}14` }]}
+          accessibilityRole="text"
+          accessibilityLabel={`This build-up needs about ${rampCommitment?.ramp?.length ?? 0} weeks — your goal's date gives it less, so it runs to ${fmtDeadline(lastWeekDate!)} instead.`}
+        >
+          <Ionicons name="information-circle-outline" size={14} color={p.muted} style={{ marginTop: 1 }} />
+          <Text style={[styles.overrunText, { color: p.muted }]} importantForAccessibility="no">
+            This build-up needs about {rampCommitment?.ramp?.length ?? 0} weeks — your goal's date
+            gives it less, so it runs to {fmtDeadline(lastWeekDate!)} instead.
+          </Text>
+        </View>
+      )}
       {onAskCoach && (
         <TouchableOpacity style={[styles.askCoachBtn, { borderColor: `${p.accent}66` }]} onPress={() => onAskCoach(m)}>
           <Ionicons name="sparkles-outline" size={12} color={p.accent} />
@@ -450,7 +519,19 @@ function LadderRows({ m, goalTargetDate, p, noteColor, onUpdate, onDelete, frac,
 }) {
   const fmt = formatNumber;
   const doneCount = m.weeks.filter((w) => w.done).length;
-  const deadlineOutdated = isMeasurableDeadlineOutdated(m, goalTargetDate);
+  // Memoized for the same reason as CommitmentTypeRow's equivalent — not
+  // because this is expensive, but so it doesn't redo the work on every
+  // parent re-render regardless of whether m or goalTargetDate moved.
+  const { deadlineOutdated, lastWeekDate, overrunsDeadline } = React.useMemo(() => {
+    const outdated = isMeasurableDeadlineOutdated(m, goalTargetDate);
+    const lastWeek = m.weeks[m.weeks.length - 1]?.targetDate;
+    // Same distinction as CommitmentTypeRow's overrunsDeadline — this
+    // ladder was paced against the current date but the 7-day spacing
+    // floor meant it couldn't fit before it, so it deliberately runs past
+    // instead of compressing. Only true when not already flagged outdated.
+    const overrun = !outdated && rampOverrunsDeadline(lastWeek, goalTargetDate);
+    return { deadlineOutdated: outdated, lastWeekDate: lastWeek, overrunsDeadline: overrun };
+  }, [m, goalTargetDate]);
 
   // Re-pace the whole ladder against the goal's current date — same start
   // value and week count, just walked back from the new end date.
@@ -504,6 +585,19 @@ function LadderRows({ m, goalTargetDate, p, noteColor, onUpdate, onDelete, frac,
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      )}
+      {overrunsDeadline && (
+        <View
+          style={[styles.overrunBanner, { backgroundColor: `${p.muted}14` }]}
+          accessibilityRole="text"
+          accessibilityLabel={`This ladder needs about ${m.weeks.length} weeks — your goal's date gives it less, so it runs to ${fmtDeadline(lastWeekDate!)} instead.`}
+        >
+          <Ionicons name="information-circle-outline" size={14} color={p.muted} style={{ marginTop: 1 }} />
+          <Text style={[styles.overrunText, { color: p.muted }]} importantForAccessibility="no">
+            This ladder needs about {m.weeks.length} weeks — your goal's date gives it less, so
+            it runs to {fmtDeadline(lastWeekDate!)} instead.
+          </Text>
         </View>
       )}
 
@@ -592,6 +686,11 @@ const styles = StyleSheet.create({
   outdatedText: { fontSize: 12, lineHeight: 16 },
   outdatedActions: { flexDirection: 'row', gap: 16, marginTop: 6 },
   outdatedActionText: { fontSize: 12, fontWeight: '700' },
+  overrunBanner: {
+    flexDirection: 'row', gap: 6, borderRadius: 10,
+    padding: 8, marginTop: 6,
+  },
+  overrunText: { fontSize: 11, lineHeight: 15, flex: 1 },
   deadlineMeta: { fontSize: 11, marginTop: -4, marginBottom: 6 },
   askCoachBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start',

@@ -820,27 +820,90 @@ export function milestoneStep(mg: TrackableItem): number {
   return measurableStep(mg);
 }
 
+// Weeks are ALWAYS spaced exactly 7 days apart — this is a fitness/habit
+// build-up ramp (e.g. a running plan's weekly long-run distance), and
+// compressing that spacing to squeeze a fixed week count into a tight
+// deadline once produced schedules like ten steps ramping 5km to 21km
+// inside a single day, which is unsafe advice to hand someone, not just an
+// odd-looking calendar. That's a firm floor, not a tunable default: never
+// reduce it to make a ramp fit a deadline.
+//
+// When a real goalTargetDate leaves enough runway (count*7 days or more
+// between today and it), the ramp is anchored to END exactly on that date,
+// same as always. When it doesn't, the ramp anchors to START at today
+// instead and simply runs past the deadline at full 7-day spacing — the
+// plan keeps its intended shape; it just takes longer than the date the
+// user picked. Callers are expected to disclose that overrun (compare the
+// last week's date against goalTargetDate) rather than hide it — see
+// rampOverrunsDeadline below.
 export function buildLadderWeeks(
   start: number,
   end: number,
   count: number,
   goalTargetDate?: string
 ): LadderWeek[] {
-  const endDate = goalTargetDate ? new Date(goalTargetDate) : (() => {
-    const d = new Date();
-    d.setDate(d.getDate() + count * 7);
-    return d;
-  })();
+  let firstWeekDate: Date;
+  if (goalTargetDate) {
+    const naturalFirst = new Date(goalTargetDate);
+    naturalFirst.setDate(naturalFirst.getDate() - (count - 1) * 7);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (naturalFirst >= today) {
+      firstWeekDate = naturalFirst;
+    } else {
+      firstWeekDate = new Date(today);
+      firstWeekDate.setDate(firstWeekDate.getDate() + 7);
+    }
+  } else {
+    firstWeekDate = new Date();
+    firstWeekDate.setDate(firstWeekDate.getDate() + 7);
+  }
   const step = (end - start) / count;
   const weeks: LadderWeek[] = [];
   for (let i = 1; i <= Math.max(count, 1); i++) {
     // Round to 1 decimal so week targets never show float noise like 3.4000001
     const value = Math.round((start + step * i) * 10) / 10;
-    const date = new Date(endDate);
-    date.setDate(date.getDate() - (count - i) * 7);
+    const date = new Date(firstWeekDate);
+    date.setDate(date.getDate() + (i - 1) * 7);
     weeks.push({ id: newId(), value, targetDate: date.toISOString(), done: false });
   }
   return weeks;
+}
+
+// True once a build-up/ladder's actual last step lands after the goal's
+// own target date. Distinct from isItemDeadlineOutdated (which flags a
+// STALE pacing — the goal's date changed after this was built): this
+// flags a ramp built correctly against the CURRENT date that still
+// couldn't fit before it, because buildLadderWeeks never compresses
+// spacing below 7 days. Re-pacing against the same date would change
+// nothing here — the fix is disclosure, not a re-pace action.
+export function rampOverrunsDeadline(lastWeekIso: string | undefined, goalTargetDate?: string): boolean {
+  if (!lastWeekIso || !goalTargetDate) return false;
+  return new Date(lastWeekIso) > new Date(goalTargetDate);
+}
+
+// Rolls rampOverrunsDeadline up to the whole goal, across every ladder
+// Measurable and every commitment-type Measurable's single ramp — so the
+// goal detail screen can disclose an overrunning build-up right next to
+// "Achieve by," where the date that caused it actually lives, instead of
+// only inside a milestone's own drill-in sheet two taps away. Returns the
+// latest overrunning date across every affected item (the worst case, if
+// more than one), or undefined when nothing overruns.
+export function goalRampOverrunDate(goal: Goal): string | undefined {
+  let latest: string | undefined;
+  for (const it of goal.items) {
+    if (it.parentId == null) continue;
+    const lastWeekIso =
+      it.type === 'ladder'
+        ? it.weeks[it.weeks.length - 1]?.targetDate
+        : it.type === 'commitment' && it.commitments.length === 1
+          ? it.commitments[0].ramp?.[it.commitments[0].ramp.length - 1]?.targetDate
+          : undefined;
+    if (lastWeekIso && rampOverrunsDeadline(lastWeekIso, goal.targetDate)) {
+      if (!latest || lastWeekIso > latest) latest = lastWeekIso;
+    }
+  }
+  return latest;
 }
 
 // A progressive build-up for a Commitment is exactly a ladder item's
