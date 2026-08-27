@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Platform,
-  Animated, PanResponder, Easing,
+  Animated, PanResponder, Easing, Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -372,8 +372,49 @@ export function RadialBoard({
   // onLayout reports the real container dimensions is what caused every
   // bubble to flash small in the top-left corner and then snap to its
   // correct spot a moment after first paint.
+  //
+  // Getting to `measured` depends entirely on the browser's ResizeObserver
+  // (react-native-web's onLayout) actually firing with a real, non-zero
+  // size. It's wired up once per mount (see useElementLayout in
+  // react-native-web) — if that first callback happens to land on a
+  // transitional layout (e.g. mid-reflow on a cold hard-refresh, before
+  // fonts have finished loading and the flex tree has settled) and reports
+  // 0x0, or the observer never delivers a callback at all, `measured`
+  // would stay false forever and every bubble — the whole point of the
+  // board — would simply never appear, with nothing else on screen
+  // indicating anything is wrong. A goal-less-looking board is a worse
+  // failure than the transient small-bubble flash this gating exists to
+  // prevent, so this is now bounded on both sides: a zero-size report is
+  // ignored rather than accepted as "measured", and a fallback timer
+  // guarantees bubbles render with SOME size within a bounded window even
+  // if onLayout never reports anything usable at all. A real onLayout
+  // firing later (a genuine resize) still updates `size` normally either
+  // way — this only removes the possibility of waiting forever.
   const [size, setSize] = useState({ w: 390, h: 420 });
   const [measured, setMeasured] = useState(false);
+  const measuredRef = useRef(false);
+  useEffect(() => {
+    const fallback = setTimeout(() => {
+      if (!measuredRef.current) {
+        measuredRef.current = true;
+        // Nothing else ever calls setSize except a successful onLayout
+        // (which would have already flipped measuredRef, so we wouldn't
+        // be here) — `size` is guaranteed to still be the tiny 390x420
+        // placeholder at this point. Rendering bubbles against that
+        // forever would be exactly the tiny-corner-bubble bug the
+        // measured gate exists to prevent, just permanent instead of a
+        // one-frame flash. The window's actual viewport is a much closer
+        // stand-in for "this board's real size" than a hardcoded guess —
+        // still not exact (doesn't subtract header/tab-bar chrome), but
+        // real bubbles at a roughly-right size beat a wrong-shaped board
+        // or, per the bug this whole fix addresses, no bubbles at all.
+        const win = Dimensions.get('window');
+        if (win.width > 0 && win.height > 0) setSize({ w: win.width, h: win.height });
+        setMeasured(true);
+      }
+    }, 1200);
+    return () => clearTimeout(fallback);
+  }, []);
   const [dragging, setDragging] = useState(false);
   const [overTrash, setOverTrash] = useState(false);
   const centerScale = useRef(new Animated.Value(1)).current;
@@ -484,7 +525,14 @@ export function RadialBoard({
     <View
       style={{ flex: 1 }}
       onLayout={(e) => {
-        setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height });
+        const { width, height } = e.nativeEvent.layout;
+        // A 0x0 report is a transitional/bogus measurement, not a real
+        // "the board is zero-sized" — ignore it and keep waiting for a
+        // real one (or the fallback timer above) rather than locking the
+        // whole layout to it.
+        if (width <= 0 || height <= 0) return;
+        setSize({ w: width, h: height });
+        measuredRef.current = true;
         setMeasured(true);
       }}
     >
