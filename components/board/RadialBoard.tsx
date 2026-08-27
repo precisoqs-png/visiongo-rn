@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Platform,
-  Animated, PanResponder, Easing,
+  Animated, PanResponder, Easing, Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -397,6 +397,19 @@ export function RadialBoard({
     const fallback = setTimeout(() => {
       if (!measuredRef.current) {
         measuredRef.current = true;
+        // Nothing else ever calls setSize except a successful onLayout
+        // (which would have already flipped measuredRef, so we wouldn't
+        // be here) — `size` is guaranteed to still be the tiny 390x420
+        // placeholder at this point. Rendering bubbles against that
+        // forever would be exactly the tiny-corner-bubble bug the
+        // measured gate exists to prevent, just permanent instead of a
+        // one-frame flash. The window's actual viewport is a much closer
+        // stand-in for "this board's real size" than a hardcoded guess —
+        // still not exact (doesn't subtract header/tab-bar chrome), but
+        // real bubbles at a roughly-right size beat a wrong-shaped board
+        // or, per the bug this whole fix addresses, no bubbles at all.
+        const win = Dimensions.get('window');
+        if (win.width > 0 && win.height > 0) setSize({ w: win.width, h: win.height });
         setMeasured(true);
       }
     }, 1200);
