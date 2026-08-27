@@ -506,14 +506,22 @@ export default function GoalDetailScreen() {
         </TouchableOpacity>
 
         {overrunDate && (
-          <View style={[styles.overrunBanner, { backgroundColor: `${p.muted}14` }]}>
+          <View
+            style={[styles.overrunBanner, { backgroundColor: `${p.muted}14` }]}
+            accessibilityRole="text"
+            accessibilityLabel={`A build-up on this goal needs more time than your Achieve By date gives it, so it runs to ${fmtDeadline(overrunDate)} instead.`}
+          >
             <Ionicons name="information-circle-outline" size={14} color={p.muted} style={{ marginTop: 1 }} />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.overrunText, { color: p.muted }]}>
+              <Text style={[styles.overrunText, { color: p.muted }]} importantForAccessibility="no">
                 A build-up on this goal needs more time than your Achieve By date gives it, so
                 it runs to {fmtDeadline(overrunDate)} instead.
               </Text>
-              <TouchableOpacity onPress={() => setShowDatePicker(true)}>
+              <TouchableOpacity
+                onPress={() => setShowDatePicker(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Move the achieve-by date"
+              >
                 <Text style={[styles.overrunAction, { color: p.text }]}>Move the date</Text>
               </TouchableOpacity>
             </View>

@@ -278,18 +278,24 @@ function CommitmentTypeRow({ m, goal, goalTargetDate, p, noteColor, onUpdate, on
   // .ramp (mkBuildUpMilestone's shape). Scoped to exactly one commitment —
   // the only shape this banner (and sizedForGoalDate) is ever stamped for;
   // a Measurable with several commitments has no single ramp to re-pace
-  // against one deadline.
-  const rampCommitment = m.commitments.length === 1 ? m.commitments[0] : undefined;
-  const deadlineOutdated = !!rampCommitment?.ramp && isMeasurableDeadlineOutdated(m, goalTargetDate);
-  // Distinct from deadlineOutdated: this ramp WAS built against the goal's
-  // current date, but buildLadderWeeks' 7-day floor meant it couldn't fit
-  // before it, so it was deliberately allowed to run past the deadline
-  // instead of compressing into an unsafe schedule (see that function's own
-  // comment). Only shown when not already showing the outdated banner —
-  // that one already covers "the ramp doesn't match the current date" and
-  // re-pacing wouldn't change anything here anyway.
-  const lastWeekDate = rampCommitment?.ramp?.[rampCommitment.ramp.length - 1]?.targetDate;
-  const overrunsDeadline = !deadlineOutdated && rampOverrunsDeadline(lastWeekDate, goalTargetDate);
+  // against one deadline. Memoized on the two things that can actually
+  // change these — not because any of this is expensive on its own (it's a
+  // handful of date comparisons), but so this row doesn't recompute it on
+  // every parent re-render regardless of whether m or goalTargetDate moved.
+  const { rampCommitment, deadlineOutdated, lastWeekDate, overrunsDeadline } = React.useMemo(() => {
+    const commitment = m.commitments.length === 1 ? m.commitments[0] : undefined;
+    const outdated = !!commitment?.ramp && isMeasurableDeadlineOutdated(m, goalTargetDate);
+    const lastWeek = commitment?.ramp?.[commitment.ramp.length - 1]?.targetDate;
+    // Distinct from deadlineOutdated: this ramp WAS built against the
+    // goal's current date, but buildLadderWeeks' 7-day floor meant it
+    // couldn't fit before it, so it was deliberately allowed to run past
+    // the deadline instead of compressing into an unsafe schedule (see
+    // that function's own comment). Only true when not already flagged
+    // outdated — that one already covers "the ramp doesn't match the
+    // current date" and re-pacing wouldn't change anything here anyway.
+    const overrun = !outdated && rampOverrunsDeadline(lastWeek, goalTargetDate);
+    return { rampCommitment: commitment, deadlineOutdated: outdated, lastWeekDate: lastWeek, overrunsDeadline: overrun };
+  }, [m, goalTargetDate]);
   const rebuildRampForNewDeadline = () => {
     if (!rampCommitment?.ramp) return;
     const start = rampCommitment.ramp[0]?.value ?? 0;
@@ -354,9 +360,13 @@ function CommitmentTypeRow({ m, goal, goalTargetDate, p, noteColor, onUpdate, on
         </View>
       )}
       {overrunsDeadline && (
-        <View style={[styles.overrunBanner, { backgroundColor: `${p.muted}14` }]}>
+        <View
+          style={[styles.overrunBanner, { backgroundColor: `${p.muted}14` }]}
+          accessibilityRole="text"
+          accessibilityLabel={`This build-up needs about ${rampCommitment?.ramp?.length ?? 0} weeks — your goal's date gives it less, so it runs to ${fmtDeadline(lastWeekDate!)} instead.`}
+        >
           <Ionicons name="information-circle-outline" size={14} color={p.muted} style={{ marginTop: 1 }} />
-          <Text style={[styles.overrunText, { color: p.muted }]}>
+          <Text style={[styles.overrunText, { color: p.muted }]} importantForAccessibility="no">
             This build-up needs about {rampCommitment?.ramp?.length ?? 0} weeks — your goal's date
             gives it less, so it runs to {fmtDeadline(lastWeekDate!)} instead.
           </Text>
@@ -509,13 +519,19 @@ function LadderRows({ m, goalTargetDate, p, noteColor, onUpdate, onDelete, frac,
 }) {
   const fmt = formatNumber;
   const doneCount = m.weeks.filter((w) => w.done).length;
-  const deadlineOutdated = isMeasurableDeadlineOutdated(m, goalTargetDate);
-  // Same distinction as CommitmentTypeRow's overrunsDeadline — this ladder
-  // was paced against the current date but the 7-day spacing floor meant
-  // it couldn't fit before it, so it deliberately runs past instead of
-  // compressing. Only shown when not already showing the outdated banner.
-  const lastWeekDate = m.weeks[m.weeks.length - 1]?.targetDate;
-  const overrunsDeadline = !deadlineOutdated && rampOverrunsDeadline(lastWeekDate, goalTargetDate);
+  // Memoized for the same reason as CommitmentTypeRow's equivalent — not
+  // because this is expensive, but so it doesn't redo the work on every
+  // parent re-render regardless of whether m or goalTargetDate moved.
+  const { deadlineOutdated, lastWeekDate, overrunsDeadline } = React.useMemo(() => {
+    const outdated = isMeasurableDeadlineOutdated(m, goalTargetDate);
+    const lastWeek = m.weeks[m.weeks.length - 1]?.targetDate;
+    // Same distinction as CommitmentTypeRow's overrunsDeadline — this
+    // ladder was paced against the current date but the 7-day spacing
+    // floor meant it couldn't fit before it, so it deliberately runs past
+    // instead of compressing. Only true when not already flagged outdated.
+    const overrun = !outdated && rampOverrunsDeadline(lastWeek, goalTargetDate);
+    return { deadlineOutdated: outdated, lastWeekDate: lastWeek, overrunsDeadline: overrun };
+  }, [m, goalTargetDate]);
 
   // Re-pace the whole ladder against the goal's current date — same start
   // value and week count, just walked back from the new end date.
@@ -572,9 +588,13 @@ function LadderRows({ m, goalTargetDate, p, noteColor, onUpdate, onDelete, frac,
         </View>
       )}
       {overrunsDeadline && (
-        <View style={[styles.overrunBanner, { backgroundColor: `${p.muted}14` }]}>
+        <View
+          style={[styles.overrunBanner, { backgroundColor: `${p.muted}14` }]}
+          accessibilityRole="text"
+          accessibilityLabel={`This ladder needs about ${m.weeks.length} weeks — your goal's date gives it less, so it runs to ${fmtDeadline(lastWeekDate!)} instead.`}
+        >
           <Ionicons name="information-circle-outline" size={14} color={p.muted} style={{ marginTop: 1 }} />
-          <Text style={[styles.overrunText, { color: p.muted }]}>
+          <Text style={[styles.overrunText, { color: p.muted }]} importantForAccessibility="no">
             This ladder needs about {m.weeks.length} weeks — your goal's date gives it less, so
             it runs to {fmtDeadline(lastWeekDate!)} instead.
           </Text>
