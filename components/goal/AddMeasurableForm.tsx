@@ -14,6 +14,17 @@ interface Props {
   // this only ever renders inside that Milestone's own drill-in sheet, so
   // there's no parent to pick.
   milestoneId: string;
+  // The created item's label is always the milestone's own label — this
+  // form no longer asks "what will you track?" as a separate question,
+  // since the milestone it's nested under already answers that. See
+  // TrackingPrompt's own comment on why: it's what makes the same-name
+  // dedup rule apply automatically instead of needing a special case.
+  milestoneLabel: string;
+  // Prefills this form from a parsed guess (TrackingPrompt's "Change
+  // this") instead of opening blank — the correction path, not the front
+  // door. Omitted opens exactly as before: Checkbox selected, everything
+  // else empty.
+  initial?: { type: MeasurableType; target?: number; unit?: string; step?: number };
 }
 
 // "Build-up" (type 'ladder' under the hood) mirrors exactly what the coach
@@ -28,22 +39,18 @@ const TYPES: { key: MeasurableType; label: string; icon: string }[] = [
   { key: 'ladder', label: 'Build-up', icon: '↗' },
 ];
 
-export function AddMeasurableForm({ palette: p, onAdd, goalTargetDate, milestoneId }: Props) {
-  const [label, setLabel] = useState('');
-  const [type, setType] = useState<MeasurableType>('check');
-  const [targetStr, setTargetStr] = useState('');
-  const [unit, setUnit] = useState('');
-  const [stepStr, setStepStr] = useState('');
+export function AddMeasurableForm({ palette: p, onAdd, goalTargetDate, milestoneId, milestoneLabel, initial }: Props) {
+  const [type, setType] = useState<MeasurableType>(initial?.type ?? 'check');
+  const [targetStr, setTargetStr] = useState(initial?.target != null ? String(initial.target) : '');
+  const [unit, setUnit] = useState(initial?.unit ?? '');
+  const [stepStr, setStepStr] = useState(initial?.step != null ? String(initial.step) : '');
   // Build-up-only fields — same three things the coach asks for in chat:
   // current baseline, step size, and how many weeks to build over.
   const [startStr, setStartStr] = useState('');
   const [weeksStr, setWeeksStr] = useState('8');
 
-  const canSubmit = label.trim().length > 0;
-
   const commit = () => {
-    if (!canSubmit) return;
-    const m: Measurable = newMeasurable({ type, label: label.trim(), parentId: milestoneId });
+    const m: Measurable = newMeasurable({ type, label: milestoneLabel, parentId: milestoneId });
     if (type === 'number') {
       m.target = parseFloat(targetStr) || 1;
       m.unit = unit;
@@ -63,21 +70,13 @@ export function AddMeasurableForm({ palette: p, onAdd, goalTargetDate, milestone
       m.sizedForGoalDate = goalTargetDate;
     }
     onAdd(m);
-    setLabel(''); setTargetStr(''); setUnit('');
+    setTargetStr(''); setUnit('');
     setStepStr(''); setStartStr(''); setWeeksStr('8');
   };
 
   return (
     <View style={[styles.card, { backgroundColor: `${p.surface}99` }]}>
       <Text style={[styles.eyebrow, { color: p.muted }]}>TRACK BY</Text>
-
-      <TextInput
-        style={[styles.input, { backgroundColor: p.surface, color: p.text, borderColor: p.line }]}
-        placeholder="What will you track?"
-        placeholderTextColor={p.muted}
-        value={label}
-        onChangeText={setLabel}
-      />
 
       {/* Type picker */}
       <View style={[styles.typePicker, { backgroundColor: p.line }]}>
@@ -86,6 +85,9 @@ export function AddMeasurableForm({ palette: p, onAdd, goalTargetDate, milestone
             key={t.key}
             style={[styles.typeBtn, type === t.key && { backgroundColor: p.ink }]}
             onPress={() => setType(t.key)}
+            accessibilityRole="tab"
+            accessibilityLabel={t.label}
+            accessibilityState={{ selected: type === t.key }}
           >
             <Text style={[styles.typeBtnText, { color: type === t.key ? (p.isDark ? p.bg : '#fff') : p.muted }]}>
               {t.icon} {t.label}
@@ -108,7 +110,7 @@ export function AddMeasurableForm({ palette: p, onAdd, goalTargetDate, milestone
             />
             <TextInput
               style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1.6 }]}
-              placeholder="Unit (e.g. mi)"
+              placeholder="Unit"
               placeholderTextColor={p.muted}
               value={unit}
               onChangeText={setUnit}
@@ -158,7 +160,7 @@ export function AddMeasurableForm({ palette: p, onAdd, goalTargetDate, milestone
             />
             <TextInput
               style={[styles.inputSmall, { backgroundColor: p.surface, color: p.text, flex: 1.2 }]}
-              placeholder="Unit (e.g. km)"
+              placeholder="Unit"
               placeholderTextColor={p.muted}
               value={unit}
               onChangeText={setUnit}
@@ -180,9 +182,10 @@ export function AddMeasurableForm({ palette: p, onAdd, goalTargetDate, milestone
       )}
 
       <TouchableOpacity
-        style={[styles.addBtn, { backgroundColor: canSubmit ? p.ink : p.muted }]}
+        style={[styles.addBtn, { backgroundColor: p.ink }]}
         onPress={commit}
-        disabled={!canSubmit}
+        accessibilityRole="button"
+        accessibilityLabel="Save this tracking"
       >
         <Text style={[styles.addBtnText, { color: p.isDark ? p.bg : '#fff' }]}>Add</Text>
       </TouchableOpacity>
