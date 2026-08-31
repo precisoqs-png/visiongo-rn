@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
-import { MeasurableType, Measurable, newMeasurable, buildLadderWeeks } from '../../store/models';
+import { MeasurableType, Measurable, Cadence, newMeasurable, newCommitment, buildLadderWeeks } from '../../store/models';
 import { Palette, FONTS } from '../../theme/themes';
 
 interface Props {
@@ -24,7 +24,19 @@ interface Props {
   // this") instead of opening blank — the correction path, not the front
   // door. Omitted opens exactly as before: Checkbox selected, everything
   // else empty.
-  initial?: { type: MeasurableType; target?: number; unit?: string; step?: number };
+  //
+  // commitmentCadence/commitmentIntervalDays carry a frequency parse
+  // ("3 runs a week") through here — this form has no tab for "plain
+  // recurring habit" (only Checkbox/Number/Build-up, per the original
+  // three controls), so rather than silently dropping the cadence when
+  // routed through the correction path, it's attached as a real
+  // Commitment on top of whichever type actually gets created. The user
+  // still lands on Checkbox by default (closest existing analog to "just
+  // a habit"), but the cadence they typed isn't lost getting there.
+  initial?: {
+    type: MeasurableType; target?: number; unit?: string; step?: number;
+    commitmentCadence?: Cadence; commitmentIntervalDays?: number;
+  };
 }
 
 // "Build-up" (type 'ladder' under the hood) mirrors exactly what the coach
@@ -69,14 +81,31 @@ export function AddMeasurableForm({ palette: p, onAdd, goalTargetDate, milestone
       m.weeks = buildLadderWeeks(start, end, weeks, goalTargetDate);
       m.sizedForGoalDate = goalTargetDate;
     }
+    if (initial?.commitmentCadence) {
+      m.commitments = [newCommitment({
+        label: milestoneLabel, cadence: initial.commitmentCadence, intervalDays: initial.commitmentIntervalDays,
+      })];
+    }
     onAdd(m);
     setTargetStr(''); setUnit('');
     setStepStr(''); setStartStr(''); setWeeksStr('8');
   };
 
+  const cadenceHint = initial?.commitmentCadence === 'monthly'
+    ? 'monthly'
+    : initial?.commitmentCadence === 'custom'
+      ? (initial.commitmentIntervalDays === 1 ? 'daily' : `every ${initial.commitmentIntervalDays ?? 7} days`)
+      : initial?.commitmentCadence === 'weekly' ? 'weekly' : null;
+
   return (
     <View style={[styles.card, { backgroundColor: `${p.surface}99` }]}>
       <Text style={[styles.eyebrow, { color: p.muted }]}>TRACK BY</Text>
+
+      {cadenceHint && (
+        <Text style={[styles.fieldHint, { color: p.muted, marginTop: -4 }]}>
+          Kept the {cadenceHint} reminder you typed — set below however you'd like the rest tracked.
+        </Text>
+      )}
 
       {/* Type picker */}
       <View style={[styles.typePicker, { backgroundColor: p.line }]}>

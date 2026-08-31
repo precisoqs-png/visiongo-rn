@@ -109,7 +109,9 @@ export function TrackingPrompt({ palette: p, goalTargetDate, milestoneId, milest
         initial={
           pending?.kind === 'number'
             ? { type: 'number', target: pending.target, unit: pending.unit, step: pending.step }
-            : { type: 'check' }
+            : pending?.kind === 'commitment'
+              ? { type: 'check', commitmentCadence: pending.cadence, commitmentIntervalDays: pending.intervalDays }
+              : { type: 'check' }
         }
         onAdd={(m) => { onAdd(m); reset(); }}
       />

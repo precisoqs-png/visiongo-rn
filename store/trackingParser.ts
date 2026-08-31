@@ -130,11 +130,16 @@ function detectPlainNumber(text: string): { value: number; unit: string } | null
 
     const unit = captureUnit(words.slice(i + 1));
 
-    // Year guard — only when this number has no unit trailing it. A
-    // 4-digit 19xx/20xx figure immediately followed by a real word
-    // ("2000 pages") is a target; one with nothing after it ("by 2027")
-    // almost certainly isn't.
-    if (isDigit && !unit && looksLikeYear(raw)) continue;
+    // Year guard — only when a date-ish preposition sits right before the
+    // number ("by 2027", "before 2027", "in 2027"). Originally gated on
+    // "no unit follows", which silently ate real targets: "read 2000"
+    // (no unit typed at all) was being discarded as a year even though
+    // nothing about it says "date" — only "by/before/in 2000" does.
+    // "read 2000 pages" already worked either way; this fixes the bare
+    // case without a trailing noun.
+    const prevWord = i > 0 ? words[i - 1].replace(/[.,!?;:]+$/, '').toLowerCase() : '';
+    const precededByDatePreposition = prevWord === 'by' || prevWord === 'before' || prevWord === 'in';
+    if (isDigit && precededByDatePreposition && looksLikeYear(raw)) continue;
 
     return { value, unit };
   }
