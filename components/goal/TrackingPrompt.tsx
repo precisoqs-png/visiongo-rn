@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Measurable, newMeasurable, newCommitment } from '../../store/models';
-import { parseTrackingInput, ParsedTracking } from '../../store/trackingParser';
+import { Measurable, Cadence, newMeasurable, newCommitment } from '../../store/models';
+import { parseTrackingInput, stepForMagnitude, ParsedTracking } from '../../store/trackingParser';
 import { AddMeasurableForm } from './AddMeasurableForm';
 import { Palette } from '../../theme/themes';
 
@@ -23,18 +23,43 @@ interface Props {
 
 const EXAMPLES = ['24 books', '£5,000', '3 runs a week'];
 
+const CURRENCY_SYMBOLS = ['£', '$', '€', '¥'];
+
+function cadencePhrase(cadence: Cadence, intervalDays?: number): string {
+  if (cadence === 'monthly') return 'per month';
+  if (cadence === 'custom') return intervalDays === 1 ? 'per day' : `every ${intervalDays ?? 7} days`;
+  return 'per week';
+}
+
+// Only the first captured word — captureUnit (trackingParser.ts) can keep
+// up to two ("litres of" from "2 litres of water daily"), which reads
+// fine as a stored unit but awkwardly in a sentence. This is purely a
+// display trim; the parser's own output is untouched.
+function formatDroppedAmount(value: number, unit: string): string {
+  const firstWord = unit.split(' ')[0] ?? '';
+  if (CURRENCY_SYMBOLS.includes(firstWord)) return `${firstWord}${formatTarget(value)}`;
+  return firstWord ? `${formatTarget(value)} ${firstWord}` : formatTarget(value);
+}
+
 function describeParsed(parsed: ParsedTracking): string {
   if (parsed.kind === 'number') {
-    return `Tracking ${formatTarget(parsed.target)}${parsed.unit ? ` ${parsed.unit}` : ''}, counting up one at a time.`;
+    return `Tracking ${formatTarget(parsed.target)}${parsed.unit ? ` ${parsed.unit}` : ''}${parsed.framedAsLoss ? ' lost' : ''}, counting up one at a time.`;
   }
   if (parsed.kind === 'commitment') {
-    if (parsed.cadence === 'monthly') return 'Tracking this as a monthly habit.';
-    if (parsed.cadence === 'custom') {
-      return parsed.intervalDays === 1
-        ? 'Tracking this daily.'
-        : `Tracking this every ${parsed.intervalDays ?? 7} days.`;
+    let sentence: string;
+    if (parsed.cadence === 'monthly') sentence = 'Tracking this as a monthly habit.';
+    else if (parsed.cadence === 'custom') {
+      sentence = parsed.intervalDays === 1 ? 'Tracking this daily.' : `Tracking this every ${parsed.intervalDays ?? 7} days.`;
+    } else sentence = 'Tracking this as a weekly habit.';
+    // The cadence is honest; a number riding along with it never
+    // survives (a single check-off can't honour a count — see the
+    // parser's own comment on Commitment.amount) — say so rather than
+    // silently dropping it. Only when something was actually typed:
+    // "meditate daily" has no quantity to apologise for.
+    if (parsed.droppedAmount != null) {
+      sentence += ` I can't count ${formatDroppedAmount(parsed.droppedAmount, parsed.droppedUnit ?? '')} ${cadencePhrase(parsed.cadence, parsed.intervalDays)} yet — Change this to set a number.`;
     }
-    return 'Tracking this as a weekly habit.';
+    return sentence;
   }
   return 'Tracking this as a simple yes/done.';
 }
@@ -110,7 +135,17 @@ export function TrackingPrompt({ palette: p, goalTargetDate, milestoneId, milest
           pending?.kind === 'number'
             ? { type: 'number', target: pending.target, unit: pending.unit, step: pending.step }
             : pending?.kind === 'commitment'
-              ? { type: 'check', commitmentCadence: pending.cadence, commitmentIntervalDays: pending.intervalDays }
+              ? pending.droppedAmount != null
+                // The acknowledgment sentence's own "Change this to set a
+                // number" — land straight on the Number tab, prefilled
+                // with the amount that couldn't be tracked, cadence still
+                // attached as a reminder alongside it.
+                ? {
+                    type: 'number', target: pending.droppedAmount, unit: pending.droppedUnit ?? '',
+                    step: stepForMagnitude(pending.droppedAmount),
+                    commitmentCadence: pending.cadence, commitmentIntervalDays: pending.intervalDays,
+                  }
+                : { type: 'check', commitmentCadence: pending.cadence, commitmentIntervalDays: pending.intervalDays }
               : { type: 'check' }
         }
         onAdd={(m) => { onAdd(m); reset(); }}

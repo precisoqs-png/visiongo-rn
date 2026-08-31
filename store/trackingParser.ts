@@ -19,8 +19,8 @@ import { Cadence } from './models';
 // clamped to something that merely looks plausible but isn't what was
 // typed.
 export type ParsedTracking =
-  | { kind: 'number'; target: number; unit: string; step: number }
-  | { kind: 'commitment'; cadence: Cadence; intervalDays?: number }
+  | { kind: 'number'; target: number; unit: string; step: number; framedAsLoss?: boolean }
+  | { kind: 'commitment'; cadence: Cadence; intervalDays?: number; droppedAmount?: number; droppedUnit?: string }
   | { kind: 'check' };
 
 // One..ten plus "once"/"twice" — the only word-numbers asked for. Checked
@@ -79,12 +79,18 @@ function tokenize(text: string): string[] {
 // runs happened", so showing "3" would be a plausible-looking lie, the
 // same class of problem the ramp-compression fix ruled out. This parses
 // to a plain habit on whatever cadence was named; nothing else.
-function detectFrequency(text: string): { cadence: Cadence; intervalDays?: number } | null {
+// `consumedNumber` marks the ONE case where a number in the text is
+// already fully accounted for by the cadence itself ("every 3 days" — the
+// 3 IS intervalDays, nothing about it is discarded) — the caller uses
+// this to skip dropped-quantity detection there, so "every 3 days" alone
+// doesn't wrongly get an "I can't count 3 days" acknowledgment for a
+// number that was never actually lost.
+function detectFrequency(text: string): { cadence: Cadence; intervalDays?: number; consumedNumber?: boolean } | null {
   const lower = text.toLowerCase();
   const everyNDays = lower.match(/\bevery\s+(\d+)\s+days?\b/);
   if (everyNDays) {
     const n = parseInt(everyNDays[1], 10);
-    if (n > 0) return { cadence: 'custom', intervalDays: n };
+    if (n > 0) return { cadence: 'custom', intervalDays: n, consumedNumber: true };
   }
   if (/\b(daily|every day|per day|a day|each day)\b/.test(lower)) {
     return { cadence: 'custom', intervalDays: 1 };
@@ -120,6 +126,19 @@ function detectPlainNumber(text: string): { value: number; unit: string } | null
 
   for (let i = 0; i < words.length; i++) {
     const raw = words[i].replace(/[.,!?;:]+$/, '');
+
+    // A compound token — a number fused directly to its unit ("5k",
+    // "10km") — is checked first and, when it matches, wins outright:
+    // the unit comes from the token itself, not from scanning the words
+    // after it. Matters for something like "run 5k three times a week",
+    // where the word AFTER "5k" ("three") would otherwise look like its
+    // own, unrelated word-number and get picked up instead.
+    const compoundMatch = raw.match(/^(\d+(?:\.\d+)?)([a-zA-Z]+)$/);
+    if (compoundMatch) {
+      const value = parseFloat(compoundMatch[1]);
+      if (Number.isFinite(value) && value > 0) return { value, unit: compoundMatch[2] };
+    }
+
     const digitMatch = raw.match(/^[\d,]+(?:\.\d+)?$/);
     const isDigit = !!digitMatch;
     const wordValue = WORD_NUMBERS[raw.toLowerCase()];
@@ -150,7 +169,7 @@ function detectPlainNumber(text: string): { value: number; unit: string } | null
 // chart's axis ticks use — instead of defaulting every number goal to a
 // step of 1, which is unusable for anything past a couple hundred (a
 // £5,000 goal ticking up by 1 would take 5,000 taps).
-function stepForMagnitude(target: number): number {
+export function stepForMagnitude(target: number): number {
   if (target <= 50) return 1;
   if (target <= 500) return 5;
   if (target <= 5000) return 50;
@@ -163,22 +182,60 @@ function stepForMagnitude(target: number): number {
   return nice * magnitude;
 }
 
+// "Lose 10 kg" and "10 kg lost" resolve to the identical target/unit
+// either way — the model has no way to count DOWN (measurableFraction's
+// number case is current/target, clamped to [0,1], with current starting
+// at 0; a real countdown from a starting weight to a lower target would
+// read as >100% complete from the very first render). The only safe
+// reading is the ascending one already produced by the number path:
+// target = the amount to lose, current = amount lost so far, counting
+// UP toward it. This just makes the confirmation SAY that ("10 kg lost")
+// instead of leaving it ambiguous with the generic "Tracking 10 kg,
+// counting up..." phrasing, which could misread as "current weight
+// climbing to 10kg".
+function isFramedAsLoss(text: string): boolean {
+  return /\b(lose|losing|lost|reduce|reducing|cut down|cutting down)\b/i.test(text);
+}
+
 export function parseTrackingInput(raw: string): ParsedTracking {
   try {
     const text = (raw ?? '').trim();
     if (!text) return { kind: 'check' };
 
     const freq = detectFrequency(text);
-    if (freq) return { kind: 'commitment', ...freq };
+    if (freq) {
+      // The cadence is honest; a quantity riding along with it ("$50 a
+      // week", "30 min a day", "run 5k three times a week") is not — see
+      // the module comment on Commitment.amount for why it's never
+      // stored. But silently dropping it is still a lie by omission, so
+      // it's surfaced here for the caller to acknowledge in plain
+      // language, unless the cadence phrase itself already accounted for
+      // the only number present (consumedNumber).
+      let dropped: { value: number; unit: string } | undefined;
+      if (!freq.consumedNumber) {
+        const currency = detectCurrency(text);
+        dropped = currency ? { value: currency.value, unit: currency.symbol } : detectPlainNumber(text) ?? undefined;
+      }
+      return {
+        kind: 'commitment', cadence: freq.cadence, intervalDays: freq.intervalDays,
+        ...(dropped ? { droppedAmount: dropped.value, droppedUnit: dropped.unit } : {}),
+      };
+    }
 
     const currency = detectCurrency(text);
     if (currency) {
-      return { kind: 'number', target: currency.value, unit: currency.symbol, step: stepForMagnitude(currency.value) };
+      return {
+        kind: 'number', target: currency.value, unit: currency.symbol, step: stepForMagnitude(currency.value),
+        framedAsLoss: isFramedAsLoss(text),
+      };
     }
 
     const plain = detectPlainNumber(text);
     if (plain) {
-      return { kind: 'number', target: plain.value, unit: plain.unit, step: stepForMagnitude(plain.value) };
+      return {
+        kind: 'number', target: plain.value, unit: plain.unit, step: stepForMagnitude(plain.value),
+        framedAsLoss: isFramedAsLoss(text),
+      };
     }
 
     return { kind: 'check' };
