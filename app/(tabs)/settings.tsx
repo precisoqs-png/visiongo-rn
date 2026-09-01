@@ -141,12 +141,23 @@ export default function SettingsScreen() {
     }
   }
 
+  // resetOnboarding() itself only flips hasCompletedOnboarding — it does not
+  // touch `years`/goals. The actual data loss happens one step later, if the
+  // user finishes (or skips) onboarding again: completeOnboarding() replaces
+  // ONLY the goals for whichever year onboarding lands on (the current
+  // calendar year by default, or whatever the user picks on its Year step)
+  // with whatever comes out of that flow — empty if skipped. Every OTHER
+  // year's goals are untouched. Both dialogs below and the row's
+  // accessibilityLabel must say exactly this, not "all data" — that's not
+  // what this control does.
   function handleStartFresh() {
+    const message =
+      "This takes you back to setup. It doesn't erase anything by itself — " +
+      'but finishing (or skipping) that flow replaces the goals for whichever ' +
+      'year you land on there, empty if you skip. Other years are not affected.';
     if (Platform.OS === 'web') {
       // Alert.alert is a no-op on web — use the browser's built-in confirm dialog
-      if ((window as any).confirm(
-        'Start Fresh? This will clear your onboarding flag and take you back to setup.'
-      )) {
+      if ((window as any).confirm(`Start Fresh?\n\n${message}`)) {
         resetOnboarding();
         router.replace('/onboarding');
       }
@@ -154,7 +165,7 @@ export default function SettingsScreen() {
     }
     Alert.alert(
       'Start Fresh?',
-      'This will clear your onboarding flag and take you back to setup. Your existing goals will remain unless you re-complete onboarding with new ones.',
+      message,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -274,7 +285,7 @@ export default function SettingsScreen() {
           onPress={handleStartFresh}
           activeOpacity={0.75}
           accessibilityRole="button"
-          accessibilityLabel="Start Fresh — permanently erases all your goals and progress"
+          accessibilityLabel="Start Fresh — takes you back to setup; finishing or skipping it replaces that year's goals"
         >
           <Text style={[styles.settingsRowText, { color: '#c0392b' }]}>Start Fresh</Text>
           <Ionicons name="refresh-outline" size={16} color="#c0392b" />

@@ -110,6 +110,8 @@ function GoalCard({ goal, palette, onPress }: { goal: Goal; palette: Palette; on
       ]}
       onPress={onPress}
       activeOpacity={0.75}
+      accessibilityRole="button"
+      accessibilityLabel={done ? `${goal.title}, done` : `${goal.title}, ${pct}% complete`}
     >
       {/* Color fill bar at top */}
       <View
