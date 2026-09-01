@@ -50,7 +50,10 @@ export default function TasksScreen() {
             return (
               <React.Fragment key={key}>
                 <View style={styles.sectionHeader}>
-                  <Text style={[styles.sectionTitle, { color: key === 'Overdue' ? '#c0392b' : p.muted }]}>
+                  <Text
+                    style={[styles.sectionTitle, { color: key === 'Overdue' ? '#c0392b' : p.muted }]}
+                    accessibilityRole="header"
+                  >
                     {key.toUpperCase()}
                   </Text>
                   {openCount > 0 && (
@@ -118,6 +121,9 @@ function TaskRow({ item, palette: p, onComplete }: { item: TaskItem; palette: an
         ]}
         onPress={() => { if (!item.done) onComplete(); }}
         disabled={item.done}
+        accessibilityRole="checkbox"
+        accessibilityLabel={`${item.label} — ${item.goalTitle}`}
+        accessibilityState={{ checked: item.done, disabled: item.done }}
       >
         {item.done && <Ionicons name="checkmark" size={12} color={p.surface} />}
       </TouchableOpacity>
@@ -163,6 +169,8 @@ function NumberTaskRow({ item, palette: p, onIncrement }: { item: TaskItem; pale
         style={[styles.numberBtn, { borderColor: p.accent }]}
         onPress={onIncrement}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel={`Log progress: ${item.label} — ${item.goalTitle}`}
       >
         <Ionicons name="add" size={14} color={p.accent} />
       </TouchableOpacity>

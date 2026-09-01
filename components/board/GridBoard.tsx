@@ -31,6 +31,8 @@ export function GridBoard({ yearData, palette, onGoalPress, onGoalLongPress, onA
             onLongPress={onGoalLongPress ? () => onGoalLongPress(goal.id, goal.title) : undefined}
             delayLongPress={500}
             activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel={`${goal.title}, ${pct}% complete`}
           >
             {/* Disc */}
             <View
@@ -78,6 +80,8 @@ export function GridBoard({ yearData, palette, onGoalPress, onGoalLongPress, onA
         style={styles.addRow}
         onPress={onAddGoal}
         activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel="Add goal"
       >
         <Ionicons name="add-circle" size={22} color={palette.accent} style={{ marginRight: 8 }} />
         <Text style={[styles.addText, { color: palette.muted }]}>Add goal</Text>
