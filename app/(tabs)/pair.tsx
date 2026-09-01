@@ -85,6 +85,8 @@ export default function PairScreen() {
             style={[styles.emptyBtn, { backgroundColor: p.ink }]}
             onPress={() => router.navigate('/(tabs)/board')}
             activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Go to Board"
           >
             <Text style={[styles.emptyBtnText, { color: p.isDark ? p.bg : '#fff' }]}>
               Go to Board
@@ -114,6 +116,9 @@ export default function PairScreen() {
           onPress={runPairing}
           disabled={!canPair || loading}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="See how they align"
+          accessibilityState={{ disabled: !canPair || loading }}
         >
           {loading ? (
             <ActivityIndicator color={p.isDark ? p.bg : '#fff'} />
@@ -147,13 +152,15 @@ export default function PairScreen() {
             onPress={closePicker}
           />
           <View style={[styles.modalSheet, { backgroundColor: p.surface }]}>
-            <Text style={[styles.modalTitle, { color: p.text }]}>Choose a goal</Text>
+            <Text style={[styles.modalTitle, { color: p.text }]} accessibilityRole="header">Choose a goal</Text>
             {goals.map((goal) => (
               <TouchableOpacity
                 key={goal.id}
                 style={styles.goalPickerRow}
                 onPress={() => selectGoal(goal.id)}
                 activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`Choose ${goal.title} as the ${pickerFor === 'first' ? 'first' : 'second'} goal`}
               >
                 <View style={[styles.goalDot, { backgroundColor: GOAL_NOTE_COLORS[goal.colorIndex % GOAL_NOTE_COLORS.length] }]} />
                 <Text style={[styles.goalPickerText, { color: p.text }]}>{goal.title}</Text>
@@ -171,7 +178,14 @@ function GoalDropdown({ label, selected, palette: p, onPress }: any) {
   return (
     <View style={{ marginBottom: 6 }}>
       <Text style={[{ fontSize: 11, fontWeight: '600', letterSpacing: 1, color: p.muted, marginBottom: 6 }]}>{label}</Text>
-      <TouchableOpacity style={[styles.dropdown, { backgroundColor: p.bg ?? p.bgGradient?.[0] }]} onPress={onPress} activeOpacity={0.8}>
+      <TouchableOpacity
+        style={[styles.dropdown, { backgroundColor: p.bg ?? p.bgGradient?.[0] }]}
+        onPress={onPress}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel={`${label}: ${selected ? selected.title : 'not chosen'}`}
+        accessibilityHint="Opens the goal picker"
+      >
         {selected ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
             <View style={[styles.goalDot, { backgroundColor: noteColor }]} />

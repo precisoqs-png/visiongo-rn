@@ -199,9 +199,26 @@ export function MeasurableBubble({
   // small bubble's interior.
   const ringStroke = Math.min(5, Math.max(2, size * 0.045));
 
+  // A plain Animated.View wired only to a raw PanResponder is invisible to
+  // screen readers — it carries no accessibility node at all unless
+  // explicitly marked `accessible`, unlike a Touchable which gets one for
+  // free. That's why these bubbles were absent from the tree rather than
+  // merely unlabelled. `accessibilityLabel` reports the same current/target
+  // (or next-step) detail visible in the bubble's own subText.
+  const detail = m.type === 'number'
+    ? `${formatNumber(m.current)} of ${formatNumber(m.target)}${m.unit ? ` ${m.unit}` : ''}`
+    : m.type === 'ladder'
+      ? `next: ${currentLadderStepText(m)}`
+      : m.done ? 'done' : 'not done';
+
   return (
     <Animated.View
       {...responder.panHandlers}
+      accessible
+      accessibilityRole="button"
+      accessibilityLabel={`${m.label}, ${detail}`}
+      accessibilityHint="Tap to open. Press and hold to mark progress."
+      accessibilityState={m.type === 'check' ? { checked: m.done } : undefined}
       style={[
         styles.wrap,
         {
