@@ -1,3 +1,15 @@
+<!--
+  No longer deployed. This used to be published to GitHub Pages by its own
+  deploy-docs.yml workflow, which shared a Pages target with deploy-web.yml
+  (the Expo web export, triggered on every push to main) — the two raced
+  for the same deployment, and deploy-web almost always won since it fires
+  on every push, not just docs/-only ones. That silent overwrite is what
+  left the store-listed privacy policy URL 404ing. deploy-docs.yml has been
+  removed rather than fixed in place, so this folder is kept only for
+  reference; it is not built or served anywhere. The privacy policy itself
+  now lives at app/privacy-policy.tsx, an in-app route deployed as part of
+  the same single (app) pipeline — see that file's own comment.
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
