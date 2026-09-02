@@ -241,7 +241,9 @@ CI runs never use.
 3. **Checklist before review submission:**
    - [ ] Real 1024×1024 app icon (no transparency)
    - [ ] Screenshots at 6.9" and 5.5" sizes (min 3 each)
-   - [ ] Privacy Policy URL live: `https://precisoqs-png.github.io/visiongo-rn/privacy-policy.html`
+   - [ ] Privacy Policy URL live: `https://precisoqs-png.github.io/visiongo-rn/privacy-policy` (served
+         in-app by app/privacy-policy.tsx, deployed with the app itself by
+         deploy-web.yml — there is no longer a separate docs/ deployment)
    - [ ] Support URL live: `https://precisoqs-png.github.io/visiongo-rn/`
    - [ ] App Privacy questionnaire completed in App Store Connect
 

@@ -95,8 +95,12 @@ https://precisoqs-png.github.io/visiongo-rn/
 
 ## Privacy Policy URL
 ```
-https://precisoqs-png.github.io/visiongo-rn/privacy-policy.html
+https://precisoqs-png.github.io/visiongo-rn/privacy-policy
 ```
+Served in-app (app/privacy-policy.tsx), not as a static docs/ page — see
+that file's own comment for why. Same domain/path pattern as the app's own
+deep links (e.g. /how-to-use), deployed by the single deploy-web.yml
+workflow.
 
 ---
 
