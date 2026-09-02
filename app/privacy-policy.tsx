@@ -6,21 +6,20 @@ import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
 import { FONTS } from '../theme/themes';
 
-// Source of truth is this screen, not docs/privacy-policy.html — that file
-// lives in the docs/ folder deployed by its own deploy-docs.yml workflow,
-// which shares a GitHub Pages target with deploy-web.yml (the Expo web
-// export, triggered on every push to main). The two raced for the same
-// Pages deployment and deploy-web almost always won, since it fires far
-// more often than a docs/-only change — that's why the store-listed
-// privacy policy URL 404'd. Serving it as a real in-app route instead ties
-// its availability to the SAME single deploy (deploy-web.yml already
-// copies dist/index.html to dist/404.html for SPA deep-link support, so
-// /privacy-policy resolves exactly like /how-to-use does) rather than a
-// second workflow that has to stay in lockstep with the first. Keep this
-// copy and docs/privacy-policy.html's copy in sync if either changes —
-// the docs/ copy is retained only as the plain HTML APPLE_PRIVACY_URL/
-// support-page fallback, not as the canonical link anymore. See
-// STORE_METADATA.md and DEPLOYMENT.md for the updated link.
+// This screen is the ONLY copy of the privacy policy — there used to also
+// be docs/privacy-policy.html, deployed by its own deploy-docs.yml
+// workflow, which shared a GitHub Pages target with deploy-web.yml (the
+// Expo web export, triggered on every push to main). The two raced for the
+// same Pages deployment and deploy-web almost always won, since it fires
+// far more often than a docs/-only change — that's why the store-listed
+// privacy policy URL 404'd. Rather than keep two copies of a legal
+// document in sync by hand (which drifts, silently, until the wrong one is
+// what App Review or a user actually reads), docs/privacy-policy.html was
+// deleted outright and deploy-docs.yml removed. Serving it as a real
+// in-app route ties its availability to the SAME single deploy
+// (deploy-web.yml already copies dist/index.html to dist/404.html for SPA
+// deep-link support, so /privacy-policy resolves exactly like /how-to-use
+// does). See STORE_METADATA.md and DEPLOYMENT.md for the published link.
 interface Section {
   key: string;
   title: string;

@@ -229,6 +229,8 @@ export default function SettingsScreen() {
           style={[styles.settingsRow, { backgroundColor: p.surface }]}
           onPress={() => router.navigate('/privacy-policy')}
           activeOpacity={0.75}
+          accessibilityRole="button"
+          accessibilityLabel="Privacy Policy"
         >
           <Text style={[styles.settingsRowText, { color: p.text }]}>Privacy Policy</Text>
           <Ionicons name="chevron-forward" size={14} color={p.muted} />
