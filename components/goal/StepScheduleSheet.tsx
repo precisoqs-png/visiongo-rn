@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, Modal, ScrollView, StyleSheet, Platform,
-  NativeSyntheticEvent, NativeScrollEvent, KeyboardAvoidingView,
+  KeyboardAvoidingView,
 } from 'react-native';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { Cadence, StepSchedule, DEFAULT_SCHEDULE } from '../../store/models';
 import { WEEKDAY_NAMES, formatTime } from '../../services/notificationService';
@@ -40,171 +41,78 @@ interface Props {
   onDismiss: () => void;
 }
 
-const HOURS_12 = Array.from({ length: 12 }, (_, i) => i + 1);
-const MINUTES = [0, 15, 30, 45];
-const PERIODS = ['AM', 'PM'] as const;
 const CADENCES: { key: Cadence; label: string }[] = [
   { key: 'weekly', label: 'Weekly' },
   { key: 'monthly', label: 'Monthly' },
   { key: 'custom', label: 'Custom' },
 ];
 
-// 24h `hour` -> the 1-12 value a wheel shows. Handles both midnight (0 -> 12)
-// and noon (12 -> 12) correctly.
-function to12Hour(h: number): number {
-  return ((h + 11) % 12) + 1;
-}
-
-function toPeriod(h: number): 'AM' | 'PM' {
-  return h < 12 ? 'AM' : 'PM';
-}
-
-// Recombine a 1-12 hour + AM/PM back into the 0-23 value StepSchedule stores.
-function to24Hour(hour12: number, period: 'AM' | 'PM'): number {
-  if (period === 'AM') return hour12 === 12 ? 0 : hour12;
-  return hour12 === 12 ? 12 : hour12 + 12;
-}
-
-// ── Rollable wheel column ──────────────────────────────────────
+// ── Time-of-day picker ──────────────────────────────────────────
 //
-// A snapping vertical ScrollView with a fixed-height window: the item
-// aligned with the centered highlight band is the selected one. Used for
-// the hour, minute, and AM/PM wheels below — same interaction as a native
-// iOS/Android time picker.
-
-const WHEEL_ITEM_HEIGHT = 36;
-const WHEEL_VISIBLE_ITEMS = 5;
-const WHEEL_HEIGHT = WHEEL_ITEM_HEIGHT * WHEEL_VISIBLE_ITEMS;
-const WHEEL_PAD = WHEEL_ITEM_HEIGHT * Math.floor(WHEEL_VISIBLE_ITEMS / 2);
-
-interface WheelColumnProps {
-  items: string[];
-  index: number;
-  onChange: (index: number) => void;
+// Used to be a hand-rolled trio of drag-to-scroll wheel columns
+// (hour/minute/AM-PM) built on nested ScrollViews. That never actually
+// worked on a real iOS device — a drag-to-scroll surface nested inside
+// this sheet's own outer ScrollView is a well-known RN gesture conflict
+// (see StepScheduleContent's comment on why the wheels were pulled OUTSIDE
+// that ScrollView), and moving them outside fixed it only in the simulator,
+// not on-device: UIScrollView's real touch arbitration still let the outer
+// pan responder win often enough that users reported the wheel simply
+// wouldn't scroll. Rather than continue patching a re-implementation of
+// what iOS already ships for free, this hands the whole gesture to Apple's
+// own UIDatePicker (mode="time", display="spinner") via
+// @react-native-community/datetimepicker — correct momentum/snapping and
+// VoiceOver support come with it, not from more scroll-event bookkeeping
+// here. Android gets the platform's own clock-face dialog (display=
+// "default"). The library has no web implementation at all, so web falls
+// back to a plain HTML <input type="time">, which is a real native control
+// there too — a hand-rolled wheel was never required on any platform,
+// only the middle one lacked an off-the-shelf option before this library.
+interface TimePickerProps {
+  hour: number; // 24h, 0-23
+  minute: number;
+  onChange: (hour: number, minute: number) => void;
   palette: Palette;
-  width: number;
-  // Changes each time the sheet opens, so the wheel snaps back to the
-  // current value instead of wherever the user last scrolled it.
-  resetSignal: string;
 }
 
-function WheelColumn({ items, index, onChange, palette: p, width, resetSignal }: WheelColumnProps) {
-  const scrollRef = useRef<ScrollView>(null);
-  // Mouse-wheel scrolling (desktop web) never fires onMomentumScrollEnd or
-  // onScrollEndDrag — those are touch drag/momentum lifecycle events, and a
-  // wheel event doesn't produce either. Debouncing plain onScroll instead
-  // catches "scrolling has stopped" on every input method, touch included.
-  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+function TimePicker({ hour, minute, onChange, palette: p }: TimePickerProps) {
+  if (Platform.OS === 'web') {
+    const value = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    return (
+      // A raw DOM element, not a react-native-web primitive — deliberate:
+      // there is no RN/RNW component that renders the browser's own native
+      // time control, and that control (with its own scroll wheel/keyboard
+      // input, no custom gesture code at all) is exactly what's wanted here.
+      <input
+        type="time"
+        value={value}
+        onChange={(e) => {
+          const [h, m] = e.target.value.split(':').map(Number);
+          if (Number.isFinite(h) && Number.isFinite(m)) onChange(h, m);
+        }}
+        style={{
+          fontSize: 17, padding: '8px 10px', borderRadius: 10,
+          border: `1px solid ${p.line}`, backgroundColor: p.surface, color: p.text,
+          colorScheme: p.isDark ? 'dark' : 'light',
+        }}
+      />
+    );
+  }
 
-  useEffect(() => {
-    // No animation: this runs when the sheet is (re)opening, not mid-interaction.
-    scrollRef.current?.scrollTo({ y: index * WHEEL_ITEM_HEIGHT, animated: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetSignal]);
+  const value = new Date();
+  value.setHours(hour, minute, 0, 0);
 
-  const nearestIndex = (rawOffset: number) =>
-    Math.max(0, Math.min(items.length - 1, Math.round(rawOffset / WHEEL_ITEM_HEIGHT)));
-
-  const settleAt = (rawOffset: number) => {
-    const snapped = nearestIndex(rawOffset);
-    onChange(snapped);
-    // Native (snapToInterval + decelerationRate="fast") already lands the
-    // scroll on an item boundary via UIScrollView/RecyclerView's own
-    // targetContentOffset adjustment — an extra scrollTo here just fights
-    // that native settle. Web has no such built-in snap physics for a
-    // plain ScrollView, so it still needs this nudge to land exactly on
-    // the boundary.
-    if (Platform.OS === 'web') {
-      scrollRef.current?.scrollTo({ y: snapped * WHEEL_ITEM_HEIGHT, animated: true });
-    }
-  };
-
-  // Commits the nearest-snapped value on EVERY scroll tick (throttled to
-  // scrollEventThrottle, ~16ms), not just once settling finishes — this
-  // is what onChange actually IS: a continuously-updated best guess of
-  // "what the wheel currently reads", independent of whether the scroll
-  // has stopped. Committing only at settle (momentum-end, or a 120ms-
-  // debounced fallback) left a real window where the wheel was visibly
-  // showing a new value while `schedule` state upstream still held the
-  // old one — narrow, but StepScheduleContent's save() serializes that
-  // same state, so a tap on "Update reminder" landing inside that window
-  // persisted the value the wheel had already scrolled PAST. This is not
-  // the fix that caused the original snap-back bug: that was calling the
-  // ANIMATED scrollTo correction early (fighting native momentum);
-  // calling plain onChange here commands no scroll position at all, only
-  // updates the label/state, so it can't fight anything. settleAt (still
-  // gated to momentum-end/the debounce) remains solely responsible for
-  // the scrollTo position correction on web.
-  const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const y = e.nativeEvent.contentOffset.y;
-    onChange(nearestIndex(y));
-    if (settleTimer.current) clearTimeout(settleTimer.current);
-    settleTimer.current = setTimeout(() => settleAt(y), 120);
-  };
-
-  // Momentum-end only — NOT onScrollEndDrag. onScrollEndDrag fires the
-  // instant a finger lifts, before any momentum/deceleration runs: on a
-  // flick, the reported contentOffset at that moment is still close to
-  // where the drag started, not where the flick was headed. Settling
-  // there (as this used to, on both events) meant every flick "won" by
-  // reverting to roughly its starting position the moment momentum tried
-  // to carry it further — reported as "the wheel won't let me scroll".
-  // onMomentumScrollEnd alone fires once the native deceleration/snap has
-  // actually finished, at the real final position — for the common case
-  // of a flick with real velocity. It is NOT guaranteed on every release,
-  // though: RN only emits it from UIKit's scrollViewDidEndDecelerating,
-  // which fires only when scrollViewDidEndDragging reported willDecelerate
-  // YES. snapToInterval adjusts targetContentOffset in
-  // scrollViewWillEndDragging — if a near-zero-velocity release lands
-  // exactly on a boundary already, that adjusted target equals the
-  // current offset, there is no deceleration phase, and
-  // onMomentumScrollEnd never fires at all for that release. The debounced
-  // onScroll below is what actually settles that case (and is also the
-  // only path for input that produces neither event — a desktop mouse
-  // wheel), not a fallback that's merely nice to have.
-  const settleNow = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    if (settleTimer.current) clearTimeout(settleTimer.current);
-    settleAt(e.nativeEvent.contentOffset.y);
+  const handleChange = (_event: DateTimePickerEvent, selected?: Date) => {
+    if (selected) onChange(selected.getHours(), selected.getMinutes());
   };
 
   return (
-    <View style={{ width, height: WHEEL_HEIGHT }}>
-      <View
-        pointerEvents="none"
-        style={[
-          styles.wheelHighlight,
-          { top: WHEEL_PAD, borderColor: `${p.accent}55`, backgroundColor: `${p.accent}14` },
-        ]}
-      />
-      <ScrollView
-        ref={scrollRef}
-        showsVerticalScrollIndicator={false}
-        snapToInterval={WHEEL_ITEM_HEIGHT}
-        decelerationRate="fast"
-        nestedScrollEnabled
-        scrollEventThrottle={16}
-        contentContainerStyle={{ paddingVertical: WHEEL_PAD }}
-        onScroll={onScroll}
-        onMomentumScrollEnd={settleNow}
-      >
-        {items.map((label, i) => {
-          const active = i === index;
-          return (
-            <View key={label + i} style={styles.wheelItem}>
-              <Text
-                style={[
-                  styles.wheelItemText,
-                  { color: active ? p.accent : p.muted, fontSize: active ? 17 : 15 },
-                  active && { fontWeight: '700' },
-                ]}
-              >
-                {label}
-              </Text>
-            </View>
-          );
-        })}
-      </ScrollView>
-    </View>
+    <DateTimePicker
+      value={value}
+      mode="time"
+      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+      onChange={handleChange}
+      themeVariant={p.isDark ? 'dark' : 'light'}
+    />
   );
 }
 
@@ -269,16 +177,16 @@ export function StepScheduleContent({ step, palette: p, onSave, onTurnOff, onDis
         </TouchableOpacity>
       </View>
 
-      {/* Cadence/day pickers only — the WHAT TIME wheels below are
-          deliberately OUTSIDE this ScrollView. A drag-to-scroll wheel
-          nested inside another vertical ScrollView is a well-known RN
-          gesture conflict: the outer ScrollView's pan responder can win
-          the touch before it ever reaches the wheel, so every drag just
-          scrolls the sheet and the wheel never commits a new value —
-          this was the actual cause of "the time can't be changed" on a
-          measurable's reminder. Keeping the wheel's own ScrollView as
-          the only vertical scroll surface in this region removes the
-          conflict outright rather than working around it. */}
+      {/* Cadence/day pickers only — the WHAT TIME picker below is kept
+          outside this ScrollView too. That used to matter a great deal: a
+          hand-rolled drag-to-scroll wheel nested inside another vertical
+          ScrollView is a well-known RN gesture conflict, and was the real
+          cause of "the time can't be changed" on a measurable's reminder
+          (see TimePicker's own comment on why that wheel was replaced
+          outright rather than patched again). The native time picker that
+          replaced it owns its own gesture surface (a UIDatePicker/
+          DatePickerDialog, not an RN ScrollView) so the conflict can't
+          recur — this placement is now just visual grouping, not a fix. */}
       <ScrollView style={{ maxHeight: 220 }} keyboardShouldPersistTaps="handled">
         {isBuildUp ? (
           <Text style={[styles.preview, { color: p.muted, marginTop: 0 }]}>
@@ -377,57 +285,14 @@ export function StepScheduleContent({ step, palette: p, onSave, onTurnOff, onDis
 
       <View>
         <Text style={[styles.eyebrow, { color: p.muted }]}>WHAT TIME</Text>
-        {(() => {
-          const hour12 = to12Hour(schedule.hour);
-          const period = toPeriod(schedule.hour);
-          const hourIndex = HOURS_12.indexOf(hour12);
-          // MINUTES only offers quarter-hours — a persisted minute off
-          // that grid (e.g. an old reminder saved at :05) has no exact
-          // match, and indexOf's -1 used to fall back to index 0 no
-          // matter how far off :00 actually was, showing ":00" while
-          // `schedule.minute` was still really 5. Snap the WHEEL to
-          // whichever quarter-hour is closest instead, so what's
-          // displayed at least reads as "roughly this value", not an
-          // arbitrary always-zero default.
-          const minuteIndex = MINUTES.reduce(
-            (best, m, i) => (Math.abs(m - schedule.minute) < Math.abs(MINUTES[best] - schedule.minute) ? i : best),
-            0,
-          );
-          const periodIndex = PERIODS.indexOf(period);
-          // Re-snap the wheels if the target step somehow changes without
-          // an unmount (defensive — both current callers unmount/remount
-          // instead, see the reseed effect above).
-          const resetSignal = step.id;
-          return (
-            <View style={styles.wheelRow}>
-              <WheelColumn
-                items={HOURS_12.map(String)}
-                index={hourIndex}
-                onChange={(i) => patch({ hour: to24Hour(HOURS_12[i], period) })}
-                palette={p}
-                width={52}
-                resetSignal={resetSignal}
-              />
-              <Text style={[styles.wheelColon, { color: p.text }]}>:</Text>
-              <WheelColumn
-                items={MINUTES.map((m) => String(m).padStart(2, '0'))}
-                index={minuteIndex}
-                onChange={(i) => patch({ minute: MINUTES[i] })}
-                palette={p}
-                width={52}
-                resetSignal={resetSignal}
-              />
-              <WheelColumn
-                items={[...PERIODS]}
-                index={periodIndex}
-                onChange={(i) => patch({ hour: to24Hour(hour12, PERIODS[i]) })}
-                palette={p}
-                width={60}
-                resetSignal={resetSignal}
-              />
-            </View>
-          );
-        })()}
+        <View style={styles.timePickerRow}>
+          <TimePicker
+            hour={schedule.hour}
+            minute={schedule.minute}
+            onChange={(hour, minute) => patch({ hour, minute })}
+            palette={p}
+          />
+        </View>
 
         <Text style={[styles.preview, { color: p.muted }]}>
           {isBuildUp
@@ -527,14 +392,7 @@ const styles = StyleSheet.create({
   input: {
     borderRadius: 10, padding: 11, fontSize: 15, borderWidth: 1, minWidth: 0,
   },
-  wheelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
-  wheelHighlight: {
-    position: 'absolute', left: 0, right: 0, height: WHEEL_ITEM_HEIGHT,
-    borderRadius: 10, borderWidth: 1,
-  },
-  wheelItem: { height: WHEEL_ITEM_HEIGHT, alignItems: 'center', justifyContent: 'center' },
-  wheelItemText: { fontWeight: '500' },
-  wheelColon: { fontSize: 18, fontWeight: '700', marginTop: -2 },
+  timePickerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   preview: { fontSize: 12, lineHeight: 18, marginTop: 12 },
   actions: {
     flexDirection: 'row', alignItems: 'center', gap: 16,
