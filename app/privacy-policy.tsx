@@ -40,7 +40,7 @@ const SECTIONS: Section[] = [
     title: '1. Who We Are',
     body:
       'VisionGo is a personal goal-tracking app developed and operated by VisionGo ("we," "us," or ' +
-      '"our"). If you have questions about this policy, email us at support@visiongo.app.',
+      '"our"). If you have questions about this policy, email us at visiongoapp@gmail.com.',
   },
   {
     key: 'data',
@@ -97,7 +97,7 @@ const SECTIONS: Section[] = [
     body:
       'VisionGo is not directed at children under 13. We do not knowingly collect any personal ' +
       'information from children. If you believe a child under 13 has provided information through the ' +
-      'AI coaching feature, please contact us at support@visiongo.app and we will provide guidance on ' +
+      'AI coaching feature, please contact us at visiongoapp@gmail.com and we will provide guidance on ' +
       'removing it.',
   },
   {
@@ -111,7 +111,7 @@ const SECTIONS: Section[] = [
       "AI coach conversation: coach chat history is stored locally. Clearing app data or deleting the " +
       "app removes it. Messages already sent to Anthropic's API are subject to Anthropic's own data " +
       'retention policy.\n\n' +
-      'To request assistance with data concerns, contact us at support@visiongo.app.',
+      'To request assistance with data concerns, contact us at visiongoapp@gmail.com.',
   },
   {
     key: 'security',
@@ -133,7 +133,7 @@ const SECTIONS: Section[] = [
   {
     key: 'contact',
     title: '10. Contact',
-    body: 'For privacy questions, data deletion requests, or any concerns: support@visiongo.app',
+    body: 'For privacy questions, data deletion requests, or any concerns: visiongoapp@gmail.com',
   },
 ];
 
@@ -175,13 +175,13 @@ export default function PrivacyPolicyScreen() {
         ))}
 
         <TouchableOpacity
-          onPress={() => Linking.openURL('mailto:support@visiongo.app')}
+          onPress={() => Linking.openURL('mailto:visiongoapp@gmail.com')}
           style={styles.emailRow}
           accessibilityRole="button"
-          accessibilityLabel="Email support@visiongo.app"
+          accessibilityLabel="Email visiongoapp@gmail.com"
         >
           <Ionicons name="mail-outline" size={15} color={p.accent} />
-          <Text style={[styles.emailText, { color: p.accent }]}>support@visiongo.app</Text>
+          <Text style={[styles.emailText, { color: p.accent }]}>visiongoapp@gmail.com</Text>
         </TouchableOpacity>
       </ScrollView>
     </LinearGradient>
