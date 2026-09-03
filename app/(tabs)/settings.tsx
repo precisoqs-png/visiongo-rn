@@ -141,12 +141,23 @@ export default function SettingsScreen() {
     }
   }
 
+  // resetOnboarding() itself only flips hasCompletedOnboarding — it does not
+  // touch `years`/goals. The actual data loss happens one step later, if the
+  // user finishes (or skips) onboarding again: completeOnboarding() replaces
+  // ONLY the goals for whichever year onboarding lands on (the current
+  // calendar year by default, or whatever the user picks on its Year step)
+  // with whatever comes out of that flow — empty if skipped. Every OTHER
+  // year's goals are untouched. Both dialogs below and the row's
+  // accessibilityLabel must say exactly this, not "all data" — that's not
+  // what this control does.
   function handleStartFresh() {
+    const message =
+      "This takes you back to setup. It doesn't erase anything by itself — " +
+      'but finishing (or skipping) that flow replaces the goals for whichever ' +
+      'year you land on there, empty if you skip. Other years are not affected.';
     if (Platform.OS === 'web') {
       // Alert.alert is a no-op on web — use the browser's built-in confirm dialog
-      if ((window as any).confirm(
-        'Start Fresh? This will clear your onboarding flag and take you back to setup.'
-      )) {
+      if ((window as any).confirm(`Start Fresh?\n\n${message}`)) {
         resetOnboarding();
         router.replace('/onboarding');
       }
@@ -154,7 +165,7 @@ export default function SettingsScreen() {
     }
     Alert.alert(
       'Start Fresh?',
-      'This will clear your onboarding flag and take you back to setup. Your existing goals will remain unless you re-complete onboarding with new ones.',
+      message,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -185,7 +196,14 @@ export default function SettingsScreen() {
               const tp = THEMES[key].palette;
               const isActive = currentTheme === key;
               return (
-                <TouchableOpacity key={key} onPress={() => setCurrent(key)} activeOpacity={0.75}>
+                <TouchableOpacity
+                  key={key}
+                  onPress={() => setCurrent(key)}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${THEMES[key].label} theme`}
+                  accessibilityState={{ selected: isActive }}
+                >
                   <View
                     style={[
                       styles.miniSwatch,
@@ -201,7 +219,12 @@ export default function SettingsScreen() {
             <Text style={[styles.themeName, { color: p.text }]}>{THEMES[currentTheme].label}</Text>
             <Text style={[styles.themeMode, { color: p.muted }]}>{p.isDark ? 'Dark' : 'Light'}</Text>
           </View>
-          <TouchableOpacity onPress={cycleNext} activeOpacity={0.75}>
+          <TouchableOpacity
+            onPress={cycleNext}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel="Next theme"
+          >
             <Text style={[styles.nextBtn, { color: p.accent }]}>Next →</Text>
           </TouchableOpacity>
         </View>
@@ -211,6 +234,8 @@ export default function SettingsScreen() {
           style={[styles.settingsRow, { backgroundColor: p.surface }]}
           onPress={() => setShowNotifications(true)}
           activeOpacity={0.75}
+          accessibilityRole="button"
+          accessibilityLabel="Notifications"
         >
           <Text style={[styles.settingsRowText, { color: p.text }]}>Notifications</Text>
           <Ionicons name="chevron-forward" size={14} color={p.muted} />
@@ -221,6 +246,8 @@ export default function SettingsScreen() {
           style={[styles.settingsRow, { backgroundColor: p.surface }]}
           onPress={() => router.navigate('/how-to-use')}
           activeOpacity={0.75}
+          accessibilityRole="button"
+          accessibilityLabel="How to Use"
         >
           <Text style={[styles.settingsRowText, { color: p.text }]}>How to Use</Text>
           <Ionicons name="chevron-forward" size={14} color={p.muted} />
@@ -241,6 +268,8 @@ export default function SettingsScreen() {
           style={[styles.settingsRow, { backgroundColor: p.surface }]}
           onPress={handleExport}
           activeOpacity={0.75}
+          accessibilityRole="button"
+          accessibilityLabel="Export Backup"
         >
           <Text style={[styles.settingsRowText, { color: p.text }]}>Export Backup</Text>
           <Ionicons name="share-outline" size={16} color={p.muted} />
@@ -249,6 +278,8 @@ export default function SettingsScreen() {
           style={[styles.settingsRow, { backgroundColor: p.surface }]}
           onPress={handleImport}
           activeOpacity={0.75}
+          accessibilityRole="button"
+          accessibilityLabel="Import Backup"
         >
           <Text style={[styles.settingsRowText, { color: p.text }]}>Import Backup</Text>
           <Ionicons name="download-outline" size={16} color={p.muted} />
@@ -263,6 +294,8 @@ export default function SettingsScreen() {
           style={[styles.settingsRow, { backgroundColor: p.surface }]}
           onPress={handleStartFresh}
           activeOpacity={0.75}
+          accessibilityRole="button"
+          accessibilityLabel="Start Fresh — takes you back to setup; finishing or skipping it replaces that year's goals"
         >
           <Text style={[styles.settingsRowText, { color: '#c0392b' }]}>Start Fresh</Text>
           <Ionicons name="refresh-outline" size={16} color="#c0392b" />

@@ -792,6 +792,16 @@ export default function GoalCanvasScreen() {
         onDeleteItem={(mid) => { deleteMeasurableInPlace(mid); setOpenMeasurable(null); closeActiveSchedule(); }}
         onAddMeasurable={(m) => addMeasurable(m, goal.id)}
         onDismiss={() => { setOpenMeasurable(null); closeActiveSchedule(); }}
+        // Neither of these was actually wired before — CommitmentTypeRow's
+        // own "Ask coach" button (onAskCoach) silently did nothing since
+        // this prop was never passed, and TrackingPrompt's "Not sure? Ask
+        // the coach" (onAskCoachSeed) is new. Both reuse the exact same
+        // coach sheet DecompCard's own hand-off already opens above.
+        onAskCoach={(m) => {
+          setCoachSeed(`Help me figure out how to track "${m.label}" for the goal "${goal.title}".`);
+          setCoachOpen(true);
+        }}
+        onAskCoachSeed={(seed) => { setCoachSeed(seed); setCoachOpen(true); }}
         onOpenSchedule={(m) => setScheduleForItem(m)}
         onOpenCommitmentSchedule={(m, step) => setScheduleForCommitment({ item: m, step })}
         scheduleStep={activeScheduleStep}

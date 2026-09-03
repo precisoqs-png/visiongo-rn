@@ -110,6 +110,8 @@ function GoalCard({ goal, palette, onPress }: { goal: Goal; palette: Palette; on
       ]}
       onPress={onPress}
       activeOpacity={0.75}
+      accessibilityRole="button"
+      accessibilityLabel={done ? `${goal.title}, done` : `${goal.title}, ${pct}% complete`}
     >
       {/* Color fill bar at top */}
       <View
@@ -126,7 +128,13 @@ function GoalCard({ goal, palette, onPress }: { goal: Goal; palette: Palette; on
         {done ? (
           <Ionicons name="checkmark-circle" size={18} color={palette.accent} style={{ marginBottom: 4 }} />
         ) : (
-          <Text style={[styles.cardPct, { color: noteColor }]}>{pct}%</Text>
+          // Was `color: noteColor` — a pastel GOAL_NOTE_COLORS tone directly
+          // on this card's own pale noteColor-tinted background, which fails
+          // WCAG AA (4.5:1) in every theme, not just Warm Paper. palette.text
+          // is the same color already relied on for body text against this
+          // app's bg/surface tones in every theme, so it's a safe swap
+          // rather than a new, unverified color.
+          <Text style={[styles.cardPct, { color: palette.text }]}>{pct}%</Text>
         )}
         <Text style={[styles.cardTitle, { color: palette.text }]} numberOfLines={3}>
           {goal.title}

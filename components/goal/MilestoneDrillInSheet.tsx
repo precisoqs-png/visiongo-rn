@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Commitment, Measurable, Goal, Cadence, StepSchedule } from '../../store/models';
 import { Palette } from '../../theme/themes';
 import { MeasurableCard } from './MeasurableCard';
-import { AddMeasurableForm } from './AddMeasurableForm';
+import { TrackingPrompt } from './TrackingPrompt';
 import { StepScheduleContent, ReminderTarget } from './StepScheduleSheet';
 
 interface Props {
@@ -28,6 +28,11 @@ interface Props {
   onOpenSchedule: (m: Measurable) => void;
   onOpenCommitmentSchedule: (m: Measurable, step: Commitment) => void;
   onAskCoach?: (m: Measurable) => void;
+  // TrackingPrompt's own "Not sure? Ask the coach" — no Measurable exists
+  // yet at that point, so this takes a plain seed string instead, same
+  // shape DecompCard's own coach hand-off already uses (reusing that same
+  // coach sheet, not a second one).
+  onAskCoachSeed?: (seed: string) => void;
   // The reminder target currently being edited (an item's own schedule, or
   // one Commitment's), or null when no schedule editor is open. Rendered
   // INLINE as an overlay within this same, already-open Modal — never as a
@@ -57,12 +62,22 @@ interface Props {
 export function MilestoneDrillInSheet({
   milestone, goal, goalTargetDate, palette: p, noteColor,
   onUpdateItem, onDeleteItem, onAddMeasurable, onDismiss,
-  onOpenSchedule, onOpenCommitmentSchedule, onAskCoach,
+  onOpenSchedule, onOpenCommitmentSchedule, onAskCoach, onAskCoachSeed,
   scheduleStep, onSaveSchedule, onTurnOffSchedule, onCloseSchedule,
 }: Props) {
   const children = milestone
     ? goal.items.filter((it) => it.parentId === milestone.id)
     : [];
+  // Templates constantly produce exactly this shape (see mkNumber in
+  // goalTemplates.ts): a Milestone and its one child Measurable sharing a
+  // label, e.g. "Books finished" / "Books finished". Showing both as
+  // separate rows reads as a duplicate or a bug, not as "here's the
+  // milestone, and here's its number" — when there's exactly one piece of
+  // tracking and its name matches the milestone's, render the milestone
+  // once, with that tracking's own controls (steppers, commitment row,
+  // whatever it is) standing in for it, instead of a read-only checkbox
+  // row on top of a second identically-labelled card underneath.
+  const collapsed = !!milestone && children.length === 1 && children[0].label === milestone.label;
   // Resets whenever a different milestone is opened (or the sheet closes),
   // rather than staying open across milestones.
   const [addingTracking, setAddingTracking] = useState(false);
@@ -108,61 +123,95 @@ export function MilestoneDrillInSheet({
               sheet always sizes to whichever is actually showing. */}
           {milestone && (
             <ScrollView style={[{ maxHeight: 520 }, scheduleStep ? styles.hidden : undefined]}>
-              <MeasurableCard
-                measurable={milestone}
-                goal={goal}
-                goalTargetDate={goalTargetDate}
-                palette={p}
-                noteColor={noteColor}
-                onUpdate={onUpdateItem}
-                onDelete={(mid) => { onDeleteItem(mid); onDismiss(); }}
-                onOpenSchedule={onOpenSchedule}
-                onOpenCommitmentSchedule={onOpenCommitmentSchedule}
-                onAskCoach={onAskCoach}
-              />
-
-              {children.length > 0 && (
-                <Text style={[styles.eyebrow, { color: p.muted }]}>TRACKING</Text>
-              )}
-              {children.map((child) => (
+              {collapsed ? (
+                // The single child's own row stands in for the milestone —
+                // deleting it removes the whole milestone (cascade), not
+                // just the tracking, since visually there's nothing left
+                // to distinguish between the two.
                 <MeasurableCard
-                  key={child.id}
-                  measurable={child}
+                  measurable={children[0]}
                   goal={goal}
                   goalTargetDate={goalTargetDate}
                   palette={p}
                   noteColor={noteColor}
                   onUpdate={onUpdateItem}
-                  onDelete={onDeleteItem}
+                  onDelete={() => { onDeleteItem(milestone.id); onDismiss(); }}
                   onOpenSchedule={onOpenSchedule}
                   onOpenCommitmentSchedule={onOpenCommitmentSchedule}
                   onAskCoach={onAskCoach}
                 />
-              ))}
+              ) : (
+                <>
+                  <MeasurableCard
+                    measurable={milestone}
+                    goal={goal}
+                    goalTargetDate={goalTargetDate}
+                    palette={p}
+                    noteColor={noteColor}
+                    onUpdate={onUpdateItem}
+                    onDelete={(mid) => { onDeleteItem(mid); onDismiss(); }}
+                    onOpenSchedule={onOpenSchedule}
+                    onOpenCommitmentSchedule={onOpenCommitmentSchedule}
+                    onAskCoach={onAskCoach}
+                  />
 
-              {children.length === 0 && !addingTracking && (
-                <Text style={[styles.emptyHint, { color: p.muted }]}>
-                  Nothing tracked yet — add how you'll measure this below, or ask the Coach.
-                </Text>
+                  {children.length > 0 && (
+                    <Text style={[styles.eyebrow, { color: p.muted }]}>TRACKING</Text>
+                  )}
+                  {children.map((child) => (
+                    <MeasurableCard
+                      key={child.id}
+                      measurable={child}
+                      goal={goal}
+                      goalTargetDate={goalTargetDate}
+                      palette={p}
+                      noteColor={noteColor}
+                      onUpdate={onUpdateItem}
+                      onDelete={onDeleteItem}
+                      onOpenSchedule={onOpenSchedule}
+                      onOpenCommitmentSchedule={onOpenCommitmentSchedule}
+                      onAskCoach={onAskCoach}
+                    />
+                  ))}
+                </>
               )}
 
-              {addingTracking ? (
-                <AddMeasurableForm
+              {/* Nothing to configure yet — the one-field prompt IS the
+                  empty state, not a form gated behind an extra tap. Once
+                  there's at least one piece of tracking (including the
+                  collapsed case above), adding a second one is a clearly
+                  labelled, explicit action instead of a form sitting open
+                  by default looking mandatory. */}
+              {children.length === 0 ? (
+                <TrackingPrompt
                   palette={p}
                   goalTargetDate={goalTargetDate}
-                  milestoneId={milestone!.id}
+                  milestoneId={milestone.id}
+                  milestoneLabel={milestone.label}
+                  goalTitle={goal.title}
+                  onAdd={onAddMeasurable}
+                  onAskCoach={(seed) => onAskCoachSeed?.(seed)}
+                />
+              ) : addingTracking ? (
+                <TrackingPrompt
+                  palette={p}
+                  goalTargetDate={goalTargetDate}
+                  milestoneId={milestone.id}
+                  milestoneLabel={milestone.label}
+                  goalTitle={goal.title}
                   onAdd={(m) => { onAddMeasurable(m); setAddingTracking(false); }}
+                  onAskCoach={(seed) => onAskCoachSeed?.(seed)}
                 />
               ) : (
                 <TouchableOpacity
                   style={[styles.addTrackingBtn, { borderColor: p.line }]}
                   onPress={() => setAddingTracking(true)}
                   accessibilityRole="button"
-                  accessibilityLabel="Add tracking to this milestone"
+                  accessibilityLabel="Add another way to track this milestone"
                 >
                   <Ionicons name="add" size={16} color={p.text} />
                   <Text style={[styles.addTrackingText, { color: p.text }]}>
-                    {children.length === 0 ? 'Add tracking' : 'Add another'}
+                    Add another way to track this
                   </Text>
                 </TouchableOpacity>
               )}
