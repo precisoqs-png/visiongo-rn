@@ -90,3 +90,14 @@ is being looked at.
   not a privacy-relevant secret — it doesn't identify a user — but is
   extractable from the client bundle by design; noted here only for
   completeness, not because it needs privacy-policy language.
+- `EXPO_PUBLIC_COACH_API_URL` is set on the Expo dashboard with its
+  visibility marked "Secret." That label is misleading: every
+  `EXPO_PUBLIC_*` variable is inlined into the app bundle in plain text at
+  build time regardless of its dashboard visibility setting, so marking it
+  "Secret" doesn't add any actual protection — anyone who unpacks the IPA
+  can read the value. This is a known, accepted state, not an oversight:
+  Expo doesn't allow a Secret-visibility variable to be edited, only
+  deleted and recreated, and the current value can't be read back first —
+  so relabeling it risks breaking a working coach configuration for a
+  purely cosmetic fix. Documented here so this doesn't get "corrected"
+  later by someone who hasn't seen this trade-off spelled out.

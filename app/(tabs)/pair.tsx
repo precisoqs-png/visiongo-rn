@@ -140,10 +140,10 @@ export default function PairScreen() {
               <Text style={[styles.resultTitle, { color: p.text }]}>How they align</Text>
             </View>
             {resultIsStub && (
-              <View style={styles.stubBanner}>
-                <Ionicons name="alert-circle-outline" size={12} color={p.muted} />
+              <View style={[styles.stubBanner, { backgroundColor: `${p.muted}22`, borderColor: `${p.muted}44` }]}>
+                <Ionicons name="alert-circle-outline" size={13} color={p.muted} />
                 <Text style={[styles.stubBannerText, { color: p.muted }]}>
-                  Coach unavailable — showing a basic reading
+                  Coach is offline — this is a generic reading, not a real answer
                 </Text>
               </View>
             )}
@@ -228,7 +228,13 @@ const styles = StyleSheet.create({
   resultCard: { borderRadius: 14, padding: 16, marginHorizontal: 18 },
   resultHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   resultTitle: { fontSize: 14, fontWeight: '600' },
-  stubBanner: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 8 },
+  // Padding + radius + border give the tint an actual visible chip shape —
+  // see CoachChat.tsx's matching style for why this isn't just decorative.
+  stubBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 8,
+    alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4,
+    borderRadius: 8, borderWidth: 1,
+  },
   stubBannerText: { fontSize: 11, fontWeight: '500' },
   resultText: { fontSize: 15, lineHeight: 22 },
   goalDot: { width: 10, height: 10, borderRadius: 5 },

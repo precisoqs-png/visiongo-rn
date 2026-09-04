@@ -260,12 +260,18 @@ export function CoachChat({
         incrementCoachUsage();
       }
     } catch (err) {
+      // A client-side timeout (CLIENT_TIMEOUT_MS in coachService.ts) is NOT
+      // handled here — it's caught inside ProxyCoachService.send's own
+      // try/catch around fetch() and converted into a labeled stub reply
+      // before it ever reaches this component, the same as a plain network
+      // failure. An AbortError can never actually reach this catch block;
+      // there used to be a branch here for one, which could never fire and
+      // only implied a "took too long" message existed that a user would
+      // never actually see.
       if (err instanceof CoachConfigError) {
         setError('Coach isn’t set up for this build yet. Nothing was sent — try again later.');
       } else if (err instanceof Error && (err as { isRateLimit?: boolean }).isRateLimit) {
         setError(err.message);
-      } else if (err instanceof Error && err.name === 'AbortError') {
-        setError('That took too long. Try again.');
       } else {
         setError('Coach is unavailable right now. Try again.');
       }
@@ -319,10 +325,10 @@ export function CoachChat({
         return (
           <View key={msg.id}>
             {isStub && (
-              <View style={[styles.stubBanner, { backgroundColor: `${p.muted}22` }]}>
-                <Ionicons name="alert-circle-outline" size={12} color={p.muted} />
+              <View style={[styles.stubBanner, { backgroundColor: `${p.muted}22`, borderColor: `${p.muted}44` }]}>
+                <Ionicons name="alert-circle-outline" size={13} color={p.muted} />
                 <Text style={[styles.stubBannerText, { color: p.muted }]}>
-                  Coach unavailable — showing a basic plan
+                  Coach is offline — this is a generic plan, not real coaching advice
                 </Text>
               </View>
             )}
@@ -511,9 +517,15 @@ const styles = StyleSheet.create({
   },
   coachBubble: { alignSelf: 'flex-start' },
   userBubble: { alignSelf: 'flex-end' },
+  // The background/border tint only reads as a real chip with enough
+  // padding + a visible radius — previously just an icon and small muted
+  // text with a nearly-invisible sliver of tint behind them, which was
+  // "different in wording" more than "visually distinct" as intended.
   stubBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
-    alignSelf: 'flex-start', marginBottom: 4, paddingHorizontal: 2,
+    alignSelf: 'flex-start', marginBottom: 4,
+    paddingHorizontal: 8, paddingVertical: 4,
+    borderRadius: 8, borderWidth: 1,
   },
   stubBannerText: { fontSize: 11, fontWeight: '500' },
   bubbleText: { fontSize: 14, lineHeight: 20 },
