@@ -8,6 +8,7 @@ import { useFonts } from 'expo-font';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
 import { useAppStore } from '../store/useAppStore';
+import { hasNotificationPermission } from '../services/notificationService';
 
 // Keep the native splash visible until persisted data has rehydrated, so the
 // first frame the user sees is their real board (not a flash of defaults).
@@ -41,6 +42,25 @@ export default function RootLayout() {
   useEffect(() => {
     if (ready) SplashScreen.hideAsync().catch(() => {});
   }, [ready]);
+
+  // notificationsMasterOn defaults to true and nothing ever asks iOS for
+  // permission on its own — a fresh install would otherwise show reminders
+  // as "on" while every schedule call silently no-ops. Reconcile the flag
+  // against the real OS permission once data is loaded, without prompting
+  // (that's still only triggered by the user turning a reminder on).
+  useEffect(() => {
+    if (!hydrated) return;
+    let cancelled = false;
+    (async () => {
+      const granted = await hasNotificationPermission();
+      if (cancelled) return;
+      const { notificationsMasterOn, setNotificationsMaster } = useAppStore.getState();
+      if (notificationsMasterOn && !granted) {
+        setNotificationsMaster(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [hydrated]);
 
   return (
     <GestureHandlerRootView style={styles.root}>

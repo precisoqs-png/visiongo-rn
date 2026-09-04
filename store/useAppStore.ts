@@ -17,6 +17,11 @@ import { GOAL_NOTE_COLORS as COLORS } from '../theme/themes';
 
 export const COACH_DAILY_LIMIT = 20;
 
+// AsyncStorage key for the one-shot snapshot importBackup takes before it
+// overwrites state, so an import gone wrong (or one the user regrets) is
+// recoverable via restorePreImportSnapshot.
+const PRE_IMPORT_SNAPSHOT_KEY = 'visiongo-pre-import-snapshot';
+
 // Bumped whenever the persisted shape changes — see migrateState below.
 // v3: Goal.minorGoals -> Goal.milestones, and the matching CoachAction kind/
 // field renames (addMinorGoal -> addMilestone, minorGoalId -> milestoneId,
@@ -81,6 +86,12 @@ interface AppState {
   // Daily coach usage — { date: 'YYYY-MM-DD', count: number }
   coachUsage: { date: string; count: number };
 
+  // ISO timestamp of the last time the user was shown the "back up your
+  // data" nudge, or null if never — drives BackupPrompt's onboarding +
+  // periodic reminder without re-showing it every launch.
+  lastBackupPromptAt: string | null;
+  setLastBackupPromptAt: (iso: string) => void;
+
   selectYear: (year: number) => void;
   currentYearData: () => YearData | undefined;
   setMotto: (motto: string) => void;
@@ -138,6 +149,9 @@ interface AppState {
   // Runs the incoming years through the same normalizeYears backfilling as
   // any other persisted blob before swapping it in.
   importBackup: (data: { years: YearData[]; selectedYear?: number; hasCompletedOnboarding?: boolean }) => void;
+  // Restores the state importBackup last overwrote, if a snapshot is still
+  // stored. Returns false if there's nothing to restore.
+  restorePreImportSnapshot: () => Promise<boolean>;
 
   setBoardLayout: (l: BoardLayout) => void;
   setBoardViewMode: (m: BoardViewMode) => void;
@@ -203,6 +217,7 @@ export const useAppStore = create<AppState>()(
       boardLayout: 'radial',
       boardViewMode: 'wholeYear',
       coachUsage: { date: '', count: 0 },
+      lastBackupPromptAt: null,
 
       currentYearData: () => get().years.find((y) => y.year === get().selectedYear),
 
@@ -680,7 +695,21 @@ export const useAppStore = create<AppState>()(
 
       importBackup: (data) => {
         const years = normalizeYears(data.years as LegacyState['years']);
-        set((s) => ({
+        const s = get();
+        // Snapshot what's about to be overwritten so a bad import (or one
+        // the user regrets) is recoverable via restorePreImportSnapshot,
+        // rather than gone the instant this set() below commits.
+        AsyncStorage.setItem(
+          PRE_IMPORT_SNAPSHOT_KEY,
+          JSON.stringify({
+            years: s.years,
+            selectedYear: s.selectedYear,
+            hasCompletedOnboarding: s.hasCompletedOnboarding,
+            savedAt: new Date().toISOString(),
+          }),
+        ).catch((e) => console.warn('[VisionGo] Failed to snapshot pre-import state:', e));
+
+        set(() => ({
           years,
           selectedYear:
             data.selectedYear ?? (years.find((y) => y.year === s.selectedYear) ? s.selectedYear : years[0]?.year ?? s.selectedYear),
@@ -689,6 +718,22 @@ export const useAppStore = create<AppState>()(
             : {}),
         }));
       },
+
+      restorePreImportSnapshot: async () => {
+        const raw = await AsyncStorage.getItem(PRE_IMPORT_SNAPSHOT_KEY);
+        if (!raw) return false;
+        try {
+          const snap = JSON.parse(raw) as { years: YearData[]; selectedYear: number; hasCompletedOnboarding: boolean };
+          set({ years: snap.years, selectedYear: snap.selectedYear, hasCompletedOnboarding: snap.hasCompletedOnboarding });
+          await AsyncStorage.removeItem(PRE_IMPORT_SNAPSHOT_KEY);
+          return true;
+        } catch (e) {
+          console.warn('[VisionGo] Failed to restore pre-import snapshot:', e);
+          return false;
+        }
+      },
+
+      setLastBackupPromptAt: (iso) => set({ lastBackupPromptAt: iso }),
 
       setBoardLayout: (l) => set({ boardLayout: l }),
       setBoardViewMode: (m) => set({ boardViewMode: m }),
@@ -942,19 +987,38 @@ export { normalizeYears } from './migration';
 
 type LegacyState = Omit<AppState, 'years'> & { years?: LegacyYears };
 
+// normalizeYears is not wrapped internally, so a shape it doesn't expect
+// (corrupt storage, a hand-edited blob, a future format this build predates)
+// throws here uncaught. Before this guard, that exception propagated out of
+// persist.rehydrate() — _layout.tsx's 3s fallback would then force-mount the
+// app with empty default state, and the next write would persist that
+// emptiness over the user's real (if oddly-shaped) data. Falling back to the
+// raw persisted state instead means the year list may render nothing new
+// until the real bug is fixed, but the underlying data itself is preserved.
 function migrateState(persisted: unknown, _version: number): AppState {
   const state = persisted as LegacyState;
   if (!state?.years) return state as AppState;
   backupBeforeV6Invert(state);
-  return { ...state, years: normalizeYears(state.years) } as AppState;
+  try {
+    return { ...state, years: normalizeYears(state.years) } as AppState;
+  } catch (e) {
+    console.warn('[VisionGo] migrateState: normalizeYears threw, keeping raw persisted state:', e);
+    return state as AppState;
+  }
 }
 
 // zustand only calls `migrate` when the stored blob carries a numeric version,
 // so anything written without one would slip through unmigrated and crash on
-// `goal.pendingActions`. Normalizing here as well closes that gap.
+// `goal.pendingActions`. Normalizing here as well closes that gap. See
+// migrateState's comment above for why this is also wrapped.
 function mergeState(persisted: unknown, current: AppState): AppState {
   const state = persisted as LegacyState;
   if (!state?.years) return { ...current, ...(state as object) } as AppState;
   backupBeforeV6Invert(state);
-  return { ...current, ...state, years: normalizeYears(state.years) } as AppState;
+  try {
+    return { ...current, ...state, years: normalizeYears(state.years) } as AppState;
+  } catch (e) {
+    console.warn('[VisionGo] mergeState: normalizeYears threw, keeping raw persisted state:', e);
+    return { ...current, ...state } as AppState;
+  }
 }
