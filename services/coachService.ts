@@ -895,11 +895,26 @@ export class ProxyCoachService implements CoachService {
     // server, or a Vercel-hosted web build) but is not a valid fetch target
     // on native — there is no "origin" to resolve it against, and the
     // request would either throw or (worse) silently hit nothing. Treat a
-    // missing base URL on native as a loud configuration error, not a
-    // reason to fall back to the stub.
-    if (!base && Platform.OS !== 'web') {
+    // missing OR malformed base URL on native as a loud configuration
+    // error, not a reason to fall back to the stub.
+    //
+    // Checking more than truthiness matters here: an EAS environment
+    // variable with "Secret" visibility is withheld from the JS bundling
+    // step entirely (per Expo's own docs — secret-visibility values "can't
+    // be pulled locally... or to bundle your app's JavaScript code"), so
+    // depending on exactly how the bundler's env-var inlining handles a
+    // variable it can't read, a misconfigured-as-Secret var can end up as
+    // something other than a clean empty string — e.g. the literal text
+    // "undefined" — which `!base` alone would treat as configured. That
+    // would build a nonsense fetch target (e.g. "undefined/api/coach"),
+    // reach the network call below, and only fail once CLIENT_TIMEOUT_MS
+    // elapses — the exact "hangs ~25s then fails" symptom this guard
+    // exists to prevent. A real deployed API URL is always absolute
+    // (http/https); anything else is unconfigured, not just an empty one.
+    const looksConfigured = /^https?:\/\//.test(base);
+    if (!looksConfigured && Platform.OS !== 'web') {
       throw new CoachConfigError(
-        'Coach isn’t configured for this build (EXPO_PUBLIC_COACH_API_URL is unset). ' +
+        `Coach isn’t configured for this build (EXPO_PUBLIC_COACH_API_URL is ${base ? 'set to an invalid value' : 'unset'}). ` +
         'This is a build/deploy issue, not a temporary outage.',
       );
     }
