@@ -464,6 +464,28 @@ export default function GoalCanvasScreen() {
     setScheduleForCommitment(null);
   };
 
+  // A coach hand-off triggered from INSIDE the drill-in sheet (its own
+  // "Ask coach" button, or TrackingPrompt's "Not sure? Ask the coach")
+  // must close that sheet first, then defer opening the coach Modal to the
+  // next macrotask — same fix as TemplatePicker's navigateAfterDismiss and
+  // onboarding.tsx's navigateToBoard for the identical root cause: an RN
+  // Modal (react-native-web included) only actually unmounts once its exit
+  // animation completes, so setting coachOpen true in the SAME tick as
+  // setOpenMeasurable(null) leaves both Modals simultaneously "visible" for
+  // at least one frame. Two RN Modals visible at once is exactly the freeze
+  // MilestoneDrillInSheet's own comment on scheduleStep already documents
+  // (and PR #36 fixed once for the canvas itself) — this was the one place
+  // that guidance wasn't actually followed, since these two calls set
+  // coachOpen without ever touching openMeasurable at all.
+  const openCoachFromDrillIn = (seed: string) => {
+    setOpenMeasurable(null);
+    closeActiveSchedule();
+    setTimeout(() => {
+      setCoachSeed(seed);
+      setCoachOpen(true);
+    }, 0);
+  };
+
   if (!hydrated || !goal) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: p.bg }}>
@@ -796,12 +818,14 @@ export default function GoalCanvasScreen() {
         // own "Ask coach" button (onAskCoach) silently did nothing since
         // this prop was never passed, and TrackingPrompt's "Not sure? Ask
         // the coach" (onAskCoachSeed) is new. Both reuse the exact same
-        // coach sheet DecompCard's own hand-off already opens above.
-        onAskCoach={(m) => {
-          setCoachSeed(`Help me figure out how to track "${m.label}" for the goal "${goal.title}".`);
-          setCoachOpen(true);
-        }}
-        onAskCoachSeed={(seed) => { setCoachSeed(seed); setCoachOpen(true); }}
+        // coach sheet DecompCard's own hand-off already opens above — but
+        // routed through openCoachFromDrillIn, not a direct setCoachOpen,
+        // since this call site (unlike DecompCard's) fires while the
+        // drill-in's own Modal is still open. See that helper's comment.
+        onAskCoach={(m) => openCoachFromDrillIn(
+          `Help me figure out how to track "${m.label}" for the goal "${goal.title}".`,
+        )}
+        onAskCoachSeed={openCoachFromDrillIn}
         onOpenSchedule={(m) => setScheduleForItem(m)}
         onOpenCommitmentSchedule={(m, step) => setScheduleForCommitment({ item: m, step })}
         scheduleStep={activeScheduleStep}
