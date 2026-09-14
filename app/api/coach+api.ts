@@ -116,14 +116,29 @@ function upstashCreds(): { url: string; token: string } | null {
 }
 
 // INCRs `key` in Upstash and, on the first increment, sets it to expire in
-// 24h so daily counters reset without a scheduled job. Returns the new count,
-// or null if Upstash is unreachable/misconfigured/erroring — callers treat
-// null as "fail open" so a rate limiter outage never blocks the feature
-// entirely (that's a deliberate trade-off: worst case is some over-usage
-// during an outage, not the coach going down for everyone).
-async function incrWithDailyExpiry(key: string): Promise<number | null> {
+// 24h so daily counters reset without a scheduled job.
+//
+// Three distinct outcomes, not a flattened null — 'not-configured' (no
+// Upstash creds at all) and 'error' (creds present, but the call itself
+// failed/timed out/errored) used to both collapse into the same `null`,
+// which is exactly what let #33's fail-closed global ceiling take the
+// whole coach down on a deployment that had simply never set Upstash env
+// vars: checkServerLimit() had no way to tell "intentionally disabled" apart
+// from "broken and unverifiable," so it treated both as the latter.
+// 'not-configured' is a known, deliberate state — every caller below should
+// treat it as "nothing to enforce," the same fail-open behavior this always
+// had before #33. 'error' is the genuinely unverifiable case (a real Redis
+// outage, or a production deployment that IS supposed to have creds but
+// they're wrong) — callers that care about that distinction (only
+// checkServerLimit does) can still fail closed on it.
+type IncrResult =
+  | { status: 'ok'; count: number }
+  | { status: 'not-configured' }
+  | { status: 'error' };
+
+async function incrWithDailyExpiry(key: string): Promise<IncrResult> {
   const creds = upstashCreds();
-  if (!creds) return null;
+  if (!creds) return { status: 'not-configured' };
   const { url, token } = creds;
 
   try {
@@ -133,10 +148,10 @@ async function incrWithDailyExpiry(key: string): Promise<number | null> {
       UPSTASH_TIMEOUT_MS,
       `Upstash INCR ${key}`
     );
-    if (!incrRes.ok) return null;
+    if (!incrRes.ok) return { status: 'error' };
     const incrData = await incrRes.json();
     const count = typeof incrData?.result === 'number' ? incrData.result : Number(incrData?.result);
-    if (!Number.isFinite(count)) return null;
+    if (!Number.isFinite(count)) return { status: 'error' };
 
     if (count === 1) {
       await fetchWithTimeout(
@@ -146,9 +161,9 @@ async function incrWithDailyExpiry(key: string): Promise<number | null> {
         `Upstash EXPIRE ${key}`
       );
     }
-    return count;
+    return { status: 'ok', count };
   } catch {
-    return null;
+    return { status: 'error' };
   }
 }
 
@@ -157,17 +172,23 @@ function todayKey(): string {
 }
 
 // Belt-and-suspenders global ceiling — unlike the per-device/per-IP checks
-// below, this one fails CLOSED: if Redis is unreachable/misconfigured we
-// cannot prove the deployment is under its daily cost ceiling, so the
-// honest answer is "unavailable," not "allowed." The per-device/IP checks
-// stay fail-open by design (a Redis outage should degrade abuse protection,
-// not take the whole feature down for every user) — this is the one limit
-// that exists specifically to bound worst-case spend, so it doesn't get
-// that same trade-off.
+// below, this one fails CLOSED specifically on 'error' (Upstash is
+// configured but unreachable/broken): if Redis is supposed to be enforcing
+// this and we can't verify the count, the honest answer is "unavailable,"
+// not "allowed." 'not-configured' is different — no Upstash creds at all
+// means the ceiling was never wired up for this deployment, a deliberate
+// (if not ideal) state, not a Redis outage — that case allows, same as
+// every other check here already does. The per-device/IP checks stay
+// fail-open on BOTH 'not-configured' and 'error' by design (a Redis outage
+// should degrade abuse protection, not take the whole feature down for
+// every user) — this is the one limit that exists specifically to bound
+// worst-case spend, so only it gets the fail-closed treatment, and only
+// for the case that's actually unverifiable.
 async function checkServerLimit(): Promise<boolean | null> {
-  const count = await incrWithDailyExpiry(`coach-usage:${todayKey()}`);
-  if (count === null) return null;
-  return count <= SERVER_DAILY_LIMIT;
+  const result = await incrWithDailyExpiry(`coach-usage:${todayKey()}`);
+  if (result.status === 'not-configured') return true;
+  if (result.status === 'error') return null;
+  return result.count <= SERVER_DAILY_LIMIT;
 }
 
 // The real per-device enforcement. `deviceId` comes from the x-device-id
@@ -180,9 +201,9 @@ async function checkAndIncrementDeviceLimit(
 ): Promise<{ allowed: boolean; limit: number }> {
   const limit = DEVICE_DAILY_LIMITS[kind];
   const key = `device-usage:${kind}:${deviceId || 'no-device'}:${todayKey()}`;
-  const count = await incrWithDailyExpiry(key);
-  if (count === null) return { allowed: true, limit };
-  return { allowed: count <= limit, limit };
+  const result = await incrWithDailyExpiry(key);
+  if (result.status !== 'ok') return { allowed: true, limit };
+  return { allowed: result.count <= limit, limit };
 }
 
 // Backstop against device-id rotation: keyed by the caller's IP instead of
@@ -193,9 +214,9 @@ async function checkAndIncrementIpLimit(
 ): Promise<{ allowed: boolean; limit: number }> {
   const limit = IP_DAILY_LIMITS[kind];
   const key = `ip-usage:${kind}:${ip || 'no-ip'}:${todayKey()}`;
-  const count = await incrWithDailyExpiry(key);
-  if (count === null) return { allowed: true, limit };
-  return { allowed: count <= limit, limit };
+  const result = await incrWithDailyExpiry(key);
+  if (result.status !== 'ok') return { allowed: true, limit };
+  return { allowed: result.count <= limit, limit };
 }
 
 // Vercel (and most reverse proxies) put the real client IP in the first
