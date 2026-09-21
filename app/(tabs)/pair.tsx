@@ -21,6 +21,7 @@ export default function PairScreen() {
   const [secondId, setSecondId] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const [resultIsStub, setResultIsStub] = useState(false);
+  const [resultStubDiag, setResultStubDiag] = useState<{ reason?: string; url?: string }>({});
   const [loading, setLoading] = useState(false);
   const [pickerFor, setPickerFor] = useState<'first' | 'second' | null>(null);
 
@@ -32,6 +33,7 @@ export default function PairScreen() {
     if (!g1 || !g2) return;
     setResult(null);
     setResultIsStub(false);
+    setResultStubDiag({});
     setLoading(true);
     const prompt = `Two of my goals this year are:\n1. ${g1.title}\n2. ${g2.title}\n\nIn 2-3 encouraging sentences, describe how these two goals reinforce each other and help me become a better version of myself. If there's any potential tension between them, frame it as an exciting balance to manage — never discourage either goal.`;
     try {
@@ -46,6 +48,7 @@ export default function PairScreen() {
       const res = await coachService.send([{ role: 'user', text: prompt }], ctx);
       setResult(res.text);
       setResultIsStub(!!res.stub);
+      setResultStubDiag({ reason: res.stubReason, url: res.stubUrl });
     } catch (err) {
       setResult(
         err instanceof Error && (err as { isRateLimit?: boolean }).isRateLimit
@@ -147,6 +150,13 @@ export default function PairScreen() {
                 </Text>
               </View>
             )}
+            {resultIsStub && (resultStubDiag.reason || resultStubDiag.url) && (
+              // Diagnostic only — see CoachChat.tsx's matching line for why
+              // this stays visible unconditionally for now.
+              <Text style={[styles.stubDiagText, { color: p.muted }]}>
+                {[resultStubDiag.reason, resultStubDiag.url].filter(Boolean).join(' · ')}
+              </Text>
+            )}
             <Text style={[styles.resultText, { color: p.text }]}>{result}</Text>
           </View>
         )}
@@ -236,6 +246,7 @@ const styles = StyleSheet.create({
     borderRadius: 8, borderWidth: 1,
   },
   stubBannerText: { fontSize: 11, fontWeight: '500' },
+  stubDiagText: { fontSize: 10, marginBottom: 8, marginLeft: 2, opacity: 0.8 },
   resultText: { fontSize: 15, lineHeight: 22 },
   goalDot: { width: 10, height: 10, borderRadius: 5 },
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 40, paddingBottom: 60 },

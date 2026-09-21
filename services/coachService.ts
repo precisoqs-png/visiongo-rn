@@ -62,6 +62,16 @@ export interface CoachResponse {
   // the real AI — lets the UI say so honestly instead of presenting a
   // canned fallback as a genuine coach answer.
   stub?: boolean;
+  // WHY the stub fired and WHERE the request was actually sent — every
+  // ProxyCoachService failure path used to collapse into the same stub
+  // with no trace of which one it was, making a real deployment issue
+  // (wrong URL, dead server, malformed response) indistinguishable from
+  // "no network, offline by design" from the UI alone. Only ever set
+  // alongside stub: true; diagnostic only, not shown as part of the
+  // coach's own reply text. See ProxyCoachService.send's catch sites for
+  // exactly which string lands here.
+  stubReason?: string;
+  stubUrl?: string;
 }
 
 // ── Tool definitions ───────────────────────────────────────
@@ -823,8 +833,16 @@ function buildEffortStep(mg: Milestone, userReply: string): string {
 }
 
 export class StubCoachService implements CoachService {
+  // Set only by ProxyCoachService, which knows WHY it's falling back and to
+  // WHAT URL it was trying to talk — a direct `new StubCoachService()`
+  // (offline-by-design paths: GitHub Pages' permanent stub, or a caller
+  // with nothing to report) legitimately has neither, so both stay
+  // undefined rather than being required.
+  constructor(private diag?: { reason: string; url?: string }) {}
+
   async send(messages: CoachMessageRaw[], ctx: CoachGoalContext): Promise<CoachResponse> {
     await new Promise((r) => setTimeout(r, 750));
+    const diagFields = this.diag ? { stubReason: this.diag.reason, stubUrl: this.diag.url } : {};
 
     if (ctx.kind === 'pairing') {
       return {
@@ -835,6 +853,7 @@ export class StubCoachService implements CoachService {
           `that is the balance to manage, not a reason to drop one.`,
         actions: [],
         stub: true,
+        ...diagFields,
       };
     }
 
@@ -847,7 +866,7 @@ export class StubCoachService implements CoachService {
     const handoff = matchEffortHandoff(lastUserMsg, ctx);
     if (handoff) {
       const { displayText, actions } = parseSuggestions(buildEffortStep(handoff, lastUserMsg));
-      return { text: displayText, actions, stub: true };
+      return { text: displayText, actions, stub: true, ...diagFields };
     }
 
     let rawText: string;
@@ -864,7 +883,7 @@ export class StubCoachService implements CoachService {
     }
 
     const { displayText, actions } = parseSuggestions(rawText);
-    return { text: displayText, actions, stub: true };
+    return { text: displayText, actions, stub: true, ...diagFields };
   }
 }
 
@@ -931,8 +950,12 @@ export class ProxyCoachService implements CoachService {
         }),
         signal: controller.signal,
       });
-    } catch {
-      return new StubCoachService().send(messages, ctx);
+    } catch (err) {
+      // AbortError (CLIENT_TIMEOUT_MS elapsed) included — same catch as any
+      // other fetch failure, distinguished from the others by its own
+      // name/message once surfaced.
+      const reason = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      return new StubCoachService({ reason, url }).send(messages, ctx);
     } finally {
       clearTimeout(timer);
     }
@@ -969,7 +992,8 @@ export class ProxyCoachService implements CoachService {
     }
 
     if (!response.ok) {
-      return new StubCoachService().send(messages, ctx);
+      const reason = `HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`;
+      return new StubCoachService({ reason, url }).send(messages, ctx);
     }
 
     let data: any;
@@ -977,7 +1001,7 @@ export class ProxyCoachService implements CoachService {
       data = await response.json();
     } catch {
       // Malformed body (e.g. an HTML error page from a static host)
-      return new StubCoachService().send(messages, ctx);
+      return new StubCoachService({ reason: 'json parse failed', url }).send(messages, ctx);
     }
 
     const blocks: ToolUseBlock[] = Array.isArray(data.content) ? data.content : [];
@@ -993,7 +1017,7 @@ export class ProxyCoachService implements CoachService {
 
     // A refusal with no text and no tool calls means we got nothing usable.
     if (!rawText && toolActions.length === 0) {
-      return new StubCoachService().send(messages, ctx);
+      return new StubCoachService({ reason: 'empty response', url }).send(messages, ctx);
     }
 
     const { displayText, actions: textActions } = parseSuggestions(rawText);
