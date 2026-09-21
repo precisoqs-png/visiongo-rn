@@ -131,8 +131,11 @@ export function CoachChat({
   const [streamingId, setStreamingId] = useState<string | null>(null);
   // Set on any bubble that came back from the offline stub instead of the
   // real coach, so a network/config/parsing failure never reads as a
-  // genuine answer.
-  const [stubMessageIds, setStubMessageIds] = useState<Set<string>>(new Set());
+  // genuine answer. Keyed by message id, valued with WHY the stub fired
+  // and WHERE the request went (CoachResponse.stubReason/stubUrl) — plain
+  // diagnostic text, not part of the coach's own reply, so a screenshot of
+  // this screen is enough to tell what actually failed without guessing.
+  const [stubInfo, setStubInfo] = useState<Map<string, { reason?: string; url?: string }>>(new Map());
 
   const addChatMessage = useAppStore((s) => s.addChatMessage);
   const addPendingActions = useAppStore((s) => s.addPendingActions);
@@ -252,7 +255,7 @@ export function CoachChat({
         // A stub reply is not a failure the user needs to retry — it's a
         // usable (if generic) plan — but it must never be mistaken for a
         // real coach answer, so flag the bubble instead of the allowance.
-        setStubMessageIds((prev) => new Set(prev).add(msgId));
+        setStubInfo((prev) => new Map(prev).set(msgId, { reason: response.stubReason, url: response.stubUrl }));
       } else {
         // Only a confirmed real response counts against the daily
         // allowance — a failed, cancelled, misconfigured, or stubbed
@@ -319,7 +322,8 @@ export function CoachChat({
       {goal.chat.map((msg) => {
         const isUser = msg.sender === 'user';
         const isStreaming = msg.id === streamingId;
-        const isStub = stubMessageIds.has(msg.id);
+        const stubDiag = stubInfo.get(msg.id);
+        const isStub = !!stubDiag;
         const textColor = isUser ? p.surface : p.text;
 
         return (
@@ -331,6 +335,17 @@ export function CoachChat({
                   Coach is offline — this is a generic plan, not real coaching advice
                 </Text>
               </View>
+            )}
+            {isStub && (stubDiag!.reason || stubDiag!.url) && (
+              // Diagnostic only — not shown to a user as part of the coach's
+              // own answer, just small muted text so a screenshot of this
+              // screen says exactly what failed and where the request went,
+              // instead of every failure path looking identical. Leaving
+              // this visible unconditionally for now rather than behind a
+              // debug flag, per explicit instruction — revisit later.
+              <Text style={[styles.stubDiagText, { color: p.muted }]}>
+                {[stubDiag!.reason, stubDiag!.url].filter(Boolean).join(' · ')}
+              </Text>
             )}
             <View
               style={[
@@ -528,6 +543,7 @@ const styles = StyleSheet.create({
     borderRadius: 8, borderWidth: 1,
   },
   stubBannerText: { fontSize: 11, fontWeight: '500' },
+  stubDiagText: { fontSize: 10, marginBottom: 4, marginLeft: 2, opacity: 0.8 },
   bubbleText: { fontSize: 14, lineHeight: 20 },
   errorText: { fontSize: 13, marginBottom: 8 },
   limitBanner: {
