@@ -9,7 +9,7 @@ import { useRouter } from 'expo-router';
 import { useThemeStore } from '../../store/useThemeStore';
 import { useAppStore } from '../../store/useAppStore';
 import { GOAL_NOTE_COLORS, FONTS } from '../../theme/themes';
-import { coachService, CoachGoalContext } from '../../services/coachService';
+import { coachService, CoachConfigError, CoachGoalContext } from '../../services/coachService';
 
 export default function PairScreen() {
   const router = useRouter();
@@ -47,11 +47,17 @@ export default function PairScreen() {
       setResult(res.text);
       setResultIsStub(!!res.stub);
     } catch (err) {
-      setResult(
-        err instanceof Error && (err as { isRateLimit?: boolean }).isRateLimit
-          ? err.message
-          : 'Unable to get a reading right now. Try again!',
-      );
+      // Same three-way split CoachChat.tsx uses — this used to fall
+      // straight to the generic message below, so a build-misconfiguration
+      // (CoachConfigError) read identically to a plain transient failure
+      // here even though Coach Chat already called it out distinctly.
+      if (err instanceof CoachConfigError) {
+        setResult('Coach isn’t set up for this build yet. Nothing was sent — try again later.');
+      } else if (err instanceof Error && (err as { isRateLimit?: boolean }).isRateLimit) {
+        setResult(err.message);
+      } else {
+        setResult('Unable to get a reading right now. Try again!');
+      }
     } finally {
       setLoading(false);
     }
